@@ -28,6 +28,12 @@ async def update_me(data: UserUpdate, current_user: CurrentUser, db: DBSession):
     return current_user
 
 
+@router.get("/", response_model=list[UserRead])
+async def list_users(_: AdminUser, db: DBSession):
+    result = await db.execute(select(User).order_by(User.created_at.desc()))
+    return result.scalars().all()
+
+
 @router.get("/{user_id}", response_model=UserRead)
 async def get_user(user_id: uuid.UUID, _: AdminUser, db: DBSession):
     result = await db.execute(select(User).where(User.id == user_id))

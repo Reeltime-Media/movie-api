@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.routers import admin, auth, content, purchases, series, subscriptions, users, watch_progress, webhooks
+from app.routers import admin, auth, movies, payment_test, payments, purchases, series, subscriptions, users, watch_progress, webhooks
 
 settings = get_settings()
 
@@ -25,7 +25,9 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(series.router)
-app.include_router(content.router)
+app.include_router(movies.router)
+app.include_router(payments.router)
+app.include_router(payment_test.router)
 app.include_router(purchases.router)
 app.include_router(subscriptions.router)
 app.include_router(watch_progress.router)

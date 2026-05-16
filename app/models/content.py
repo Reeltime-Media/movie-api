@@ -3,10 +3,12 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import Boolean, Computed, DateTime, ForeignKey, Integer, Numeric, Text, func
-from sqlalchemy.dialects.postgresql import TSVECTOR, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, TSVECTOR, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
+
+_STATUS = {"draft", "review", "scheduled", "published"}
 
 
 class Content(Base):
@@ -26,13 +28,19 @@ class Content(Base):
     slug: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    genres: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list)
+    release_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rating: Mapped[Decimal | None] = mapped_column(Numeric(3, 1), nullable=True)
+    runtime: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     poster_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    trailer_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     hls_master_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     price_usd: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
-    transcode_status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
+    # 'draft' | 'review' | 'scheduled' | 'published'
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="draft")
     is_published: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    # Generated column — read-only from the application side
+    transcode_status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
     search_vector: Mapped[str | None] = mapped_column(
         TSVECTOR,
         Computed(

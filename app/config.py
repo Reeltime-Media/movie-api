@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     # App
     app_name: str = "Movies API"
@@ -25,8 +25,10 @@ class Settings(BaseSettings):
 
     # Baray Payment Gateway
     baray_api_key: str = ""
-    baray_webhook_secret: str = ""
+    baray_sk: str = ""
+    baray_iv: str = ""
     baray_base_url: str = "https://api.baray.io"
+    baray_checkout_base_url: str = "https://pay.baray.io"
 
 
 @lru_cache

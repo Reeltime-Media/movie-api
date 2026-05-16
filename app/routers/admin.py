@@ -1,15 +1,27 @@
+import asyncio
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 
 from app.core.exceptions import NotFoundError
 from app.dependencies import AdminUser, DBSession
+from app.models.content import Content
+from app.models.payment_intent import PaymentIntent
+from app.models.purchase import Purchase
+from app.models.series import Series
 from app.models.transcode_job import TranscodeJob
+from app.models.user import User
+from app.models.watch_progress import WatchProgress
+from app.schemas.content import ContentRead, ContentUpdate
+from app.schemas.series import SeriesRead
+from app.services import storage
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+_VALID_STATUSES = {"draft", "review", "scheduled", "published"}
 
 
 class TranscodeJobRead(BaseModel):
@@ -24,6 +36,356 @@ class TranscodeJobRead(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class MovieAssetUploadStart(BaseModel):
+    video_content_type: str | None = None
+    poster_content_type: str | None = None
+
+
+class MovieAssetUploadStartRead(BaseModel):
+    source_key: str | None = None
+    video_upload_url: str | None = None
+    poster_key: str | None = None
+    poster_upload_url: str | None = None
+
+
+class MovieAssetUploadComplete(BaseModel):
+    source_key: str | None = None
+    poster_key: str | None = None
+
+
+class DashboardUserSummary(BaseModel):
+    total: int
+    admins: int
+    active: int
+
+
+class DashboardContentSummary(BaseModel):
+    movies: int
+    series: int
+    published: int
+    drafts: int
+    review: int
+    scheduled: int
+
+
+class DashboardPaymentSummary(BaseModel):
+    total: int
+    succeeded: int
+    pending: int
+    failed: int
+    revenue_usd: Decimal
+
+
+class DashboardTranscodeSummary(BaseModel):
+    pending: int
+    processing: int
+    failed: int
+
+
+class DashboardSummaryRead(BaseModel):
+    users: DashboardUserSummary
+    content: DashboardContentSummary
+    payments: DashboardPaymentSummary
+    transcodes: DashboardTranscodeSummary
+
+
+class TopTitleReportRead(BaseModel):
+    id: uuid.UUID
+    title: str
+    type: str
+    status: str
+    revenue_usd: Decimal
+    purchase_count: int
+    watch_count: int
+    completion_count: int
+
+
+def _poster_extension(content_type: str) -> str:
+    return {
+        "image/jpeg": "jpg",
+        "image/jpg": "jpg",
+        "image/png": "png",
+        "image/webp": "webp",
+    }.get(content_type, "jpg")
+
+
+@router.get("/dashboard-summary", response_model=DashboardSummaryRead)
+async def get_dashboard_summary(db: DBSession, _: AdminUser):
+    user_counts = await db.execute(
+        select(
+            func.count(User.id).label("total"),
+            func.count(User.id).filter(User.role == "admin").label("admins"),
+            func.count(User.id).filter(User.is_active.is_(True)).label("active"),
+        )
+    )
+    users = user_counts.one()
+
+    content_counts = await db.execute(
+        select(
+            func.count(Content.id).filter(Content.type == "single").label("movies"),
+            func.count(Content.id).filter(Content.status == "published").label("published"),
+            func.count(Content.id).filter(Content.status == "draft").label("drafts"),
+            func.count(Content.id).filter(Content.status == "review").label("review"),
+            func.count(Content.id).filter(Content.status == "scheduled").label("scheduled"),
+            func.count(Content.id).filter(Content.transcode_status == "pending").label("pending"),
+            func.count(Content.id).filter(Content.transcode_status == "processing").label("processing"),
+            func.count(Content.id).filter(Content.transcode_status == "failed").label("failed"),
+        )
+    )
+    content = content_counts.one()
+
+    series_count = await db.scalar(select(func.count(Series.id)))
+
+    payment_counts = await db.execute(
+        select(
+            func.count(PaymentIntent.intent_id).label("total"),
+            func.count(PaymentIntent.intent_id).filter(PaymentIntent.status == "succeeded").label("succeeded"),
+            func.count(PaymentIntent.intent_id).filter(PaymentIntent.status == "pending").label("pending"),
+            func.count(PaymentIntent.intent_id).filter(PaymentIntent.status == "failed").label("failed"),
+            func.coalesce(
+                func.sum(PaymentIntent.amount_usd).filter(PaymentIntent.status == "succeeded"),
+                Decimal("0"),
+            ).label("revenue_usd"),
+        )
+    )
+    payments = payment_counts.one()
+
+    return DashboardSummaryRead(
+        users=DashboardUserSummary(
+            total=users.total,
+            admins=users.admins,
+            active=users.active,
+        ),
+        content=DashboardContentSummary(
+            movies=content.movies,
+            series=series_count or 0,
+            published=content.published,
+            drafts=content.drafts,
+            review=content.review,
+            scheduled=content.scheduled,
+        ),
+        payments=DashboardPaymentSummary(
+            total=payments.total,
+            succeeded=payments.succeeded,
+            pending=payments.pending,
+            failed=payments.failed,
+            revenue_usd=payments.revenue_usd,
+        ),
+        transcodes=DashboardTranscodeSummary(
+            pending=content.pending,
+            processing=content.processing,
+            failed=content.failed,
+        ),
+    )
+
+
+@router.get("/reports/top-titles", response_model=list[TopTitleReportRead])
+async def list_top_titles(db: DBSession, _: AdminUser):
+    purchase_stats = (
+        select(
+            Purchase.content_id.label("content_id"),
+            func.count(Purchase.id).label("purchase_count"),
+            func.coalesce(func.sum(Purchase.amount_usd), Decimal("0")).label("revenue_usd"),
+        )
+        .group_by(Purchase.content_id)
+        .subquery()
+    )
+    watch_stats = (
+        select(
+            WatchProgress.content_id.label("content_id"),
+            func.count(WatchProgress.user_id).label("watch_count"),
+            func.count(WatchProgress.user_id)
+            .filter(WatchProgress.completed.is_(True))
+            .label("completion_count"),
+        )
+        .group_by(WatchProgress.content_id)
+        .subquery()
+    )
+
+    result = await db.execute(
+        select(
+            Content.id,
+            Content.title,
+            Content.type,
+            Content.status,
+            func.coalesce(purchase_stats.c.revenue_usd, Decimal("0")).label("revenue_usd"),
+            func.coalesce(purchase_stats.c.purchase_count, 0).label("purchase_count"),
+            func.coalesce(watch_stats.c.watch_count, 0).label("watch_count"),
+            func.coalesce(watch_stats.c.completion_count, 0).label("completion_count"),
+        )
+        .outerjoin(purchase_stats, purchase_stats.c.content_id == Content.id)
+        .outerjoin(watch_stats, watch_stats.c.content_id == Content.id)
+        .order_by(
+            func.coalesce(purchase_stats.c.revenue_usd, Decimal("0")).desc(),
+            func.coalesce(purchase_stats.c.purchase_count, 0).desc(),
+            func.coalesce(watch_stats.c.watch_count, 0).desc(),
+            Content.created_at.desc(),
+        )
+        .limit(10)
+    )
+
+    return [
+        TopTitleReportRead(
+            id=row.id,
+            title=row.title,
+            type=row.type,
+            status=row.status,
+            revenue_usd=row.revenue_usd,
+            purchase_count=row.purchase_count,
+            watch_count=row.watch_count,
+            completion_count=row.completion_count,
+        )
+        for row in result
+    ]
+
+
+@router.get("/movies", response_model=list[ContentRead])
+async def list_admin_movies(db: DBSession, _: AdminUser):
+    result = await db.execute(
+        select(Content)
+        .where(Content.type == "single")
+        .order_by(Content.created_at.desc())
+    )
+    return result.scalars().all()
+
+
+@router.patch("/movies/{movie_id}", response_model=ContentRead)
+async def update_admin_movie(
+    movie_id: uuid.UUID,
+    data: ContentUpdate,
+    db: DBSession,
+    _: AdminUser,
+):
+    result = await db.execute(
+        select(Content).where(Content.id == movie_id, Content.type == "single")
+    )
+    movie = result.scalar_one_or_none()
+    if not movie:
+        raise NotFoundError("Movie not found")
+
+    updates = data.model_dump(exclude_unset=True)
+    if "status" in updates:
+        if updates["status"] not in _VALID_STATUSES:
+            raise HTTPException(status_code=422, detail=f"status must be one of {sorted(_VALID_STATUSES)}")
+        updates["is_published"] = updates["status"] == "published"
+
+    for field, value in updates.items():
+        setattr(movie, field, value)
+
+    await db.commit()
+    await db.refresh(movie)
+    return movie
+
+
+@router.post("/movies/{movie_id}/assets/start", response_model=MovieAssetUploadStartRead)
+async def start_admin_movie_asset_upload(
+    movie_id: uuid.UUID,
+    data: MovieAssetUploadStart,
+    db: DBSession,
+    _: AdminUser,
+):
+    result = await db.execute(
+        select(Content).where(Content.id == movie_id, Content.type == "single")
+    )
+    movie = result.scalar_one_or_none()
+    if not movie:
+        raise NotFoundError("Movie not found")
+
+    token = uuid.uuid4().hex[:8]
+    source_key: str | None = None
+    video_upload_url: str | None = None
+    poster_key: str | None = None
+    poster_upload_url: str | None = None
+
+    if data.video_content_type:
+        source_key = f"raw/{movie_id}-{token}.mp4"
+        video_upload_url = storage.generate_presigned_upload_url(
+            source_key,
+            data.video_content_type,
+        )
+
+    if data.poster_content_type:
+        poster_key = f"posters/{movie_id}-{token}.{_poster_extension(data.poster_content_type)}"
+        poster_upload_url = storage.generate_presigned_upload_url(
+            poster_key,
+            data.poster_content_type,
+        )
+
+    if not source_key and not poster_key:
+        raise HTTPException(status_code=422, detail="Choose a video or poster file to replace")
+
+    return MovieAssetUploadStartRead(
+        source_key=source_key,
+        video_upload_url=video_upload_url,
+        poster_key=poster_key,
+        poster_upload_url=poster_upload_url,
+    )
+
+
+@router.post("/movies/{movie_id}/assets/complete", response_model=ContentRead)
+async def complete_admin_movie_asset_upload(
+    movie_id: uuid.UUID,
+    data: MovieAssetUploadComplete,
+    db: DBSession,
+    _: AdminUser,
+):
+    result = await db.execute(
+        select(Content).where(Content.id == movie_id, Content.type == "single")
+    )
+    movie = result.scalar_one_or_none()
+    if not movie:
+        raise NotFoundError("Movie not found")
+
+    if data.source_key:
+        if not data.source_key.startswith(f"raw/{movie_id}-"):
+            raise HTTPException(status_code=422, detail="source_key does not match movie")
+        source_exists = await asyncio.get_event_loop().run_in_executor(
+            None,
+            storage.object_exists,
+            data.source_key,
+        )
+        if not source_exists:
+            raise HTTPException(status_code=409, detail="Video upload is not available in storage yet")
+
+        movie.transcode_status = "pending"
+        movie.hls_master_key = None
+        movie.duration_seconds = None
+        db.add(TranscodeJob(content_id=movie.id, source_key=data.source_key))
+
+    if data.poster_key:
+        if not data.poster_key.startswith(f"posters/{movie_id}-"):
+            raise HTTPException(status_code=422, detail="poster_key does not match movie")
+        poster_exists = await asyncio.get_event_loop().run_in_executor(
+            None,
+            storage.object_exists,
+            data.poster_key,
+        )
+        if not poster_exists:
+            raise HTTPException(status_code=409, detail="Poster upload is not available in storage yet")
+
+        movie.poster_key = data.poster_key
+
+    if not data.source_key and not data.poster_key:
+        raise HTTPException(status_code=422, detail="No uploaded assets provided")
+
+    await db.commit()
+    await db.refresh(movie)
+    return movie
+
+
+@router.delete("/movies/{movie_id}", status_code=204)
+async def delete_admin_movie(movie_id: uuid.UUID, db: DBSession, _: AdminUser):
+    result = await db.execute(
+        select(Content).where(Content.id == movie_id, Content.type == "single")
+    )
+    movie = result.scalar_one_or_none()
+    if not movie:
+        raise NotFoundError("Movie not found")
+    await db.execute(delete(TranscodeJob).where(TranscodeJob.content_id == movie_id))
+    await db.delete(movie)
+    await db.commit()
 
 
 @router.get("/transcode-jobs", response_model=list[TranscodeJobRead])
@@ -45,3 +407,31 @@ async def retry_transcode_job(job_id: uuid.UUID, db: DBSession, _: AdminUser):
     await db.commit()
     await db.refresh(job)
     return job
+
+
+class AdminPaymentRead(BaseModel):
+    intent_id: str
+    order_id: str
+    user_id: uuid.UUID
+    kind: str
+    content_id: uuid.UUID | None
+    amount_usd: Decimal
+    status: str
+    created_at: datetime
+    resolved_at: datetime | None
+
+    model_config = {"from_attributes": True}
+
+
+@router.get("/payments", response_model=list[AdminPaymentRead])
+async def list_admin_payments(db: DBSession, _: AdminUser):
+    result = await db.execute(
+        select(PaymentIntent).order_by(PaymentIntent.created_at.desc()).limit(100)
+    )
+    return result.scalars().all()
+
+
+@router.get("/series", response_model=list[SeriesRead])
+async def list_admin_series(db: DBSession, _: AdminUser):
+    result = await db.execute(select(Series).order_by(Series.created_at.desc()))
+    return result.scalars().all()

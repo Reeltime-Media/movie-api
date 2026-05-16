@@ -1,10 +1,11 @@
 import uuid
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
 from app.core.exceptions import ConflictError, NotFoundError
 from app.dependencies import CurrentUser, DBSession
+from app.models.payment_intent import PaymentIntent
 from app.models.purchase import Purchase
 from app.schemas.purchase import PurchaseCreate, PurchaseRead
 
@@ -35,6 +36,26 @@ async def get_purchase(purchase_id: uuid.UUID, db: DBSession, current_user: Curr
 
 @router.post("/", response_model=PurchaseRead, status_code=201)
 async def create_purchase(data: PurchaseCreate, db: DBSession, current_user: CurrentUser):
+    intent_result = await db.execute(
+        select(PaymentIntent).where(
+            PaymentIntent.intent_id == data.intent_id,
+            PaymentIntent.user_id == current_user.id,
+            PaymentIntent.kind == "single",
+            PaymentIntent.status == "succeeded",
+        )
+    )
+    intent = intent_result.scalar_one_or_none()
+    if (
+        not intent
+        or intent.content_id != data.content_id
+        or intent.order_id != data.order_id
+        or intent.amount_usd != data.amount_usd
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Purchase must match a succeeded payment intent",
+        )
+
     existing = await db.execute(
         select(Purchase).where(Purchase.intent_id == data.intent_id)
     )

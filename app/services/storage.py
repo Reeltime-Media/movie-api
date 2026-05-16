@@ -25,6 +25,15 @@ def _client():
     )
 
 
+def upload_fileobj(file_obj, key: str, content_type: str = "video/mp4") -> None:
+    _client().upload_fileobj(
+        file_obj,
+        settings.r2_bucket_name,
+        key,
+        ExtraArgs={"ContentType": content_type},
+    )
+
+
 def generate_presigned_upload_url(
     key: str,
     content_type: str = "video/mp4",
@@ -47,6 +56,14 @@ def generate_presigned_download_url(key: str, expires_in: int = 3600) -> str:
         Params={"Bucket": settings.r2_bucket_name, "Key": key},
         ExpiresIn=expires_in,
     )
+
+
+def object_exists(key: str) -> bool:
+    try:
+        _client().head_object(Bucket=settings.r2_bucket_name, Key=key)
+    except Exception:
+        return False
+    return True
 
 
 def delete_object(key: str) -> None:
