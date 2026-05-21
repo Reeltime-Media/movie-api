@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     baray_iv: str = ""
     baray_base_url: str = "https://api.baray.io"
     baray_checkout_base_url: str = "https://pay.baray.io"
+    # Public URL of this API — must be reachable by Baray to deliver webhooks
+    api_public_url: str = ""
 
 
 @lru_cache

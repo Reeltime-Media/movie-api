@@ -13,6 +13,8 @@ class SeriesUpdate(BaseModel):
     rating: Decimal | None = None
     monthly_price_usd: Decimal | None = None
     is_published: bool | None = None
+    trailer_url: str | None = None
+    poster_key: str | None = None  # set after uploading poster via /poster/start
 
 
 class SeriesRead(BaseModel):
@@ -24,6 +26,7 @@ class SeriesRead(BaseModel):
     release_year: int | None
     rating: Decimal | None
     poster_key: str | None
+    trailer_url: str | None
     monthly_price_usd: Decimal
     is_published: bool
     created_at: datetime

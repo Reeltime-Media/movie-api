@@ -20,7 +20,7 @@ target_metadata = Base.metadata
 
 # Override the sqlalchemy.url from the DATABASE_URL environment variable.
 # Alembic needs a sync URL; swap asyncpg driver to psycopg2 for offline mode.
-_db_url = os.environ.get("DATABASE_URL", "")
+_db_url = os.environ.get("DATABASE_URL", "").replace("%", "%%")
 config.set_main_option("sqlalchemy.url", _db_url)
 
 

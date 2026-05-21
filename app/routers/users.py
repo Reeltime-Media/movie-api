@@ -7,7 +7,9 @@ from app.core.exceptions import NotFoundError
 from app.core.security import hash_password
 from app.dependencies import AdminUser, CurrentUser, DBSession
 from app.models.user import User
+from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
 from app.schemas.user import UserRead, UserUpdate
+from app.services.pagination import paginate_query
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -28,10 +30,22 @@ async def update_me(data: UserUpdate, current_user: CurrentUser, db: DBSession):
     return current_user
 
 
-@router.get("/", response_model=list[UserRead])
-async def list_users(_: AdminUser, db: DBSession):
-    result = await db.execute(select(User).order_by(User.created_at.desc()))
-    return result.scalars().all()
+@router.get("/", response_model=PaginatedResponse[UserRead])
+async def list_users(
+    _: AdminUser,
+    db: DBSession,
+    pagination: PaginationDep,
+):
+    stmt = select(User).order_by(User.created_at.desc())
+    items, total = await paginate_query(
+        db, stmt, page=pagination.page, page_size=pagination.page_size
+    )
+    return build_paginated_response(
+        items,
+        total=total,
+        page=pagination.page,
+        page_size=pagination.page_size,
+    )
 
 
 @router.get("/{user_id}", response_model=UserRead)

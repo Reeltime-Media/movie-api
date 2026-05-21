@@ -87,6 +87,8 @@ async def create_intent(
         payload["order_details"] = order_details
     if custom_success_url:
         payload["custom_success_url"] = custom_success_url
+    if settings.api_public_url:
+        payload["callback_url"] = f"{settings.api_public_url.rstrip('/')}/webhooks/baray"
 
     try:
         encrypted = _encrypt_payload(payload)

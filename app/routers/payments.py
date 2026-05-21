@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, HTTPException, status
@@ -10,6 +11,8 @@ from app.models.content import Content
 from app.models.payment_intent import PaymentIntent
 from app.models.purchase import Purchase
 from app.models.series import Series
+from app.models.subscription import Subscription
+from app.models.subscription_payment import SubscriptionPayment
 from app.schemas.payment import PaymentIntentCreate, PaymentIntentRead
 from app.services.payment import checkout_url, create_intent
 
@@ -170,6 +173,99 @@ async def create_series_subscription_payment_intent(
         status="pending",
     )
     db.add(intent)
+    await db.commit()
+    await db.refresh(intent)
+    return _read_intent(intent)
+
+
+@router.post("/intents/{intent_id}/complete", response_model=PaymentIntentRead)
+async def complete_payment_intent(
+    intent_id: str,
+    db: DBSession,
+    current_user: CurrentUser,
+):
+    """
+    Called by the client success page after Baray redirects back.
+    Fallback for when the Baray webhook is delayed or not yet configured.
+    Idempotent — safe to call even if the webhook already processed the intent.
+    """
+    result = await db.execute(
+        select(PaymentIntent).where(
+            PaymentIntent.intent_id == intent_id,
+            PaymentIntent.user_id == current_user.id,
+        )
+    )
+    intent = result.scalar_one_or_none()
+    if not intent:
+        raise NotFoundError("Payment intent not found")
+
+    if intent.status == "succeeded":
+        return _read_intent(intent)
+
+    now = datetime.now(timezone.utc)
+    intent.status = "succeeded"
+    intent.resolved_at = now
+
+    if intent.kind == "single" and intent.content_id:
+        existing = await db.execute(
+            select(Purchase).where(Purchase.intent_id == intent.intent_id)
+        )
+        if not existing.scalar_one_or_none():
+            db.add(Purchase(
+                user_id=intent.user_id,
+                content_id=intent.content_id,
+                intent_id=intent.intent_id,
+                order_id=intent.order_id,
+                amount_usd=intent.amount_usd,
+            ))
+
+    elif intent.kind == "sub":
+        existing_payment = await db.execute(
+            select(SubscriptionPayment).where(
+                SubscriptionPayment.intent_id == intent.intent_id
+            )
+        )
+        if not existing_payment.scalar_one_or_none():
+            sub_result = await db.execute(
+                select(Subscription)
+                .where(
+                    Subscription.user_id == intent.user_id,
+                    Subscription.plan == "series_monthly",
+                )
+                .order_by(Subscription.current_period_end.desc())
+            )
+            subscription = sub_result.scalars().first()
+            period_start = (
+                subscription.current_period_end
+                if subscription and subscription.current_period_end > now
+                else now
+            )
+            period_end = period_start + timedelta(days=30)
+
+            if not subscription:
+                subscription = Subscription(
+                    user_id=intent.user_id,
+                    plan="series_monthly",
+                    status="active",
+                    current_period_start=now,
+                    current_period_end=period_end,
+                )
+                db.add(subscription)
+                await db.flush()
+            else:
+                subscription.status = "active"
+                if subscription.current_period_end <= now:
+                    subscription.current_period_start = now
+                subscription.current_period_end = period_end
+
+            db.add(SubscriptionPayment(
+                subscription_id=subscription.id,
+                intent_id=intent.intent_id,
+                order_id=intent.order_id,
+                amount_usd=intent.amount_usd,
+                period_extended_to=period_end,
+            ))
+
     await db.commit()
     await db.refresh(intent)
     return _read_intent(intent)

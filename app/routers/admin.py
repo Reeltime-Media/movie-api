@@ -3,20 +3,23 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 
 from app.core.exceptions import NotFoundError
 from app.dependencies import AdminUser, DBSession
+from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
+from app.services.pagination import paginate_query
 from app.models.content import Content
 from app.models.payment_intent import PaymentIntent
 from app.models.purchase import Purchase
 from app.models.series import Series
 from app.models.transcode_job import TranscodeJob
+from app.services.content_delete import delete_transcode_jobs_for_content
 from app.models.user import User
 from app.models.watch_progress import WatchProgress
-from app.schemas.content import ContentRead, ContentUpdate
+from app.schemas.content import ContentRead, ContentUpdate, SeasonRead
 from app.schemas.series import SeriesRead
 from app.services import storage
 
@@ -181,8 +184,12 @@ async def get_dashboard_summary(db: DBSession, _: AdminUser):
     )
 
 
-@router.get("/reports/top-titles", response_model=list[TopTitleReportRead])
-async def list_top_titles(db: DBSession, _: AdminUser):
+@router.get("/reports/top-titles", response_model=PaginatedResponse[TopTitleReportRead])
+async def list_top_titles(
+    db: DBSession,
+    _: AdminUser,
+    pagination: PaginationDep,
+):
     purchase_stats = (
         select(
             Purchase.content_id.label("content_id"),
@@ -204,7 +211,7 @@ async def list_top_titles(db: DBSession, _: AdminUser):
         .subquery()
     )
 
-    result = await db.execute(
+    stmt = (
         select(
             Content.id,
             Content.title,
@@ -223,32 +230,56 @@ async def list_top_titles(db: DBSession, _: AdminUser):
             func.coalesce(watch_stats.c.watch_count, 0).desc(),
             Content.created_at.desc(),
         )
-        .limit(10)
     )
 
-    return [
-        TopTitleReportRead(
-            id=row.id,
-            title=row.title,
-            type=row.type,
-            status=row.status,
-            revenue_usd=row.revenue_usd,
-            purchase_count=row.purchase_count,
-            watch_count=row.watch_count,
-            completion_count=row.completion_count,
-        )
-        for row in result
-    ]
+    rows, total = await paginate_query(
+        db,
+        stmt,
+        page=pagination.page,
+        page_size=pagination.page_size,
+        scalar=False,
+    )
+
+    return build_paginated_response(
+        [
+            TopTitleReportRead(
+                id=row.id,
+                title=row.title,
+                type=row.type,
+                status=row.status,
+                revenue_usd=row.revenue_usd,
+                purchase_count=row.purchase_count,
+                watch_count=row.watch_count,
+                completion_count=row.completion_count,
+            )
+            for row in rows
+        ],
+        total=total,
+        page=pagination.page,
+        page_size=pagination.page_size,
+    )
 
 
-@router.get("/movies", response_model=list[ContentRead])
-async def list_admin_movies(db: DBSession, _: AdminUser):
-    result = await db.execute(
+@router.get("/movies", response_model=PaginatedResponse[ContentRead])
+async def list_admin_movies(
+    db: DBSession,
+    _: AdminUser,
+    pagination: PaginationDep,
+):
+    stmt = (
         select(Content)
         .where(Content.type == "single")
         .order_by(Content.created_at.desc())
     )
-    return result.scalars().all()
+    items, total = await paginate_query(
+        db, stmt, page=pagination.page, page_size=pagination.page_size
+    )
+    return build_paginated_response(
+        items,
+        total=total,
+        page=pagination.page,
+        page_size=pagination.page_size,
+    )
 
 
 @router.patch("/movies/{movie_id}", response_model=ContentRead)
@@ -383,17 +414,33 @@ async def delete_admin_movie(movie_id: uuid.UUID, db: DBSession, _: AdminUser):
     movie = result.scalar_one_or_none()
     if not movie:
         raise NotFoundError("Movie not found")
-    await db.execute(delete(TranscodeJob).where(TranscodeJob.content_id == movie_id))
+    await delete_transcode_jobs_for_content(db, movie_id)
     await db.delete(movie)
     await db.commit()
 
 
-@router.get("/transcode-jobs", response_model=list[TranscodeJobRead])
-async def list_transcode_jobs(db: DBSession, _: AdminUser):
-    result = await db.execute(
-        select(TranscodeJob).order_by(TranscodeJob.created_at.desc())
+@router.get("/transcode-jobs", response_model=PaginatedResponse[TranscodeJobRead])
+async def list_transcode_jobs(
+    db: DBSession,
+    _: AdminUser,
+    pagination: PaginationDep,
+    status: str | None = Query(
+        default=None,
+        description="Filter by job status: queued, running, success, failed",
+    ),
+):
+    stmt = select(TranscodeJob).order_by(TranscodeJob.created_at.desc())
+    if status:
+        stmt = stmt.where(TranscodeJob.status == status)
+    items, total = await paginate_query(
+        db, stmt, page=pagination.page, page_size=pagination.page_size
     )
-    return result.scalars().all()
+    return build_paginated_response(
+        items,
+        total=total,
+        page=pagination.page,
+        page_size=pagination.page_size,
+    )
 
 
 @router.post("/transcode-jobs/{job_id}/retry", response_model=TranscodeJobRead)
@@ -423,15 +470,63 @@ class AdminPaymentRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
-@router.get("/payments", response_model=list[AdminPaymentRead])
-async def list_admin_payments(db: DBSession, _: AdminUser):
-    result = await db.execute(
-        select(PaymentIntent).order_by(PaymentIntent.created_at.desc()).limit(100)
+@router.get("/payments", response_model=PaginatedResponse[AdminPaymentRead])
+async def list_admin_payments(
+    db: DBSession,
+    _: AdminUser,
+    pagination: PaginationDep,
+):
+    stmt = select(PaymentIntent).order_by(PaymentIntent.created_at.desc())
+    items, total = await paginate_query(
+        db, stmt, page=pagination.page, page_size=pagination.page_size
     )
-    return result.scalars().all()
+    return build_paginated_response(
+        items,
+        total=total,
+        page=pagination.page,
+        page_size=pagination.page_size,
+    )
 
 
-@router.get("/series", response_model=list[SeriesRead])
-async def list_admin_series(db: DBSession, _: AdminUser):
-    result = await db.execute(select(Series).order_by(Series.created_at.desc()))
-    return result.scalars().all()
+@router.get("/series", response_model=PaginatedResponse[SeriesRead])
+async def list_admin_series(
+    db: DBSession,
+    _: AdminUser,
+    pagination: PaginationDep,
+):
+    stmt = select(Series).order_by(Series.created_at.desc())
+    items, total = await paginate_query(
+        db, stmt, page=pagination.page, page_size=pagination.page_size
+    )
+    return build_paginated_response(
+        items,
+        total=total,
+        page=pagination.page,
+        page_size=pagination.page_size,
+    )
+
+
+@router.get("/series/{series_slug}/episodes", response_model=list[SeasonRead])
+async def list_admin_series_episodes(series_slug: str, db: DBSession, _: AdminUser):
+    """All episodes for a series (draft + published), grouped by season."""
+    series_result = await db.execute(select(Series).where(Series.slug == series_slug))
+    series = series_result.scalar_one_or_none()
+    if not series:
+        raise NotFoundError("Series not found")
+
+    eps_result = await db.execute(
+        select(Content)
+        .where(Content.series_id == series.id)
+        .order_by(Content.season_number, Content.episode_number)
+    )
+    episodes = eps_result.scalars().all()
+
+    seasons: dict[int, list[Content]] = {}
+    for ep in episodes:
+        sn = ep.season_number or 1
+        seasons.setdefault(sn, []).append(ep)
+
+    return [
+        SeasonRead(season_number=sn, episodes=eps)
+        for sn, eps in sorted(seasons.items())
+    ]
