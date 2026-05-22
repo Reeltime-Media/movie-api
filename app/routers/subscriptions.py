@@ -7,8 +7,15 @@ from app.core.exceptions import NotFoundError
 from app.dependencies import CurrentUser, DBSession
 from app.models.subscription import Subscription
 from app.schemas.subscription import SubscriptionRead
+from app.schemas.subscription_plan import SubscriptionPlanRead
+from app.services.subscription_plans import list_subscription_plans
 
 router = APIRouter(prefix="/subscriptions", tags=["subscriptions"])
+
+
+@router.get("/plans", response_model=list[SubscriptionPlanRead])
+async def list_public_subscription_plans(db: DBSession):
+    return await list_subscription_plans(db, active_only=True)
 
 
 @router.get("/me", response_model=list[SubscriptionRead])

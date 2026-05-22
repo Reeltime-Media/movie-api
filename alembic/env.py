@@ -1,13 +1,11 @@
-import asyncio
-import os
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import pool
+from sqlalchemy import create_engine, pool
 from sqlalchemy.engine import Connection
-from sqlalchemy.ext.asyncio import async_engine_from_config
 
 # Import all models so their metadata is available for autogenerate
+from app.config import get_settings
 from app.database import Base
 from app.models import *  # noqa: F401,F403
 
@@ -18,10 +16,16 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-# Override the sqlalchemy.url from the DATABASE_URL environment variable.
-# Alembic needs a sync URL; swap asyncpg driver to psycopg2 for offline mode.
-_db_url = os.environ.get("DATABASE_URL", "").replace("%", "%%")
-config.set_main_option("sqlalchemy.url", _db_url)
+settings = get_settings()
+
+
+def _sync_migration_url() -> str:
+    """PgBouncer (port 6543) + asyncpg breaks on prepared statements; use psycopg2 for DDL."""
+    return settings.alembic_database_url.replace("postgresql+asyncpg", "postgresql+psycopg2")
+
+
+# Offline mode URL (percent-escaped for configparser)
+config.set_main_option("sqlalchemy.url", _sync_migration_url().replace("%", "%%"))
 
 
 def run_migrations_offline() -> None:
@@ -42,19 +46,11 @@ def do_run_migrations(connection: Connection) -> None:
         context.run_migrations()
 
 
-async def run_async_migrations() -> None:
-    connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
-    async with connectable.connect() as connection:
-        await connection.run_sync(do_run_migrations)
-    await connectable.dispose()
-
-
 def run_migrations_online() -> None:
-    asyncio.run(run_async_migrations())
+    connectable = create_engine(_sync_migration_url(), poolclass=pool.NullPool)
+    with connectable.connect() as connection:
+        do_run_migrations(connection)
+    connectable.dispose()
 
 
 if context.is_offline_mode():

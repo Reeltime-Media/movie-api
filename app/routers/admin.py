@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import func, select
 
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import ConflictError, NotFoundError
 from app.dependencies import AdminUser, DBSession
 from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
 from app.services.pagination import paginate_query
@@ -17,10 +17,18 @@ from app.models.purchase import Purchase
 from app.models.series import Series
 from app.models.transcode_job import TranscodeJob
 from app.services.content_delete import delete_transcode_jobs_for_content
+from app.models.subscription import Subscription
+from app.models.subscription_plan import SubscriptionPlan
 from app.models.user import User
 from app.models.watch_progress import WatchProgress
 from app.schemas.content import ContentRead, ContentUpdate, SeasonRead
 from app.schemas.series import SeriesRead
+from app.schemas.subscription_plan import (
+    SubscriptionPlanCreate,
+    SubscriptionPlanRead,
+    SubscriptionPlanUpdate,
+)
+from app.services.subscription_plans import list_subscription_plans
 from app.services import storage
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -460,14 +468,14 @@ class AdminPaymentRead(BaseModel):
     intent_id: str
     order_id: str
     user_id: uuid.UUID
+    user_email: str
+    user_full_name: str | None
     kind: str
     content_id: uuid.UUID | None
     amount_usd: Decimal
     status: str
     created_at: datetime
     resolved_at: datetime | None
-
-    model_config = {"from_attributes": True}
 
 
 @router.get("/payments", response_model=PaginatedResponse[AdminPaymentRead])
@@ -476,16 +484,122 @@ async def list_admin_payments(
     _: AdminUser,
     pagination: PaginationDep,
 ):
-    stmt = select(PaymentIntent).order_by(PaymentIntent.created_at.desc())
-    items, total = await paginate_query(
-        db, stmt, page=pagination.page, page_size=pagination.page_size
+    stmt = (
+        select(
+            PaymentIntent,
+            User.email,
+            User.full_name,
+        )
+        .join(User, User.id == PaymentIntent.user_id)
+        .order_by(PaymentIntent.created_at.desc())
+    )
+    rows, total = await paginate_query(
+        db,
+        stmt,
+        page=pagination.page,
+        page_size=pagination.page_size,
+        scalar=False,
     )
     return build_paginated_response(
-        items,
+        [
+            AdminPaymentRead(
+                intent_id=intent.intent_id,
+                order_id=intent.order_id,
+                user_id=intent.user_id,
+                user_email=email,
+                user_full_name=full_name,
+                kind=intent.kind,
+                content_id=intent.content_id,
+                amount_usd=intent.amount_usd,
+                status=intent.status,
+                created_at=intent.created_at,
+                resolved_at=intent.resolved_at,
+            )
+            for intent, email, full_name in rows
+        ],
         total=total,
         page=pagination.page,
         page_size=pagination.page_size,
     )
+
+
+@router.get("/subscription-plans", response_model=list[SubscriptionPlanRead])
+async def list_admin_subscription_plans(db: DBSession, _: AdminUser):
+    try:
+        return await list_subscription_plans(db)
+    except Exception as exc:
+        message = str(exc).lower()
+        if "subscription_plans" in message or "does not exist" in message or "undefinedtable" in message:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "subscription_plans table is missing. "
+                    "Run: cd movie-api && alembic upgrade head"
+                ),
+            ) from exc
+        raise HTTPException(status_code=500, detail="Could not load subscription plans") from exc
+
+
+@router.post("/subscription-plans", response_model=SubscriptionPlanRead, status_code=201)
+async def create_admin_subscription_plan(
+    data: SubscriptionPlanCreate,
+    db: DBSession,
+    _: AdminUser,
+):
+    existing = await db.execute(
+        select(SubscriptionPlan).where(SubscriptionPlan.code == data.code)
+    )
+    if existing.scalar_one_or_none():
+        raise ConflictError("A plan with this code already exists")
+
+    plan = SubscriptionPlan(**data.model_dump())
+    db.add(plan)
+    await db.commit()
+    await db.refresh(plan)
+    return plan
+
+
+@router.patch("/subscription-plans/{plan_id}", response_model=SubscriptionPlanRead)
+async def update_admin_subscription_plan(
+    plan_id: uuid.UUID,
+    data: SubscriptionPlanUpdate,
+    db: DBSession,
+    _: AdminUser,
+):
+    result = await db.execute(select(SubscriptionPlan).where(SubscriptionPlan.id == plan_id))
+    plan = result.scalar_one_or_none()
+    if not plan:
+        raise NotFoundError("Subscription plan not found")
+
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(plan, field, value)
+
+    await db.commit()
+    await db.refresh(plan)
+    return plan
+
+
+@router.delete("/subscription-plans/{plan_id}", status_code=204)
+async def delete_admin_subscription_plan(
+    plan_id: uuid.UUID,
+    db: DBSession,
+    _: AdminUser,
+):
+    result = await db.execute(select(SubscriptionPlan).where(SubscriptionPlan.id == plan_id))
+    plan = result.scalar_one_or_none()
+    if not plan:
+        raise NotFoundError("Subscription plan not found")
+
+    in_use = await db.scalar(
+        select(func.count(Subscription.id)).where(Subscription.plan == plan.code)
+    )
+    if in_use:
+        raise ConflictError(
+            "This plan has active subscriptions and cannot be deleted. Deactivate it instead."
+        )
+
+    await db.delete(plan)
+    await db.commit()
 
 
 @router.get("/series", response_model=PaginatedResponse[SeriesRead])

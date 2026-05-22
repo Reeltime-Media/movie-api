@@ -191,7 +191,11 @@ async def start_series_poster_upload(slug: str, data: SeriesPosterStart, db: DBS
 @router.patch("/{slug}", response_model=SeriesRead)
 async def update_series(slug: str, data: SeriesUpdate, db: DBSession, _: AdminUser):
     series = await _get_series_or_404(slug, db)
-    for field, value in data.model_dump(exclude_unset=True).items():
+    updates = data.model_dump(exclude_unset=True)
+    # monthly_price_usd is NOT NULL — ignore explicit null from clients
+    if updates.get("monthly_price_usd") is None:
+        updates.pop("monthly_price_usd", None)
+    for field, value in updates.items():
         setattr(series, field, value)
     await db.commit()
     await db.refresh(series)

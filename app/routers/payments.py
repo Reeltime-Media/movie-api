@@ -15,6 +15,7 @@ from app.models.subscription import Subscription
 from app.models.subscription_payment import SubscriptionPayment
 from app.schemas.payment import PaymentIntentCreate, PaymentIntentRead
 from app.services.payment import checkout_url, create_intent
+from app.services.subscription_plans import get_subscription_plan_by_code, resolve_active_plan
 
 router = APIRouter(prefix="/payments", tags=["payments"])
 
@@ -141,21 +142,22 @@ async def create_series_subscription_payment_intent(
     if not series:
         raise NotFoundError("Series not found")
 
-    amount = _validate_amount(series.monthly_price_usd)
+    plan = await resolve_active_plan(db)
+    amount = _validate_amount(plan.price_usd)
     order_id = f"sub-{uuid.uuid4().hex}"
     baray_intent = await create_intent(
         amount_usd=amount,
         order_id=order_id,
         tracking={
             "kind": "sub",
-            "plan": "series_monthly",
+            "plan": plan.code,
             "user_id": str(current_user.id),
             "series_id": str(series.id),
         },
         order_details={
             "items": [
                 {
-                    "name": f"{series.title} monthly access",
+                    "name": f"{plan.name} — {series.title}",
                     "price": float(amount),
                 }
             ]
@@ -226,26 +228,29 @@ async def complete_payment_intent(
             )
         )
         if not existing_payment.scalar_one_or_none():
+            default_plan = await resolve_active_plan(db)
             sub_result = await db.execute(
                 select(Subscription)
-                .where(
-                    Subscription.user_id == intent.user_id,
-                    Subscription.plan == "series_monthly",
-                )
+                .where(Subscription.user_id == intent.user_id)
                 .order_by(Subscription.current_period_end.desc())
             )
             subscription = sub_result.scalars().first()
+            plan = default_plan
+            if subscription:
+                existing_plan = await get_subscription_plan_by_code(db, subscription.plan)
+                if existing_plan:
+                    plan = existing_plan
             period_start = (
                 subscription.current_period_end
                 if subscription and subscription.current_period_end > now
                 else now
             )
-            period_end = period_start + timedelta(days=30)
+            period_end = period_start + timedelta(days=plan.billing_interval_days)
 
             if not subscription:
                 subscription = Subscription(
                     user_id=intent.user_id,
-                    plan="series_monthly",
+                    plan=plan.code,
                     status="active",
                     current_period_start=now,
                     current_period_end=period_end,

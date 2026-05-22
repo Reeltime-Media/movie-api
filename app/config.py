@@ -9,12 +9,24 @@ class Settings(BaseSettings):
     # App
     app_name: str = "Movies API"
     debug: bool = False
+    cors_origins: str = (
+        "http://localhost:3000,http://127.0.0.1:3000,"
+        "http://localhost:3001,http://127.0.0.1:3001"
+    )
     secret_key: str
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 1440  # 24 hours
 
     # Database — Supabase PostgreSQL
-    database_url: str  # postgresql+asyncpg://...
+    database_url: str  # postgresql+asyncpg://... (direct host; may be IPv6-only)
+    # IPv4 pooler — use for Alembic from your Mac and for Docker (see root .env)
+    pooler_database_url: str | None = None
+    transcode_database_url: str | None = None
+
+    @property
+    def alembic_database_url(self) -> str:
+        """Prefer pooler URL so migrations work from host and Docker."""
+        return self.pooler_database_url or self.transcode_database_url or self.database_url
 
     # Cloudflare R2
     r2_account_id: str

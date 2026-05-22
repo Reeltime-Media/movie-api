@@ -11,6 +11,7 @@ from app.models.subscription import Subscription
 from app.models.subscription_payment import SubscriptionPayment
 from app.models.webhook_event import WebhookEvent
 from app.services.payment import decrypt_order_id
+from app.services.subscription_plans import get_subscription_plan_by_code, resolve_active_plan
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
@@ -108,27 +109,30 @@ async def _process_baray_event(db, order_id: str, payload: dict) -> None:
         if existing_payment.scalar_one_or_none():
             return
 
+        default_plan = await resolve_active_plan(db)
         sub_result = await db.execute(
             select(Subscription)
-            .where(
-                Subscription.user_id == intent.user_id,
-                Subscription.plan == "series_monthly",
-            )
+            .where(Subscription.user_id == intent.user_id)
             .order_by(Subscription.current_period_end.desc())
         )
         subscription = sub_result.scalars().first()
+        plan = default_plan
+        if subscription:
+            existing_plan = await get_subscription_plan_by_code(db, subscription.plan)
+            if existing_plan:
+                plan = existing_plan
 
         if subscription and subscription.current_period_end > now:
             period_start = subscription.current_period_end
         else:
             period_start = now
 
-        period_end = period_start + timedelta(days=30)
+        period_end = period_start + timedelta(days=plan.billing_interval_days)
 
         if not subscription:
             subscription = Subscription(
                 user_id=intent.user_id,
-                plan="series_monthly",
+                plan=plan.code,
                 status="active",
                 current_period_start=now,
                 current_period_end=period_end,

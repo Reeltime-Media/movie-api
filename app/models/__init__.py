@@ -4,6 +4,7 @@ from app.models.purchase import Purchase
 from app.models.series import Series
 from app.models.subscription import Subscription
 from app.models.subscription_payment import SubscriptionPayment
+from app.models.subscription_plan import SubscriptionPlan
 from app.models.transcode_job import TranscodeJob
 from app.models.user import User
 from app.models.watch_progress import WatchProgress
@@ -16,6 +17,7 @@ __all__ = [
     "Purchase",
     "Subscription",
     "SubscriptionPayment",
+    "SubscriptionPlan",
     "WatchProgress",
     "PaymentIntent",
     "WebhookEvent",
