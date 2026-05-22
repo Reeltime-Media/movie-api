@@ -40,6 +40,7 @@ class Content(Base):
     # 'draft' | 'review' | 'scheduled' | 'published'
     status: Mapped[str] = mapped_column(Text, nullable=False, default="draft")
     is_published: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_free: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     transcode_status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
     search_vector: Mapped[str | None] = mapped_column(
         TSVECTOR,

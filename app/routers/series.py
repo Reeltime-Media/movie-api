@@ -132,6 +132,7 @@ class EpisodeUploadComplete(BaseModel):
     description: str | None = None
     runtime: str | None = None
     status: str = "draft"
+    is_free: bool = False
     trailer_url: str | None = None
     poster_key: str | None = None
 
@@ -345,6 +346,7 @@ async def complete_episode_upload(slug: str, data: EpisodeUploadComplete, db: DB
         trailer_url=data.trailer_url,
         status=data.status,
         is_published=(data.status == "published"),
+        is_free=data.is_free,
         transcode_status="pending",
     )
     db.add(episode)

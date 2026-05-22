@@ -15,6 +15,7 @@ class ContentUpdate(BaseModel):
     trailer_url: str | None = None
     status: str | None = None
     is_published: bool | None = None
+    is_free: bool | None = None
     price_usd: Decimal | None = None
     season_number: int | None = None
     episode_number: int | None = None
@@ -40,6 +41,7 @@ class ContentRead(BaseModel):
     price_usd: Decimal | None
     status: str
     is_published: bool
+    is_free: bool
     transcode_status: str
     created_at: datetime
     updated_at: datetime
