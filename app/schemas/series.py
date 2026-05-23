@@ -2,7 +2,9 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+from app.core.money import validate_usd_price
 
 
 class SeriesUpdate(BaseModel):
@@ -15,6 +17,13 @@ class SeriesUpdate(BaseModel):
     is_published: bool | None = None
     trailer_url: str | None = None
     poster_key: str | None = None  # set after uploading poster via /poster/start
+
+    @field_validator("monthly_price_usd")
+    @classmethod
+    def check_monthly_price_usd(cls, value: Decimal | None) -> Decimal | None:
+        if value is None:
+            return None
+        return validate_usd_price(value)
 
 
 class SeriesRead(BaseModel):

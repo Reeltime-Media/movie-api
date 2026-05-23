@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import get_settings
-from app.routers import admin, auth, movies, payment_test, payments, purchases, series, subscriptions, users, watch_progress, webhooks
+from app.routers import admin, auth, comments, movies, payment_test, payments, purchases, series, subscriptions, users, watch_progress, webhooks
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -36,6 +36,7 @@ app.include_router(payment_test.router)
 app.include_router(purchases.router)
 app.include_router(subscriptions.router)
 app.include_router(watch_progress.router)
+app.include_router(comments.router)
 app.include_router(webhooks.router)
 app.include_router(admin.router)
 

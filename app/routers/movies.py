@@ -1,7 +1,7 @@
 """Movie upload flow (multipart — API server never buffers video bytes):
 
-  1. POST /movies/uploads/start
-       → { content_id, upload_id, source_key, part_size, poster_key?, poster_upload_url? }
+  1. POST /movies/uploads/start  (requires title — reserves movies/{slug}/… keys)
+       → { content_id, slug, upload_id, source_key, part_size, poster_key?, poster_upload_url? }
 
   2. GET  /movies/uploads/part-url?source_key=…&upload_id=…&part_number=N
        → { url }   (presigned PUT — client uploads the chunk directly to R2)
@@ -19,16 +19,18 @@ import uuid
 from decimal import Decimal
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 
 from app.core.exceptions import NotFoundError
+from app.core.money import validate_usd_price
 from app.dependencies import AdminUser, CurrentUser, DBSession
 from app.models.content import Content
 from app.models.transcode_job import TranscodeJob
 from app.schemas.content import ContentRead, ContentUpdate
 from app.services import storage
-from app.services.content_delete import delete_transcode_jobs_for_content
+from app.services.content_delete import delete_content_dependencies
+from app.services import r2_keys
 
 router = APIRouter(prefix="/movies", tags=["movies"])
 
@@ -56,12 +58,14 @@ async def _unique_slug(base: str, db) -> str:
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
 class MovieUploadStart(BaseModel):
+    title: str
     video_content_type: str = "video/mp4"
     poster_content_type: str | None = None
 
 
 class MovieUploadStartRead(BaseModel):
     content_id: uuid.UUID
+    slug: str               # reserved storage folder (from title)
     upload_id: str          # R2 multipart upload ID
     source_key: str
     part_size: int          # recommended bytes per chunk (50 MB)
@@ -80,6 +84,7 @@ class MultipartPart(BaseModel):
 
 class MovieUploadComplete(BaseModel):
     content_id: uuid.UUID
+    slug: str
     source_key: str
     upload_id: str
     parts: list[MultipartPart]   # ETags from each chunk upload response
@@ -94,6 +99,11 @@ class MovieUploadComplete(BaseModel):
     trailer_url: str | None = None
     poster_key: str | None = None
 
+    @field_validator("price_usd")
+    @classmethod
+    def check_price_usd(cls, value: Decimal) -> Decimal:
+        return validate_usd_price(value)
+
 
 class MovieUploadAbort(BaseModel):
     source_key: str
@@ -103,15 +113,20 @@ class MovieUploadAbort(BaseModel):
 # ── Upload endpoints ───────────────────────────────────────────────────────────
 
 @router.post("/uploads/start", response_model=MovieUploadStartRead)
-async def start_movie_upload(data: MovieUploadStart, _: AdminUser):
+async def start_movie_upload(data: MovieUploadStart, db: DBSession, _: AdminUser):
     """Initiate a multipart upload. Returns upload_id + part_size.
 
     The client must split the video file into chunks of `part_size` bytes and
     PUT each chunk to R2 using the URL from /uploads/part-url. The API server
     never receives any video bytes.
     """
+    title = data.title.strip()
+    if not title:
+        raise HTTPException(status_code=422, detail="title is required")
+
     content_id = uuid.uuid4()
-    source_key = f"raw/{content_id}.mp4"
+    slug = await _unique_slug(title, db)
+    source_key = r2_keys.movie_source_key(slug)
 
     loop = asyncio.get_event_loop()
     upload_id = await loop.run_in_executor(
@@ -121,19 +136,14 @@ async def start_movie_upload(data: MovieUploadStart, _: AdminUser):
     poster_key: str | None = None
     poster_upload_url: str | None = None
     if data.poster_content_type:
-        ext = {
-            "image/jpeg": "jpg",
-            "image/jpg": "jpg",
-            "image/png": "png",
-            "image/webp": "webp",
-        }.get(data.poster_content_type, "jpg")
-        poster_key = f"posters/{content_id}.{ext}"
+        poster_key = r2_keys.movie_poster_key(slug, data.poster_content_type)
         poster_upload_url = storage.generate_presigned_upload_url(
             poster_key, data.poster_content_type
         )
 
     return MovieUploadStartRead(
         content_id=content_id,
+        slug=slug,
         upload_id=upload_id,
         source_key=source_key,
         part_size=storage.MULTIPART_PART_SIZE,
@@ -164,9 +174,12 @@ async def complete_movie_upload(data: MovieUploadComplete, db: DBSession, _: Adm
     if data.status not in _VALID_STATUSES:
         raise HTTPException(status_code=422, detail=f"status must be one of {sorted(_VALID_STATUSES)}")
 
-    expected_source_key = f"raw/{data.content_id}.mp4"
+    expected_source_key = r2_keys.movie_source_key(data.slug)
     if data.source_key != expected_source_key:
-        raise HTTPException(status_code=422, detail="source_key does not match content_id")
+        raise HTTPException(status_code=422, detail="source_key does not match slug")
+
+    if data.poster_key and not r2_keys.is_movie_asset_key(data.slug, data.poster_key):
+        raise HTTPException(status_code=422, detail="poster_key does not match slug")
 
     if not data.parts:
         raise HTTPException(status_code=422, detail="parts list is empty")
@@ -190,11 +203,10 @@ async def complete_movie_upload(data: MovieUploadComplete, db: DBSession, _: Adm
         if not poster_exists:
             raise HTTPException(status_code=409, detail="Poster upload is not available in storage yet")
 
-    slug = await _unique_slug(data.title, db)
     movie = Content(
         id=data.content_id,
         type="single",
-        slug=slug,
+        slug=data.slug,
         title=data.title,
         description=data.description,
         genres=data.genres,
@@ -280,6 +292,6 @@ async def delete_movie(slug: str, db: DBSession, _: AdminUser):
     movie = result.scalar_one_or_none()
     if not movie:
         raise NotFoundError("Movie not found")
-    await delete_transcode_jobs_for_content(db, movie.id)
+    await delete_content_dependencies(db, movie.id)
     await db.delete(movie)
     await db.commit()

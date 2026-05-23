@@ -2,7 +2,9 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+from app.core.money import validate_usd_price
 
 
 class ContentUpdate(BaseModel):
@@ -19,6 +21,13 @@ class ContentUpdate(BaseModel):
     price_usd: Decimal | None = None
     season_number: int | None = None
     episode_number: int | None = None
+
+    @field_validator("price_usd")
+    @classmethod
+    def check_price_usd(cls, value: Decimal | None) -> Decimal | None:
+        if value is None:
+            return None
+        return validate_usd_price(value)
 
 
 class ContentRead(BaseModel):
@@ -47,6 +56,12 @@ class ContentRead(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class AdminContentRead(ContentRead):
+    """Admin catalog row — includes unique viewer count from watch_progress."""
+
+    watch_count: int = 0
 
 
 class SeasonRead(BaseModel):

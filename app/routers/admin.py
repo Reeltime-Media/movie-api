@@ -1,35 +1,48 @@
 import asyncio
 import uuid
-from datetime import datetime
+from datetime import date, datetime, time, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from app.core.exceptions import ConflictError, NotFoundError
 from app.dependencies import AdminUser, DBSession
 from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
 from app.services.pagination import paginate_query
+from app.models.comment import Comment
 from app.models.content import Content
 from app.models.payment_intent import PaymentIntent
 from app.models.purchase import Purchase
 from app.models.series import Series
 from app.models.transcode_job import TranscodeJob
-from app.services.content_delete import delete_transcode_jobs_for_content
+from app.services.content_delete import (
+    delete_content_dependencies,
+    delete_content_dependencies_for_series,
+)
 from app.models.subscription import Subscription
 from app.models.subscription_plan import SubscriptionPlan
 from app.models.user import User
 from app.models.watch_progress import WatchProgress
-from app.schemas.content import ContentRead, ContentUpdate, SeasonRead
+from app.schemas.comment import CommentRead, CommentUpdate
+from app.schemas.content import AdminContentRead, ContentRead, ContentUpdate, SeasonRead
 from app.schemas.series import SeriesRead
 from app.schemas.subscription_plan import (
     SubscriptionPlanCreate,
     SubscriptionPlanRead,
     SubscriptionPlanUpdate,
 )
+from app.services.comments import (
+    ensure_commentable_movie,
+    get_comment_or_404,
+    soft_delete_comment,
+    to_comment_read,
+    update_comment_body,
+)
 from app.services.subscription_plans import list_subscription_plans
 from app.services import storage
+from app.services import r2_keys
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 _VALID_STATUSES = {"draft", "review", "scheduled", "published"}
@@ -268,7 +281,23 @@ async def list_top_titles(
     )
 
 
-@router.get("/movies", response_model=PaginatedResponse[ContentRead])
+async def _watch_counts_for_content(
+    db: DBSession, content_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, int]:
+    if not content_ids:
+        return {}
+    result = await db.execute(
+        select(
+            WatchProgress.content_id,
+            func.count(WatchProgress.user_id).label("watch_count"),
+        )
+        .where(WatchProgress.content_id.in_(content_ids))
+        .group_by(WatchProgress.content_id)
+    )
+    return {row.content_id: int(row.watch_count) for row in result.all()}
+
+
+@router.get("/movies", response_model=PaginatedResponse[AdminContentRead])
 async def list_admin_movies(
     db: DBSession,
     _: AdminUser,
@@ -282,8 +311,15 @@ async def list_admin_movies(
     items, total = await paginate_query(
         db, stmt, page=pagination.page, page_size=pagination.page_size
     )
+    watch_counts = await _watch_counts_for_content(db, [m.id for m in items])
     return build_paginated_response(
-        items,
+        [
+            AdminContentRead(
+                **ContentRead.model_validate(m).model_dump(),
+                watch_count=watch_counts.get(m.id, 0),
+            )
+            for m in items
+        ],
         total=total,
         page=pagination.page,
         page_size=pagination.page_size,
@@ -332,21 +368,20 @@ async def start_admin_movie_asset_upload(
     if not movie:
         raise NotFoundError("Movie not found")
 
-    token = uuid.uuid4().hex[:8]
     source_key: str | None = None
     video_upload_url: str | None = None
     poster_key: str | None = None
     poster_upload_url: str | None = None
 
     if data.video_content_type:
-        source_key = f"raw/{movie_id}-{token}.mp4"
+        source_key = r2_keys.movie_source_key(movie.slug)
         video_upload_url = storage.generate_presigned_upload_url(
             source_key,
             data.video_content_type,
         )
 
     if data.poster_content_type:
-        poster_key = f"posters/{movie_id}-{token}.{_poster_extension(data.poster_content_type)}"
+        poster_key = r2_keys.movie_poster_key(movie.slug, data.poster_content_type)
         poster_upload_url = storage.generate_presigned_upload_url(
             poster_key,
             data.poster_content_type,
@@ -378,7 +413,7 @@ async def complete_admin_movie_asset_upload(
         raise NotFoundError("Movie not found")
 
     if data.source_key:
-        if not data.source_key.startswith(f"raw/{movie_id}-"):
+        if data.source_key != r2_keys.movie_source_key(movie.slug):
             raise HTTPException(status_code=422, detail="source_key does not match movie")
         source_exists = await asyncio.get_event_loop().run_in_executor(
             None,
@@ -394,7 +429,7 @@ async def complete_admin_movie_asset_upload(
         db.add(TranscodeJob(content_id=movie.id, source_key=data.source_key))
 
     if data.poster_key:
-        if not data.poster_key.startswith(f"posters/{movie_id}-"):
+        if not r2_keys.is_movie_asset_key(movie.slug, data.poster_key):
             raise HTTPException(status_code=422, detail="poster_key does not match movie")
         poster_exists = await asyncio.get_event_loop().run_in_executor(
             None,
@@ -422,7 +457,7 @@ async def delete_admin_movie(movie_id: uuid.UUID, db: DBSession, _: AdminUser):
     movie = result.scalar_one_or_none()
     if not movie:
         raise NotFoundError("Movie not found")
-    await delete_transcode_jobs_for_content(db, movie_id)
+    await delete_content_dependencies(db, movie_id)
     await db.delete(movie)
     await db.commit()
 
@@ -478,11 +513,33 @@ class AdminPaymentRead(BaseModel):
     resolved_at: datetime | None
 
 
+def _parse_filter_date(value: str, field: str) -> date:
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{field} must be YYYY-MM-DD",
+        ) from exc
+
+
 @router.get("/payments", response_model=PaginatedResponse[AdminPaymentRead])
 async def list_admin_payments(
     db: DBSession,
     _: AdminUser,
     pagination: PaginationDep,
+    search: str | None = Query(
+        default=None,
+        description="Filter by user full name or email (case-insensitive)",
+    ),
+    date_from: str | None = Query(
+        default=None,
+        description="Include transactions on or after this date (YYYY-MM-DD)",
+    ),
+    date_to: str | None = Query(
+        default=None,
+        description="Include transactions on or before this date (YYYY-MM-DD)",
+    ),
 ):
     stmt = (
         select(
@@ -493,6 +550,31 @@ async def list_admin_payments(
         .join(User, User.id == PaymentIntent.user_id)
         .order_by(PaymentIntent.created_at.desc())
     )
+
+    if search and (term := search.strip()):
+        pattern = f"%{term}%"
+        stmt = stmt.where(
+            or_(
+                User.full_name.ilike(pattern),
+                User.email.ilike(pattern),
+            )
+        )
+
+    parsed_from: date | None = None
+    parsed_to: date | None = None
+
+    if date_from:
+        parsed_from = _parse_filter_date(date_from, "date_from")
+        start = datetime.combine(parsed_from, time.min, tzinfo=timezone.utc)
+        stmt = stmt.where(PaymentIntent.created_at >= start)
+
+    if date_to:
+        parsed_to = _parse_filter_date(date_to, "date_to")
+        end = datetime.combine(parsed_to, time.max, tzinfo=timezone.utc)
+        stmt = stmt.where(PaymentIntent.created_at <= end)
+
+    if parsed_from and parsed_to and parsed_from > parsed_to:
+        raise HTTPException(status_code=422, detail="date_from must be on or before date_to")
     rows, total = await paginate_query(
         db,
         stmt,
@@ -644,3 +726,66 @@ async def list_admin_series_episodes(series_slug: str, db: DBSession, _: AdminUs
         SeasonRead(season_number=sn, episodes=eps)
         for sn, eps in sorted(seasons.items())
     ]
+
+
+@router.get("/comments", response_model=PaginatedResponse[CommentRead])
+async def list_admin_comments(
+    content_id: uuid.UUID,
+    db: DBSession,
+    _: AdminUser,
+    pagination: PaginationDep,
+):
+    await ensure_commentable_movie(db, content_id, allow_unpublished=True)
+
+    stmt = (
+        select(Comment, User)
+        .join(User, Comment.user_id == User.id)
+        .where(
+            Comment.content_id == content_id,
+            Comment.deleted_at.is_(None),
+        )
+        .order_by(Comment.created_at.desc())
+    )
+    rows, total = await paginate_query(
+        db,
+        stmt,
+        page=pagination.page,
+        page_size=pagination.page_size,
+        scalar=False,
+    )
+    items = [
+        to_comment_read(comment, author)
+        for comment, author in rows
+    ]
+    return build_paginated_response(
+        items,
+        total=total,
+        page=pagination.page,
+        page_size=pagination.page_size,
+    )
+
+
+@router.patch("/comments/{comment_id}", response_model=CommentRead)
+async def update_admin_comment(
+    comment_id: uuid.UUID,
+    data: CommentUpdate,
+    db: DBSession,
+    _: AdminUser,
+):
+    comment = await get_comment_or_404(db, comment_id)
+    await ensure_commentable_movie(db, comment.content_id, allow_unpublished=True)
+
+    author_result = await db.execute(select(User).where(User.id == comment.user_id))
+    author = author_result.scalar_one()
+    comment = await update_comment_body(db, comment, data.body)
+    return to_comment_read(comment, author)
+
+
+@router.delete("/comments/{comment_id}", status_code=204)
+async def delete_admin_comment(
+    comment_id: uuid.UUID,
+    db: DBSession,
+    _: AdminUser,
+):
+    comment = await get_comment_or_404(db, comment_id)
+    await soft_delete_comment(db, comment)

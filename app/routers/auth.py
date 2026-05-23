@@ -3,15 +3,16 @@ from typing import Annotated
 from fastapi import APIRouter, Form
 
 from app.dependencies import DBSession
-from app.schemas.user import TokenResponse, UserCreate, UserRead
-from app.services.auth import authenticate_user, register_user
+from app.schemas.user import GoogleAuthRequest, TokenResponse, UserCreate, UserRead, user_to_read
+from app.services.auth import authenticate_google, authenticate_user, register_user
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/register", response_model=UserRead, status_code=201)
 async def register(data: UserCreate, db: DBSession):
-    return await register_user(db, data)
+    user = await register_user(db, data)
+    return user_to_read(user)
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -21,4 +22,10 @@ async def login(
     password: Annotated[str, Form()],
 ):
     _, token = await authenticate_user(db, email, password)
+    return TokenResponse(access_token=token)
+
+
+@router.post("/google", response_model=TokenResponse)
+async def login_google(data: GoogleAuthRequest, db: DBSession):
+    _, token = await authenticate_google(db, data.id_token)
     return TokenResponse(access_token=token)

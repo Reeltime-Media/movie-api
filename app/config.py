@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 1440  # 24 hours
 
+    # Google Sign-In (OAuth client ID from Google Cloud Console)
+    google_client_id: str = ""  # env: GOOGLE_CLIENT_ID
+
     # Database — Supabase PostgreSQL
     database_url: str  # postgresql+asyncpg://... (direct host; may be IPv6-only)
     # IPv4 pooler — use for Alembic from your Mac and for Docker (see root .env)

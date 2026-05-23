@@ -1,3 +1,6 @@
+from app.models.comment import Comment
+from app.models.comment_report import CommentReport
+from app.models.comment_vote import CommentVote
 from app.models.content import Content
 from app.models.payment_intent import PaymentIntent
 from app.models.purchase import Purchase
@@ -11,6 +14,9 @@ from app.models.watch_progress import WatchProgress
 from app.models.webhook_event import WebhookEvent
 
 __all__ = [
+    "Comment",
+    "CommentReport",
+    "CommentVote",
     "User",
     "Series",
     "Content",

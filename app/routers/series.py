@@ -19,10 +19,11 @@ import uuid
 from decimal import Decimal
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 
 from app.core.exceptions import NotFoundError
+from app.core.money import validate_usd_price
 from app.dependencies import AdminUser, CurrentUser, DBSession
 from app.models.content import Content
 from app.models.series import Series
@@ -30,9 +31,10 @@ from app.models.transcode_job import TranscodeJob
 from app.schemas.content import ContentRead, ContentUpdate, SeasonRead
 from app.schemas.series import SeriesRead, SeriesUpdate
 from app.services import storage
+from app.services import r2_keys
 from app.services.content_delete import (
-    delete_transcode_jobs_for_content,
-    delete_transcode_jobs_for_series,
+    delete_content_dependencies,
+    delete_content_dependencies_for_series,
 )
 
 router = APIRouter(prefix="/series", tags=["series"])
@@ -85,6 +87,11 @@ class CreateSeriesBody(BaseModel):
     rating: Decimal | None = None
     trailer_url: str | None = None
 
+    @field_validator("monthly_price_usd")
+    @classmethod
+    def check_monthly_price_usd(cls, value: Decimal) -> Decimal:
+        return validate_usd_price(value)
+
 
 class SeriesPosterStart(BaseModel):
     poster_content_type: str = "image/jpeg"
@@ -99,12 +106,15 @@ class SeriesPosterStartRead(BaseModel):
 # ── Episode upload schemas ─────────────────────────────────────────────────────
 
 class EpisodeUploadStart(BaseModel):
+    season_number: int
+    episode_number: int
     video_content_type: str = "video/mp4"
     poster_content_type: str | None = None
 
 
 class EpisodeUploadStartRead(BaseModel):
     content_id: uuid.UUID
+    episode_slug: str
     upload_id: str
     source_key: str
     part_size: int
@@ -123,6 +133,7 @@ class MultipartPart(BaseModel):
 
 class EpisodeUploadComplete(BaseModel):
     content_id: uuid.UUID
+    episode_slug: str
     source_key: str
     upload_id: str
     parts: list[MultipartPart]
@@ -184,7 +195,7 @@ async def start_series_poster_upload(slug: str, data: SeriesPosterStart, db: DBS
         "image/jpeg": "jpg", "image/jpg": "jpg",
         "image/png": "png", "image/webp": "webp",
     }.get(data.poster_content_type, "jpg")
-    poster_key = f"posters/series/{series.id}.{ext}"
+    poster_key = r2_keys.series_poster_key(series.slug, data.poster_content_type)
     url = storage.generate_presigned_upload_url(poster_key, data.poster_content_type)
     return SeriesPosterStartRead(series_id=series.id, poster_key=poster_key, poster_upload_url=url)
 
@@ -206,7 +217,7 @@ async def update_series(slug: str, data: SeriesUpdate, db: DBSession, _: AdminUs
 @router.delete("/{slug}", status_code=204)
 async def delete_series(slug: str, db: DBSession, _: AdminUser):
     series = await _get_series_or_404(slug, db)
-    await delete_transcode_jobs_for_series(db, series.id)
+    await delete_content_dependencies_for_series(db, series.id)
     await db.delete(series)
     await db.commit()
 
@@ -214,8 +225,8 @@ async def delete_series(slug: str, db: DBSession, _: AdminUser):
 # ── Episode read endpoints ─────────────────────────────────────────────────────
 
 @router.get("/{slug}/episodes", response_model=list[SeasonRead])
-async def list_episodes(slug: str, db: DBSession, _: CurrentUser):
-    """All published episodes for a series, grouped and sorted by season."""
+async def list_episodes(slug: str, db: DBSession):
+    """Published episodes for a series (public — used for free-episode discovery on the catalog)."""
     series = await _get_series_or_404(slug, db)
 
     eps_result = await db.execute(
@@ -249,7 +260,11 @@ async def start_episode_upload(slug: str, data: EpisodeUploadStart, db: DBSessio
     series = await _get_series_or_404(slug, db)
 
     content_id = uuid.uuid4()
-    source_key = f"raw/{content_id}.mp4"
+    episode_slug = await _unique_content_slug(
+        f"{slug}-s{data.season_number:02d}e{data.episode_number:02d}",
+        db,
+    )
+    source_key = r2_keys.episode_source_key(slug, episode_slug)
 
     loop = asyncio.get_event_loop()
     upload_id = await loop.run_in_executor(
@@ -259,17 +274,14 @@ async def start_episode_upload(slug: str, data: EpisodeUploadStart, db: DBSessio
     poster_key: str | None = None
     poster_upload_url: str | None = None
     if data.poster_content_type:
-        ext = {
-            "image/jpeg": "jpg", "image/jpg": "jpg",
-            "image/png": "png", "image/webp": "webp",
-        }.get(data.poster_content_type, "jpg")
-        poster_key = f"posters/{content_id}.{ext}"
+        poster_key = r2_keys.episode_poster_key(slug, episode_slug, data.poster_content_type)
         poster_upload_url = storage.generate_presigned_upload_url(
             poster_key, data.poster_content_type
         )
 
     return EpisodeUploadStartRead(
         content_id=content_id,
+        episode_slug=episode_slug,
         upload_id=upload_id,
         source_key=source_key,
         part_size=storage.MULTIPART_PART_SIZE,
@@ -301,14 +313,17 @@ async def complete_episode_upload(slug: str, data: EpisodeUploadComplete, db: DB
     if data.status not in _VALID_STATUSES:
         raise HTTPException(status_code=422, detail=f"status must be one of {sorted(_VALID_STATUSES)}")
 
-    expected_source_key = f"raw/{data.content_id}.mp4"
+    series = await _get_series_or_404(slug, db)
+
+    expected_source_key = r2_keys.episode_source_key(slug, data.episode_slug)
     if data.source_key != expected_source_key:
-        raise HTTPException(status_code=422, detail="source_key does not match content_id")
+        raise HTTPException(status_code=422, detail="source_key does not match episode_slug")
+
+    if data.poster_key and not r2_keys.is_episode_asset_key(slug, data.episode_slug, data.poster_key):
+        raise HTTPException(status_code=422, detail="poster_key does not match episode_slug")
 
     if not data.parts:
         raise HTTPException(status_code=422, detail="parts list is empty")
-
-    series = await _get_series_or_404(slug, db)
 
     loop = asyncio.get_event_loop()
 
@@ -328,17 +343,13 @@ async def complete_episode_upload(slug: str, data: EpisodeUploadComplete, db: DB
         if not poster_exists:
             raise HTTPException(status_code=409, detail="Poster upload is not available in storage yet")
 
-    ep_slug = await _unique_content_slug(
-        f"{slug}-s{data.season_number:02d}e{data.episode_number:02d}", db
-    )
-
     episode = Content(
         id=data.content_id,
         type="episode",
         series_id=series.id,
         season_number=data.season_number,
         episode_number=data.episode_number,
-        slug=ep_slug,
+        slug=data.episode_slug,
         title=data.title,
         description=data.description,
         runtime=data.runtime,
@@ -417,6 +428,6 @@ async def delete_episode(slug: str, episode_slug: str, db: DBSession, _: AdminUs
     if not episode:
         raise NotFoundError("Episode not found")
 
-    await delete_transcode_jobs_for_content(db, episode.id)
+    await delete_content_dependencies(db, episode.id)
     await db.delete(episode)
     await db.commit()
