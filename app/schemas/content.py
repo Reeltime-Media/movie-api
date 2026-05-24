@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from app.core.money import validate_usd_price
 
@@ -14,6 +14,7 @@ class ContentUpdate(BaseModel):
     release_year: int | None = None
     rating: Decimal | None = None
     runtime: str | None = None
+    runtime_minutes: int | None = Field(default=None, gt=0)
     trailer_url: str | None = None
     status: str | None = None
     is_published: bool | None = None

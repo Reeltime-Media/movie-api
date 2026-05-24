@@ -1,13 +1,14 @@
 import asyncio
 import uuid
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, or_, select
 
 from app.core.exceptions import ConflictError, NotFoundError
+from app.core.money import validate_usd_price
 from app.dependencies import AdminUser, DBSession
 from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
 from app.services.pagination import paginate_query
@@ -43,6 +44,9 @@ from app.services.comments import (
 from app.services.subscription_plans import list_subscription_plans
 from app.services import storage
 from app.services import r2_keys
+from app.services.content_publish import ensure_movie_publishable
+from app.services.runtime import apply_runtime_minutes
+from app.routers.movies import _unique_slug
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 _VALID_STATUSES = {"draft", "review", "scheduled", "published"}
@@ -58,8 +62,63 @@ class TranscodeJobRead(BaseModel):
     started_at: datetime | None
     finished_at: datetime | None
     created_at: datetime
+    content_title: str | None = None
+    content_type: str | None = None
+    content_slug: str | None = None
+    series_id: uuid.UUID | None = None
+    series_title: str | None = None
+    season_number: int | None = None
+    episode_number: int | None = None
 
     model_config = {"from_attributes": True}
+
+
+def _transcode_job_row_to_read(row) -> TranscodeJobRead:
+    (
+        job,
+        content_title,
+        content_type,
+        content_slug,
+        series_id,
+        series_title,
+        season_number,
+        episode_number,
+    ) = row
+    return TranscodeJobRead(
+        id=job.id,
+        content_id=job.content_id,
+        source_key=job.source_key,
+        status=job.status,
+        attempts=job.attempts,
+        error=job.error,
+        started_at=job.started_at,
+        finished_at=job.finished_at,
+        created_at=job.created_at,
+        content_title=content_title,
+        content_type=content_type,
+        content_slug=content_slug,
+        series_id=series_id,
+        series_title=series_title,
+        season_number=season_number,
+        episode_number=episode_number,
+    )
+
+
+def _transcode_jobs_select():
+    return (
+        select(
+            TranscodeJob,
+            Content.title.label("content_title"),
+            Content.type.label("content_type"),
+            Content.slug.label("content_slug"),
+            Content.series_id.label("series_id"),
+            Series.title.label("series_title"),
+            Content.season_number.label("season_number"),
+            Content.episode_number.label("episode_number"),
+        )
+        .outerjoin(Content, Content.id == TranscodeJob.content_id)
+        .outerjoin(Series, Series.id == Content.series_id)
+    )
 
 
 class MovieAssetUploadStart(BaseModel):
@@ -113,6 +172,22 @@ class DashboardSummaryRead(BaseModel):
     content: DashboardContentSummary
     payments: DashboardPaymentSummary
     transcodes: DashboardTranscodeSummary
+
+
+class RevenueTimelinePoint(BaseModel):
+    date: date
+    revenue_usd: Decimal
+    payment_count: int
+
+
+class RevenueTimelineRead(BaseModel):
+    days: int
+    date_from: date | None = None
+    date_to: date | None = None
+    period_revenue_usd: Decimal
+    all_time_revenue_usd: Decimal
+    succeeded_payments: int
+    points: list[RevenueTimelinePoint]
 
 
 class TopTitleReportRead(BaseModel):
@@ -205,11 +280,120 @@ async def get_dashboard_summary(db: DBSession, _: AdminUser):
     )
 
 
+@router.get("/revenue-timeline", response_model=RevenueTimelineRead)
+async def get_revenue_timeline(
+    db: DBSession,
+    _: AdminUser,
+    days: int = Query(30, ge=7, le=90),
+    date_from: str | None = Query(
+        default=None,
+        description="Include revenue on or after this date (YYYY-MM-DD)",
+    ),
+    date_to: str | None = Query(
+        default=None,
+        description="Include revenue on or before this date (YYYY-MM-DD)",
+    ),
+):
+    now = datetime.now(timezone.utc)
+    today = now.date()
+
+    parsed_from: date | None = None
+    parsed_to: date | None = None
+
+    if date_from:
+        parsed_from = _parse_filter_date(date_from, "date_from")
+    if date_to:
+        parsed_to = _parse_filter_date(date_to, "date_to")
+
+    if parsed_from and parsed_to and parsed_from > parsed_to:
+        raise HTTPException(status_code=422, detail="date_from must be on or before date_to")
+
+    if parsed_from or parsed_to:
+        end_date = parsed_to or today
+        start_date = parsed_from or (end_date - timedelta(days=days - 1))
+    else:
+        end_date = today
+        start_date = (now - timedelta(days=days - 1)).date()
+
+    if end_date > today:
+        end_date = today
+    if start_date > end_date:
+        raise HTTPException(status_code=422, detail="date_from must be on or before date_to")
+
+    range_days = (end_date - start_date).days + 1
+    if range_days > 366:
+        raise HTTPException(status_code=422, detail="Date range cannot exceed 366 days")
+
+    since = datetime.combine(start_date, time.min, tzinfo=timezone.utc)
+    until = datetime.combine(end_date, time.max, tzinfo=timezone.utc)
+    revenue_timestamp = func.coalesce(PaymentIntent.resolved_at, PaymentIntent.created_at)
+
+    rows = (
+        await db.execute(
+            select(
+                func.date(revenue_timestamp).label("day"),
+                func.coalesce(func.sum(PaymentIntent.amount_usd), Decimal("0")).label("revenue_usd"),
+                func.count(PaymentIntent.intent_id).label("payment_count"),
+            )
+            .where(
+                PaymentIntent.status == "succeeded",
+                revenue_timestamp >= since,
+                revenue_timestamp <= until,
+            )
+            .group_by(func.date(revenue_timestamp))
+            .order_by(func.date(revenue_timestamp))
+        )
+    ).all()
+
+    by_date = {row.day: row for row in rows}
+    points: list[RevenueTimelinePoint] = []
+    period_revenue = Decimal("0")
+    succeeded_payments = 0
+    cursor = start_date
+    while cursor <= end_date:
+        row = by_date.get(cursor)
+        revenue = row.revenue_usd if row else Decimal("0")
+        count = row.payment_count if row else 0
+        points.append(
+            RevenueTimelinePoint(
+                date=cursor,
+                revenue_usd=revenue,
+                payment_count=count,
+            )
+        )
+        period_revenue += revenue
+        succeeded_payments += count
+        cursor += timedelta(days=1)
+
+    all_time_revenue = await db.scalar(
+        select(
+            func.coalesce(
+                func.sum(PaymentIntent.amount_usd).filter(PaymentIntent.status == "succeeded"),
+                Decimal("0"),
+            )
+        )
+    )
+
+    return RevenueTimelineRead(
+        days=range_days,
+        date_from=start_date,
+        date_to=end_date,
+        period_revenue_usd=period_revenue,
+        all_time_revenue_usd=all_time_revenue or Decimal("0"),
+        succeeded_payments=succeeded_payments,
+        points=points,
+    )
+
+
 @router.get("/reports/top-titles", response_model=PaginatedResponse[TopTitleReportRead])
 async def list_top_titles(
     db: DBSession,
     _: AdminUser,
     pagination: PaginationDep,
+    content_type: str | None = Query(
+        None,
+        description="Filter by content type, e.g. single for movies only",
+    ),
 ):
     purchase_stats = (
         select(
@@ -245,13 +429,24 @@ async def list_top_titles(
         )
         .outerjoin(purchase_stats, purchase_stats.c.content_id == Content.id)
         .outerjoin(watch_stats, watch_stats.c.content_id == Content.id)
-        .order_by(
+    )
+    if content_type:
+        stmt = stmt.where(Content.type == content_type)
+
+    if content_type == "single":
+        stmt = stmt.order_by(
+            func.coalesce(purchase_stats.c.purchase_count, 0).desc(),
+            func.coalesce(watch_stats.c.watch_count, 0).desc(),
+            func.coalesce(purchase_stats.c.revenue_usd, Decimal("0")).desc(),
+            Content.created_at.desc(),
+        )
+    else:
+        stmt = stmt.order_by(
             func.coalesce(purchase_stats.c.revenue_usd, Decimal("0")).desc(),
             func.coalesce(purchase_stats.c.purchase_count, 0).desc(),
             func.coalesce(watch_stats.c.watch_count, 0).desc(),
             Content.created_at.desc(),
         )
-    )
 
     rows, total = await paginate_query(
         db,
@@ -295,6 +490,56 @@ async def _watch_counts_for_content(
         .group_by(WatchProgress.content_id)
     )
     return {row.content_id: int(row.watch_count) for row in result.all()}
+
+
+class AdminMovieCreate(BaseModel):
+    title: str
+    description: str | None = None
+    genres: list[str] = []
+    release_year: int | None = None
+    rating: Decimal | None = None
+    runtime_minutes: int | None = Field(default=None, gt=0)
+    price_usd: Decimal = Decimal("0")
+    trailer_url: str | None = None
+
+    @field_validator("title")
+    @classmethod
+    def title_required(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("title is required")
+        return value
+
+    @field_validator("price_usd")
+    @classmethod
+    def check_price_usd(cls, value: Decimal) -> Decimal:
+        return validate_usd_price(value)
+
+
+@router.post("/movies", response_model=ContentRead, status_code=201)
+async def create_admin_movie_draft(data: AdminMovieCreate, db: DBSession, _: AdminUser):
+    """Create a movie record without video (draft). Upload assets later from movie edit."""
+    slug = await _unique_slug(data.title, db)
+    movie = Content(
+        id=uuid.uuid4(),
+        type="single",
+        slug=slug,
+        title=data.title,
+        description=data.description,
+        genres=data.genres,
+        release_year=data.release_year,
+        rating=data.rating,
+        price_usd=data.price_usd,
+        trailer_url=data.trailer_url,
+        status="draft",
+        is_published=False,
+        transcode_status="pending",
+    )
+    apply_runtime_minutes(movie, data.runtime_minutes)
+    db.add(movie)
+    await db.commit()
+    await db.refresh(movie)
+    return movie
 
 
 @router.get("/movies", response_model=PaginatedResponse[AdminContentRead])
@@ -341,6 +586,7 @@ async def update_admin_movie(
         raise NotFoundError("Movie not found")
 
     updates = data.model_dump(exclude_unset=True)
+    runtime_minutes = updates.pop("runtime_minutes", None)
     if "status" in updates:
         if updates["status"] not in _VALID_STATUSES:
             raise HTTPException(status_code=422, detail=f"status must be one of {sorted(_VALID_STATUSES)}")
@@ -348,6 +594,16 @@ async def update_admin_movie(
 
     for field, value in updates.items():
         setattr(movie, field, value)
+
+    if "runtime_minutes" in data.model_fields_set:
+        if runtime_minutes is None:
+            movie.duration_seconds = None
+            movie.runtime = None
+        else:
+            apply_runtime_minutes(movie, runtime_minutes)
+
+    if movie.status == "published":
+        await ensure_movie_publishable(db, movie)
 
     await db.commit()
     await db.refresh(movie)
@@ -472,14 +728,18 @@ async def list_transcode_jobs(
         description="Filter by job status: queued, running, success, failed",
     ),
 ):
-    stmt = select(TranscodeJob).order_by(TranscodeJob.created_at.desc())
+    stmt = _transcode_jobs_select().order_by(TranscodeJob.created_at.desc())
     if status:
         stmt = stmt.where(TranscodeJob.status == status)
-    items, total = await paginate_query(
-        db, stmt, page=pagination.page, page_size=pagination.page_size
+    rows, total = await paginate_query(
+        db,
+        stmt,
+        page=pagination.page,
+        page_size=pagination.page_size,
+        scalar=False,
     )
     return build_paginated_response(
-        items,
+        [_transcode_job_row_to_read(row) for row in rows],
         total=total,
         page=pagination.page,
         page_size=pagination.page_size,
@@ -495,8 +755,10 @@ async def retry_transcode_job(job_id: uuid.UUID, db: DBSession, _: AdminUser):
     job.status = "queued"
     job.error = None
     await db.commit()
-    await db.refresh(job)
-    return job
+    row = (
+        await db.execute(_transcode_jobs_select().where(TranscodeJob.id == job_id))
+    ).one()
+    return _transcode_job_row_to_read(row)
 
 
 class AdminPaymentRead(BaseModel):

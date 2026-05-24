@@ -19,7 +19,7 @@ import uuid
 from decimal import Decimal
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 
 from app.core.exceptions import NotFoundError
@@ -31,6 +31,8 @@ from app.schemas.content import ContentRead, ContentUpdate
 from app.services import storage
 from app.services.content_delete import delete_content_dependencies
 from app.services import r2_keys
+from app.services.content_publish import ensure_movie_publishable
+from app.services.runtime import apply_runtime_minutes
 
 router = APIRouter(prefix="/movies", tags=["movies"])
 
@@ -94,7 +96,7 @@ class MovieUploadComplete(BaseModel):
     genres: list[str] = []
     release_year: int | None = None
     rating: Decimal | None = None
-    runtime: str | None = None
+    runtime_minutes: int | None = Field(default=None, gt=0)
     status: str = "draft"
     trailer_url: str | None = None
     poster_key: str | None = None
@@ -184,6 +186,9 @@ async def complete_movie_upload(data: MovieUploadComplete, db: DBSession, _: Adm
     if not data.parts:
         raise HTTPException(status_code=422, detail="parts list is empty")
 
+    if data.status == "published" and not data.poster_key:
+        raise HTTPException(status_code=422, detail="A poster is required before publishing.")
+
     loop = asyncio.get_event_loop()
 
     # Complete the multipart upload — R2 assembles the parts into the final object.
@@ -212,7 +217,6 @@ async def complete_movie_upload(data: MovieUploadComplete, db: DBSession, _: Adm
         genres=data.genres,
         release_year=data.release_year,
         rating=data.rating,
-        runtime=data.runtime,
         price_usd=data.price_usd,
         poster_key=data.poster_key,
         trailer_url=data.trailer_url,
@@ -220,8 +224,12 @@ async def complete_movie_upload(data: MovieUploadComplete, db: DBSession, _: Adm
         is_published=(data.status == "published"),
         transcode_status="pending",
     )
+    apply_runtime_minutes(movie, data.runtime_minutes)
     db.add(movie)
     db.add(TranscodeJob(content_id=data.content_id, source_key=data.source_key))
+
+    if data.status == "published":
+        await ensure_movie_publishable(db, movie)
 
     await db.commit()
     await db.refresh(movie)
@@ -271,6 +279,7 @@ async def update_movie(slug: str, data: ContentUpdate, db: DBSession, _: AdminUs
         raise NotFoundError("Movie not found")
 
     updates = data.model_dump(exclude_unset=True)
+    runtime_minutes = updates.pop("runtime_minutes", None)
     if "status" in updates:
         if updates["status"] not in _VALID_STATUSES:
             raise HTTPException(status_code=422, detail=f"status must be one of {sorted(_VALID_STATUSES)}")
@@ -278,6 +287,16 @@ async def update_movie(slug: str, data: ContentUpdate, db: DBSession, _: AdminUs
 
     for field, value in updates.items():
         setattr(movie, field, value)
+
+    if "runtime_minutes" in data.model_fields_set:
+        if runtime_minutes is None:
+            movie.duration_seconds = None
+            movie.runtime = None
+        else:
+            apply_runtime_minutes(movie, runtime_minutes)
+
+    if movie.status == "published":
+        await ensure_movie_publishable(db, movie)
 
     await db.commit()
     await db.refresh(movie)
