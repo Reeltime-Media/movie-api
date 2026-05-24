@@ -27,9 +27,13 @@ class Settings(BaseSettings):
     transcode_database_url: str | None = None
 
     @property
-    def alembic_database_url(self) -> str:
-        """Prefer pooler URL so migrations work from host and Docker."""
+    def effective_database_url(self) -> str:
+        """Prefer IPv4 pooler when set (Docker and macOS often cannot reach db.* direct host)."""
         return self.pooler_database_url or self.transcode_database_url or self.database_url
+
+    @property
+    def alembic_database_url(self) -> str:
+        return self.effective_database_url
 
     # Cloudflare R2
     r2_account_id: str

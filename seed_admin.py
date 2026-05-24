@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.config import get_settings
 from app.core.security import hash_password
+from app.db_connect import sqlalchemy_engine_kwargs
 from app.models.user import User
 
 settings = get_settings()
@@ -24,9 +25,8 @@ ADMIN_NAME = "Admin"
 
 async def seed():
     engine = create_async_engine(
-        settings.database_url,
-        echo=False,
-        connect_args={"statement_cache_size": 0},
+        settings.effective_database_url,
+        **sqlalchemy_engine_kwargs(settings.effective_database_url, debug=False),
     )
     session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
