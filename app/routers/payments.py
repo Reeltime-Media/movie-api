@@ -1,21 +1,19 @@
 import uuid
-from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
 from app.core.exceptions import ConflictError, NotFoundError
+from app.core.url_validation import validate_checkout_url, validate_custom_success_url
 from app.dependencies import CurrentUser, DBSession
 from app.models.content import Content
 from app.models.payment_intent import PaymentIntent
 from app.models.purchase import Purchase
 from app.models.series import Series
-from app.models.subscription import Subscription
-from app.models.subscription_payment import SubscriptionPayment
 from app.schemas.payment import PaymentIntentCreate, PaymentIntentRead
 from app.services.payment import checkout_url, create_intent
-from app.services.subscription_plans import get_subscription_plan_by_code, resolve_active_plan
+from app.services.subscription_plans import resolve_active_plan
 
 router = APIRouter(prefix="/payments", tags=["payments"])
 
@@ -23,6 +21,7 @@ _MIN_USD = Decimal("0.03")
 
 
 def _read_intent(intent: PaymentIntent) -> PaymentIntentRead:
+    url = validate_checkout_url(checkout_url(intent.intent_id))
     return PaymentIntentRead(
         intent_id=intent.intent_id,
         order_id=intent.order_id,
@@ -31,7 +30,7 @@ def _read_intent(intent: PaymentIntent) -> PaymentIntentRead:
         content_id=intent.content_id,
         amount_usd=intent.amount_usd,
         status=intent.status,
-        checkout_url=checkout_url(intent.intent_id),
+        checkout_url=url,
         created_at=intent.created_at,
         resolved_at=intent.resolved_at,
     )
@@ -103,7 +102,11 @@ async def create_movie_payment_intent(
                 }
             ]
         },
-        custom_success_url=str(data.custom_success_url) if data.custom_success_url else None,
+        custom_success_url=(
+            validate_custom_success_url(str(data.custom_success_url))
+            if data.custom_success_url
+            else None
+        ),
     )
 
     intent = PaymentIntent(
@@ -162,7 +165,11 @@ async def create_series_subscription_payment_intent(
                 }
             ]
         },
-        custom_success_url=str(data.custom_success_url) if data.custom_success_url else None,
+        custom_success_url=(
+            validate_custom_success_url(str(data.custom_success_url))
+            if data.custom_success_url
+            else None
+        ),
     )
 
     intent = PaymentIntent(
@@ -180,16 +187,15 @@ async def create_series_subscription_payment_intent(
     return _read_intent(intent)
 
 
-@router.post("/intents/{intent_id}/complete", response_model=PaymentIntentRead)
-async def complete_payment_intent(
+@router.get("/intents/{intent_id}", response_model=PaymentIntentRead)
+async def get_payment_intent(
     intent_id: str,
     db: DBSession,
     current_user: CurrentUser,
 ):
     """
-    Called by the client success page after Baray redirects back.
-    Fallback for when the Baray webhook is delayed or not yet configured.
-    Idempotent — safe to call even if the webhook already processed the intent.
+    Poll payment status after Baray redirect. Fulfillment is webhook-only;
+    this endpoint never marks an intent as succeeded without gateway confirmation.
     """
     result = await db.execute(
         select(PaymentIntent).where(
@@ -200,77 +206,4 @@ async def complete_payment_intent(
     intent = result.scalar_one_or_none()
     if not intent:
         raise NotFoundError("Payment intent not found")
-
-    if intent.status == "succeeded":
-        return _read_intent(intent)
-
-    now = datetime.now(timezone.utc)
-    intent.status = "succeeded"
-    intent.resolved_at = now
-
-    if intent.kind == "single" and intent.content_id:
-        existing = await db.execute(
-            select(Purchase).where(Purchase.intent_id == intent.intent_id)
-        )
-        if not existing.scalar_one_or_none():
-            db.add(Purchase(
-                user_id=intent.user_id,
-                content_id=intent.content_id,
-                intent_id=intent.intent_id,
-                order_id=intent.order_id,
-                amount_usd=intent.amount_usd,
-            ))
-
-    elif intent.kind == "sub":
-        existing_payment = await db.execute(
-            select(SubscriptionPayment).where(
-                SubscriptionPayment.intent_id == intent.intent_id
-            )
-        )
-        if not existing_payment.scalar_one_or_none():
-            default_plan = await resolve_active_plan(db)
-            sub_result = await db.execute(
-                select(Subscription)
-                .where(Subscription.user_id == intent.user_id)
-                .order_by(Subscription.current_period_end.desc())
-            )
-            subscription = sub_result.scalars().first()
-            plan = default_plan
-            if subscription:
-                existing_plan = await get_subscription_plan_by_code(db, subscription.plan)
-                if existing_plan:
-                    plan = existing_plan
-            period_start = (
-                subscription.current_period_end
-                if subscription and subscription.current_period_end > now
-                else now
-            )
-            period_end = period_start + timedelta(days=plan.billing_interval_days)
-
-            if not subscription:
-                subscription = Subscription(
-                    user_id=intent.user_id,
-                    plan=plan.code,
-                    status="active",
-                    current_period_start=now,
-                    current_period_end=period_end,
-                )
-                db.add(subscription)
-                await db.flush()
-            else:
-                subscription.status = "active"
-                if subscription.current_period_end <= now:
-                    subscription.current_period_start = now
-                subscription.current_period_end = period_end
-
-            db.add(SubscriptionPayment(
-                subscription_id=subscription.id,
-                intent_id=intent.intent_id,
-                order_id=intent.order_id,
-                amount_usd=intent.amount_usd,
-                period_extended_to=period_end,
-            ))
-
-    await db.commit()
-    await db.refresh(intent)
     return _read_intent(intent)

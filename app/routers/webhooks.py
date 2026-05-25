@@ -1,24 +1,24 @@
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Request, status
+from app.rate_limit import limiter
 from sqlalchemy import select
 
+from app.core.webhook_auth import verify_baray_webhook
 from app.dependencies import DBSession
 from app.models.payment_intent import PaymentIntent
-from app.models.purchase import Purchase
-from app.models.subscription import Subscription
-from app.models.subscription_payment import SubscriptionPayment
 from app.models.webhook_event import WebhookEvent
 from app.services.payment import decrypt_order_id
-from app.services.subscription_plans import get_subscription_plan_by_code, resolve_active_plan
+from app.services.payment_fulfillment import fulfill_payment_intent
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
 
 @router.post("/baray")
+@limiter.limit("120/minute")
 async def baray_webhook(request: Request, db: DBSession):
-    body = await request.body()
+    body = await verify_baray_webhook(request)
 
     try:
         payload = json.loads(body)
@@ -46,14 +46,13 @@ async def baray_webhook(request: Request, db: DBSession):
             detail="Invalid encrypted_order_id",
         ) from exc
 
-    # Persist raw payload before any processing so failed events can be inspected.
     event = WebhookEvent(
         provider="baray",
         payload=payload,
         received_at=datetime.now(timezone.utc),
     )
     db.add(event)
-    await db.flush()  # get id without committing
+    await db.flush()
 
     try:
         await _process_baray_event(db, order_id, payload)
@@ -73,85 +72,5 @@ async def _process_baray_event(db, order_id: str, payload: dict) -> None:
     if not intent:
         return
 
-    now = datetime.now(timezone.utc)
     bank = payload.get("bank") if isinstance(payload.get("bank"), str) else None
-
-    if intent.status == "succeeded":
-        return
-
-    intent.status = "succeeded"
-    intent.resolved_at = now
-
-    if intent.kind == "single" and intent.content_id:
-        existing_purchase = await db.execute(
-            select(Purchase).where(Purchase.intent_id == intent.intent_id)
-        )
-        if existing_purchase.scalar_one_or_none():
-            return
-
-        purchase = Purchase(
-            user_id=intent.user_id,
-            content_id=intent.content_id,
-            intent_id=intent.intent_id,
-            order_id=intent.order_id,
-            bank=bank,
-            amount_usd=intent.amount_usd,
-        )
-        db.add(purchase)
-        return
-
-    if intent.kind == "sub":
-        existing_payment = await db.execute(
-            select(SubscriptionPayment).where(
-                SubscriptionPayment.intent_id == intent.intent_id
-            )
-        )
-        if existing_payment.scalar_one_or_none():
-            return
-
-        default_plan = await resolve_active_plan(db)
-        sub_result = await db.execute(
-            select(Subscription)
-            .where(Subscription.user_id == intent.user_id)
-            .order_by(Subscription.current_period_end.desc())
-        )
-        subscription = sub_result.scalars().first()
-        plan = default_plan
-        if subscription:
-            existing_plan = await get_subscription_plan_by_code(db, subscription.plan)
-            if existing_plan:
-                plan = existing_plan
-
-        if subscription and subscription.current_period_end > now:
-            period_start = subscription.current_period_end
-        else:
-            period_start = now
-
-        period_end = period_start + timedelta(days=plan.billing_interval_days)
-
-        if not subscription:
-            subscription = Subscription(
-                user_id=intent.user_id,
-                plan=plan.code,
-                status="active",
-                current_period_start=now,
-                current_period_end=period_end,
-            )
-            db.add(subscription)
-            await db.flush()
-        else:
-            subscription.status = "active"
-            if subscription.current_period_end <= now:
-                subscription.current_period_start = now
-            subscription.current_period_end = period_end
-
-        db.add(
-            SubscriptionPayment(
-                subscription_id=subscription.id,
-                intent_id=intent.intent_id,
-                order_id=intent.order_id,
-                bank=bank,
-                amount_usd=intent.amount_usd,
-                period_extended_to=period_end,
-            )
-        )
+    await fulfill_payment_intent(db, intent, bank=bank)

@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.models.user import User
 
@@ -22,13 +22,29 @@ def user_to_read(user: User) -> "UserRead":
 
 class UserCreate(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(min_length=8, max_length=128)
     full_name: str | None = None
+
+    @field_validator("password")
+    @classmethod
+    def password_strength(cls, value: str) -> str:
+        if not any(c.isalpha() for c in value) or not any(c.isdigit() for c in value):
+            raise ValueError("Password must include at least one letter and one number")
+        return value
 
 
 class UserUpdate(BaseModel):
     full_name: str | None = None
-    password: str | None = None
+    password: str | None = Field(default=None, min_length=8, max_length=128)
+
+    @field_validator("password")
+    @classmethod
+    def password_strength(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not any(c.isalpha() for c in value) or not any(c.isdigit() for c in value):
+            raise ValueError("Password must include at least one letter and one number")
+        return value
 
 
 class UserRead(BaseModel):

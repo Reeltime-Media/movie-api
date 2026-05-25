@@ -1,10 +1,10 @@
 """Movie upload flow (multipart — API server never buffers video bytes):
 
-  1. POST /movies/uploads/start  (requires title — reserves movies/{slug}/… keys)
-       → { content_id, slug, upload_id, source_key, part_size, poster_key?, poster_upload_url? }
+  1. POST /movies/uploads/start  (requires title + file_size_bytes)
+       → { content_id, slug, upload_id, source_key, part_size, part_urls[], poster_key?, poster_upload_url? }
 
   2. GET  /movies/uploads/part-url?source_key=…&upload_id=…&part_number=N
-       → { url }   (presigned PUT — client uploads the chunk directly to R2)
+       → { url }   (optional fallback — start returns all part URLs in one response)
 
   3. POST /movies/uploads/complete
        → ContentRead   (completes multipart upload + creates DB record + queues transcode)
@@ -61,8 +61,14 @@ async def _unique_slug(base: str, db) -> str:
 
 class MovieUploadStart(BaseModel):
     title: str
+    file_size_bytes: int = Field(gt=0, description="Raw video file size — used to presign all part URLs")
     video_content_type: str = "video/mp4"
     poster_content_type: str | None = None
+
+
+class MultipartPartUrl(BaseModel):
+    part_number: int
+    url: str
 
 
 class MovieUploadStartRead(BaseModel):
@@ -71,6 +77,8 @@ class MovieUploadStartRead(BaseModel):
     upload_id: str          # R2 multipart upload ID
     source_key: str
     part_size: int          # recommended bytes per chunk (50 MB)
+    part_count: int
+    part_urls: list[MultipartPartUrl]
     poster_key: str | None = None
     poster_upload_url: str | None = None
 
@@ -143,12 +151,17 @@ async def start_movie_upload(data: MovieUploadStart, db: DBSession, _: AdminUser
             poster_key, data.poster_content_type
         )
 
+    part_count = storage.multipart_part_count(data.file_size_bytes)
+    part_urls = storage.generate_presigned_part_urls(source_key, upload_id, part_count)
+
     return MovieUploadStartRead(
         content_id=content_id,
         slug=slug,
         upload_id=upload_id,
         source_key=source_key,
         part_size=storage.MULTIPART_PART_SIZE,
+        part_count=part_count,
+        part_urls=[MultipartPartUrl(**entry) for entry in part_urls],
         poster_key=poster_key,
         poster_upload_url=poster_upload_url,
     )
@@ -259,10 +272,11 @@ async def list_movies(db: DBSession):
 
 
 @router.get("/{slug}", response_model=ContentRead)
-async def get_movie(slug: str, db: DBSession, _: CurrentUser):
-    result = await db.execute(
-        select(Content).where(Content.slug == slug, Content.type == "single")
-    )
+async def get_movie(slug: str, db: DBSession, current_user: CurrentUser):
+    stmt = select(Content).where(Content.slug == slug, Content.type == "single")
+    if current_user.role != "admin":
+        stmt = stmt.where(Content.is_published.is_(True))
+    result = await db.execute(stmt)
     movie = result.scalar_one_or_none()
     if not movie:
         raise NotFoundError("Movie not found")

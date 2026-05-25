@@ -1,10 +1,10 @@
 """Episode upload flow (multipart — API server never buffers video bytes):
 
-  1. POST /series/{slug}/episodes/uploads/start
-       → { content_id, upload_id, source_key, part_size, poster_key?, poster_upload_url? }
+  1. POST /series/{slug}/episodes/uploads/start  (requires file_size_bytes)
+       → { content_id, upload_id, source_key, part_size, part_urls[], poster_key?, poster_upload_url? }
 
   2. GET  /series/{slug}/episodes/uploads/part-url?source_key=…&upload_id=…&part_number=N
-       → { url }   (presigned PUT — client uploads the chunk directly to R2)
+       → { url }   (optional fallback — start returns all part URLs in one response)
 
   3. POST /series/{slug}/episodes/uploads/complete
        → ContentRead   (completes multipart upload + creates episode record + queues transcode)
@@ -19,7 +19,7 @@ import uuid
 from decimal import Decimal
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 
 from app.core.exceptions import NotFoundError
@@ -68,8 +68,11 @@ async def _unique_series_slug(base: str, db) -> str:
     return f"{slug}-{uuid.uuid4().hex[:6]}"
 
 
-async def _get_series_or_404(slug: str, db) -> Series:
-    result = await db.execute(select(Series).where(Series.slug == slug))
+async def _get_series_or_404(slug: str, db, *, published_only: bool = False) -> Series:
+    stmt = select(Series).where(Series.slug == slug)
+    if published_only:
+        stmt = stmt.where(Series.is_published.is_(True))
+    result = await db.execute(stmt)
     series = result.scalar_one_or_none()
     if not series:
         raise NotFoundError("Series not found")
@@ -108,8 +111,14 @@ class SeriesPosterStartRead(BaseModel):
 class EpisodeUploadStart(BaseModel):
     season_number: int
     episode_number: int
+    file_size_bytes: int = Field(gt=0, description="Raw video file size — used to presign all part URLs")
     video_content_type: str = "video/mp4"
     poster_content_type: str | None = None
+
+
+class MultipartPartUrl(BaseModel):
+    part_number: int
+    url: str
 
 
 class EpisodeUploadStartRead(BaseModel):
@@ -118,6 +127,8 @@ class EpisodeUploadStartRead(BaseModel):
     upload_id: str
     source_key: str
     part_size: int
+    part_count: int
+    part_urls: list[MultipartPartUrl]
     poster_key: str | None = None
     poster_upload_url: str | None = None
 
@@ -162,8 +173,9 @@ async def list_series(db: DBSession):
 
 
 @router.get("/{slug}", response_model=SeriesRead)
-async def get_series(slug: str, db: DBSession, _: CurrentUser):
-    return await _get_series_or_404(slug, db)
+async def get_series(slug: str, db: DBSession, current_user: CurrentUser):
+    published_only = current_user.role != "admin"
+    return await _get_series_or_404(slug, db, published_only=published_only)
 
 
 @router.post("/", response_model=SeriesRead, status_code=201)
@@ -227,7 +239,7 @@ async def delete_series(slug: str, db: DBSession, _: AdminUser):
 @router.get("/{slug}/episodes", response_model=list[SeasonRead])
 async def list_episodes(slug: str, db: DBSession):
     """Published episodes for a series (public — used for free-episode discovery on the catalog)."""
-    series = await _get_series_or_404(slug, db)
+    series = await _get_series_or_404(slug, db, published_only=True)
 
     eps_result = await db.execute(
         select(Content)
@@ -279,12 +291,17 @@ async def start_episode_upload(slug: str, data: EpisodeUploadStart, db: DBSessio
             poster_key, data.poster_content_type
         )
 
+    part_count = storage.multipart_part_count(data.file_size_bytes)
+    part_urls = storage.generate_presigned_part_urls(source_key, upload_id, part_count)
+
     return EpisodeUploadStartRead(
         content_id=content_id,
         episode_slug=episode_slug,
         upload_id=upload_id,
         source_key=source_key,
         part_size=storage.MULTIPART_PART_SIZE,
+        part_count=part_count,
+        part_urls=[MultipartPartUrl(**entry) for entry in part_urls],
         poster_key=poster_key,
         poster_upload_url=poster_upload_url,
     )

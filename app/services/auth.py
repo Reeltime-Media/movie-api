@@ -15,7 +15,7 @@ settings = get_settings()
 async def register_user(db: AsyncSession, data: UserCreate) -> User:
     result = await db.execute(select(User).where(User.email == data.email.lower()))
     if result.scalar_one_or_none():
-        raise ConflictError("Email already registered")
+        raise ConflictError("Unable to create account with this email")
 
     user = User(
         email=data.email.lower(),

@@ -15,7 +15,9 @@ class Settings(BaseSettings):
     )
     secret_key: str
     algorithm: str = "HS256"
-    access_token_expire_minutes: int = 1440  # 24 hours
+    access_token_expire_minutes: int = 480  # 8 hours
+    # Public frontend URL(s) for payment success redirects (comma-separated; falls back to CORS_ORIGINS)
+    app_public_url: str = ""
 
     # Google Sign-In (OAuth client ID from Google Cloud Console)
     google_client_id: str = ""  # env: GOOGLE_CLIENT_ID
@@ -48,8 +50,13 @@ class Settings(BaseSettings):
     baray_iv: str = ""
     baray_base_url: str = "https://api.baray.io"
     baray_checkout_base_url: str = "https://pay.baray.io"
+    baray_webhook_secret: str = ""
     # Public URL of this API — must be reachable by Baray to deliver webhooks
     api_public_url: str = ""
+
+    # Transcode worker (admin proxy only — never expose key to browsers)
+    transcode_service_url: str = ""
+    transcode_api_key: str = ""
 
 
 @lru_cache

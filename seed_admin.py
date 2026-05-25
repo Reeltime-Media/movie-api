@@ -1,11 +1,13 @@
 """
-Seed an admin user.
-Run from the movie-api directory:
+Seed an admin user (local/bootstrap only).
 
-    python seed_admin.py
+    ADMIN_SEED_EMAIL=you@example.com ADMIN_SEED_PASSWORD='strong-password' python seed_admin.py
+
+Never use default passwords in production.
 """
 
 import asyncio
+import os
 import sys
 
 from sqlalchemy import select
@@ -18,12 +20,22 @@ from app.models.user import User
 
 settings = get_settings()
 
-ADMIN_EMAIL = "admin@gmail.com"
-ADMIN_PASSWORD = "admin123"
-ADMIN_NAME = "Admin"
+ADMIN_EMAIL = os.environ.get("ADMIN_SEED_EMAIL", "").strip().lower()
+ADMIN_PASSWORD = os.environ.get("ADMIN_SEED_PASSWORD", "")
+ADMIN_NAME = os.environ.get("ADMIN_SEED_NAME", "Admin").strip() or "Admin"
 
 
 async def seed():
+    if not ADMIN_EMAIL or not ADMIN_PASSWORD:
+        print(
+            "Set ADMIN_SEED_EMAIL and ADMIN_SEED_PASSWORD environment variables.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if len(ADMIN_PASSWORD) < 8:
+        print("ADMIN_SEED_PASSWORD must be at least 8 characters.", file=sys.stderr)
+        sys.exit(1)
+
     engine = create_async_engine(
         settings.effective_database_url,
         **sqlalchemy_engine_kwargs(settings.effective_database_url, debug=False),

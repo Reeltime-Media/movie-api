@@ -746,6 +746,20 @@ async def list_transcode_jobs(
     )
 
 
+@router.get("/transcode-jobs/progress")
+async def admin_transcode_jobs_progress(_: AdminUser):
+    from app.services.transcode_client import fetch_jobs_progress
+
+    return await fetch_jobs_progress()
+
+
+@router.post("/transcode-jobs/{job_id}/cancel")
+async def admin_cancel_transcode_job(job_id: uuid.UUID, _: AdminUser):
+    from app.services.transcode_client import cancel_job
+
+    return await cancel_job(str(job_id))
+
+
 @router.post("/transcode-jobs/{job_id}/retry", response_model=TranscodeJobRead)
 async def retry_transcode_job(job_id: uuid.UUID, db: DBSession, _: AdminUser):
     result = await db.execute(select(TranscodeJob).where(TranscodeJob.id == job_id))

@@ -2,17 +2,18 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from app.dependencies import CurrentUser, DBSession
 from app.models.watch_progress import WatchProgress
+from app.services.content_access import assert_can_track_watch_progress
 
 router = APIRouter(prefix="/watch-progress", tags=["watch-progress"])
 
 
 class WatchProgressUpdate(BaseModel):
-    position_seconds: int
+    position_seconds: int = Field(ge=0, le=86_400 * 24)
     completed: bool = False
 
 
@@ -41,6 +42,8 @@ async def upsert_watch_progress(
     db: DBSession,
     current_user: CurrentUser,
 ):
+    await assert_can_track_watch_progress(db, current_user, content_id)
+
     result = await db.execute(
         select(WatchProgress).where(
             WatchProgress.user_id == current_user.id,

@@ -100,6 +100,13 @@ def create_multipart_upload(key: str, content_type: str = "video/mp4") -> str:
     return resp["UploadId"]
 
 
+def multipart_part_count(file_size_bytes: int) -> int:
+    """Number of parts for a file given the standard chunk size."""
+    if file_size_bytes < 1:
+        raise ValueError("file_size_bytes must be positive")
+    return max(1, (file_size_bytes + MULTIPART_PART_SIZE - 1) // MULTIPART_PART_SIZE)
+
+
 def generate_presigned_part_url(
     key: str,
     upload_id: str,
@@ -117,6 +124,24 @@ def generate_presigned_part_url(
         },
         ExpiresIn=expires_in,
     )
+
+
+def generate_presigned_part_urls(
+    key: str,
+    upload_id: str,
+    part_count: int,
+    expires_in: int = 43200,
+) -> list[dict]:
+    """Return presigned PUT URLs for parts 1..part_count (inclusive)."""
+    if part_count < 1 or part_count > 10_000:
+        raise ValueError("part_count must be between 1 and 10000")
+    return [
+        {
+            "part_number": part_number,
+            "url": generate_presigned_part_url(key, upload_id, part_number, expires_in),
+        }
+        for part_number in range(1, part_count + 1)
+    ]
 
 
 def complete_multipart_upload(key: str, upload_id: str, parts: list[dict]) -> None:

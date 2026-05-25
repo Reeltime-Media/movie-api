@@ -70,13 +70,17 @@ async def payment_test_page():
         moviesEl.innerHTML = movies.map((movie) => `
           <article class="movie">
             <div>
-              <div class="title">${movie.title}</div>
+              <div class="title"></div>
               <div class="meta">Movie ID: ${movie.id}</div>
               <div class="meta">Price: $${movie.price_usd} · Status: ${movie.status}</div>
             </div>
             <button data-id="${movie.id}">Pay with Baray</button>
           </article>
         `).join("");
+        moviesEl.querySelectorAll(".movie").forEach((article, index) => {
+          const titleEl = article.querySelector(".title");
+          if (titleEl) titleEl.textContent = movies[index].title;
+        });
       }
 
       moviesEl.addEventListener("click", async (event) => {
@@ -110,6 +114,7 @@ async def list_payment_test_movies(db: DBSession):
         select(Content)
         .where(
             Content.type == "single",
+            Content.is_published.is_(True),
             Content.price_usd.is_not(None),
         )
         .order_by(Content.created_at.desc())
