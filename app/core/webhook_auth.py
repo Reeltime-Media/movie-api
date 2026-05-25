@@ -35,8 +35,6 @@ async def verify_baray_webhook(request: Request) -> bytes:
     settings = get_settings()
     secret = settings.baray_webhook_secret.strip()
     if not secret:
-        if settings.debug:
-            return body
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Webhook secret is not configured",
