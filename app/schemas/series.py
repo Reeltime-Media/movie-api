@@ -42,3 +42,16 @@ class SeriesRead(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class SeriesListItemRead(BaseModel):
+    id: UUID
+    slug: str
+    title: str
+    genres: list[str]
+    release_year: int | None
+    rating: Decimal | None
+    poster_key: str | None
+    monthly_price_usd: Decimal
+
+    model_config = {"from_attributes": True}

@@ -23,17 +23,21 @@ settings = get_settings()
 # Recommended chunk size for multipart uploads: 50 MB.
 # A 2h movie at 5 Mbps ≈ 4.5 GB → ~92 parts. Max R2 parts = 10,000.
 MULTIPART_PART_SIZE = 50 * 1024 * 1024  # 50 MB in bytes
+_s3_client = None
 
 
 def _client():
-    return boto3.client(
-        "s3",
-        endpoint_url=f"https://{settings.r2_account_id}.r2.cloudflarestorage.com",
-        aws_access_key_id=settings.r2_access_key_id,
-        aws_secret_access_key=settings.r2_secret_access_key,
-        config=Config(signature_version="s3v4"),
-        region_name="auto",
-    )
+    global _s3_client
+    if _s3_client is None:
+        _s3_client = boto3.client(
+            "s3",
+            endpoint_url=f"https://{settings.r2_account_id}.r2.cloudflarestorage.com",
+            aws_access_key_id=settings.r2_access_key_id,
+            aws_secret_access_key=settings.r2_secret_access_key,
+            config=Config(signature_version="s3v4"),
+            region_name="auto",
+        )
+    return _s3_client
 
 
 # ── Simple object operations ───────────────────────────────────────────────────
@@ -165,3 +169,9 @@ def abort_multipart_upload(key: str, upload_id: str) -> None:
         Key=key,
         UploadId=upload_id,
     )
+
+
+def reset_client() -> None:
+    """Reset cached client (mainly for tests/shutdown hygiene)."""
+    global _s3_client
+    _s3_client = None

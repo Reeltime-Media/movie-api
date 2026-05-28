@@ -59,6 +59,21 @@ class ContentRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ContentListItemRead(BaseModel):
+    id: UUID
+    type: str
+    slug: str
+    title: str
+    poster_key: str | None
+    price_usd: Decimal | None
+    rating: Decimal | None
+    runtime: str | None
+    release_year: int | None
+    is_free: bool
+
+    model_config = {"from_attributes": True}
+
+
 class AdminContentRead(ContentRead):
     """Admin catalog row — includes unique viewer count from watch_progress."""
 

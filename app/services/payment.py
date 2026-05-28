@@ -15,10 +15,26 @@ settings = get_settings()
 
 _BLOCK_SIZE_BITS = 128
 _CURRENCY = "USD"
+_CLIENT_TIMEOUT_SECONDS = 15
+_baray_client: httpx.AsyncClient | None = None
 
 
 class BarayCredentialsError(RuntimeError):
     pass
+
+
+def _get_baray_client() -> httpx.AsyncClient:
+    global _baray_client
+    if _baray_client is None:
+        _baray_client = httpx.AsyncClient(timeout=_CLIENT_TIMEOUT_SECONDS)
+    return _baray_client
+
+
+async def close_http_client() -> None:
+    global _baray_client
+    if _baray_client is not None:
+        await _baray_client.aclose()
+        _baray_client = None
 
 
 def _credential_pair() -> tuple[bytes, bytes]:
@@ -99,16 +115,16 @@ async def create_intent(
         ) from exc
 
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            response = await client.post(
-                f"{settings.baray_base_url.rstrip('/')}/pay",
-                headers={
-                    "Content-Type": "application/json",
-                    "x-api-key": settings.baray_api_key,
-                },
-                json={"data": encrypted},
-            )
-            response.raise_for_status()
+        client = _get_baray_client()
+        response = await client.post(
+            f"{settings.baray_base_url.rstrip('/')}/pay",
+            headers={
+                "Content-Type": "application/json",
+                "x-api-key": settings.baray_api_key,
+            },
+            json={"data": encrypted},
+        )
+        response.raise_for_status()
     except httpx.HTTPStatusError as exc:
         detail = "Baray rejected the payment intent"
         try:

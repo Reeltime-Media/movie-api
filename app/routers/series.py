@@ -29,9 +29,11 @@ from app.models.content import Content
 from app.models.series import Series
 from app.models.transcode_job import TranscodeJob
 from app.schemas.content import ContentRead, ContentUpdate, SeasonRead
-from app.schemas.series import SeriesRead, SeriesUpdate
+from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
+from app.schemas.series import SeriesListItemRead, SeriesRead, SeriesUpdate
 from app.services import storage
 from app.services import r2_keys
+from app.services.pagination import paginate_query
 from app.services.content_delete import (
     delete_content_dependencies,
     delete_content_dependencies_for_series,
@@ -166,10 +168,25 @@ class EpisodeUploadAbort(BaseModel):
 
 # ── Series CRUD ───────────────────────────────────────────────────────────────
 
-@router.get("/", response_model=list[SeriesRead])
-async def list_series(db: DBSession):
-    result = await db.execute(select(Series).where(Series.is_published.is_(True)))
-    return result.scalars().all()
+@router.get("/", response_model=PaginatedResponse[SeriesListItemRead])
+async def list_series(db: DBSession, pagination: PaginationDep):
+    stmt = (
+        select(Series)
+        .where(Series.is_published.is_(True))
+        .order_by(Series.created_at.desc())
+    )
+    items, total = await paginate_query(
+        db,
+        stmt,
+        page=pagination.page,
+        page_size=pagination.page_size,
+    )
+    return build_paginated_response(
+        [SeriesListItemRead.model_validate(item) for item in items],
+        total=total,
+        page=pagination.page,
+        page_size=pagination.page_size,
+    )
 
 
 @router.get("/{slug}", response_model=SeriesRead)

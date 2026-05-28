@@ -5,6 +5,9 @@ from fastapi import HTTPException, status
 
 from app.config import get_settings
 
+_CLIENT_TIMEOUT_SECONDS = 15
+_transcode_client: httpx.AsyncClient | None = None
+
 
 def _headers() -> dict[str, str]:
     settings = get_settings()
@@ -24,12 +27,26 @@ def _base_url() -> str:
     return settings.transcode_service_url.rstrip("/")
 
 
+def _get_transcode_client() -> httpx.AsyncClient:
+    global _transcode_client
+    if _transcode_client is None:
+        _transcode_client = httpx.AsyncClient(timeout=_CLIENT_TIMEOUT_SECONDS)
+    return _transcode_client
+
+
+async def close_http_client() -> None:
+    global _transcode_client
+    if _transcode_client is not None:
+        await _transcode_client.aclose()
+        _transcode_client = None
+
+
 async def fetch_jobs_progress() -> dict[str, int]:
     url = f"{_base_url()}/jobs/progress"
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.get(url, headers=_headers())
-            response.raise_for_status()
+        client = _get_transcode_client()
+        response = await client.get(url, headers=_headers())
+        response.raise_for_status()
     except httpx.HTTPError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -47,9 +64,9 @@ async def fetch_jobs_progress() -> dict[str, int]:
 async def cancel_job(job_id: str) -> dict:
     url = f"{_base_url()}/jobs/{job_id}/cancel"
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            response = await client.post(url, headers=_headers())
-            response.raise_for_status()
+        client = _get_transcode_client()
+        response = await client.post(url, headers=_headers())
+        response.raise_for_status()
     except httpx.HTTPStatusError as exc:
         detail = "Could not cancel transcode job"
         try:

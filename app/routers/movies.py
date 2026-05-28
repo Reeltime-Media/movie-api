@@ -27,7 +27,9 @@ from app.core.money import validate_usd_price
 from app.dependencies import AdminUser, CurrentUser, DBSession
 from app.models.content import Content
 from app.models.transcode_job import TranscodeJob
-from app.schemas.content import ContentRead, ContentUpdate
+from app.schemas.content import ContentListItemRead, ContentRead, ContentUpdate
+from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
+from app.services.pagination import paginate_query
 from app.services import storage
 from app.services.content_delete import delete_content_dependencies
 from app.services import r2_keys
@@ -263,12 +265,25 @@ async def abort_movie_upload(data: MovieUploadAbort, _: AdminUser):
 
 # ── CRUD ──────────────────────────────────────────────────────────────────────
 
-@router.get("/", response_model=list[ContentRead])
-async def list_movies(db: DBSession):
-    result = await db.execute(
-        select(Content).where(Content.type == "single", Content.is_published.is_(True))
+@router.get("/", response_model=PaginatedResponse[ContentListItemRead])
+async def list_movies(db: DBSession, pagination: PaginationDep):
+    stmt = (
+        select(Content)
+        .where(Content.type == "single", Content.is_published.is_(True))
+        .order_by(Content.created_at.desc())
     )
-    return result.scalars().all()
+    items, total = await paginate_query(
+        db,
+        stmt,
+        page=pagination.page,
+        page_size=pagination.page_size,
+    )
+    return build_paginated_response(
+        [ContentListItemRead.model_validate(item) for item in items],
+        total=total,
+        page=pagination.page,
+        page_size=pagination.page_size,
+    )
 
 
 @router.get("/{slug}", response_model=ContentRead)
