@@ -10,7 +10,7 @@ from app.config import get_settings
 def allowed_app_origins() -> list[str]:
     settings = get_settings()
     origins: list[str] = []
-    for raw in settings.cors_origins.split(","):
+    for raw in settings.cors_origin_list:
         origin = raw.strip().rstrip("/")
         if origin:
             origins.append(origin)

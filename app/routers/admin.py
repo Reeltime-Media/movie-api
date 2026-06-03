@@ -14,7 +14,9 @@ from app.schemas.pagination import PaginatedResponse, PaginationDep, build_pagin
 from app.services.pagination import paginate_query
 from app.models.comment import Comment
 from app.models.content import Content
+from app.models.hero_featured_item import HeroFeaturedItem
 from app.models.payment_intent import PaymentIntent
+from app.models.promotion_banner import PromotionBanner
 from app.models.purchase import Purchase
 from app.models.series import Series
 from app.models.transcode_job import TranscodeJob
@@ -29,6 +31,18 @@ from app.models.watch_progress import WatchProgress
 from app.schemas.comment import CommentRead, CommentUpdate
 from app.schemas.content import AdminContentRead, ContentRead, ContentUpdate, SeasonRead
 from app.schemas.series import SeriesRead
+from app.schemas.promotion_banner import (
+    PromotionBannerCreate,
+    PromotionBannerImageStart,
+    PromotionBannerImageStartRead,
+    PromotionBannerRead,
+    PromotionBannerUpdate,
+)
+from app.schemas.hero_featured import (
+    HeroFeaturedItemCreate,
+    HeroFeaturedItemRead,
+    HeroFeaturedItemUpdate,
+)
 from app.schemas.subscription_plan import (
     SubscriptionPlanCreate,
     SubscriptionPlanRead,
@@ -42,6 +56,7 @@ from app.services.comments import (
     update_comment_body,
 )
 from app.services.subscription_plans import list_subscription_plans
+from app.services.hero_featured import enrich_admin_hero_items, validate_hero_content
 from app.services import storage
 from app.services import r2_keys
 from app.services.content_publish import ensure_movie_publishable
@@ -1065,3 +1080,211 @@ async def delete_admin_comment(
 ):
     comment = await get_comment_or_404(db, comment_id)
     await soft_delete_comment(db, comment)
+
+
+# ── Promotion banners ─────────────────────────────────────────────────────────
+
+
+@router.get("/promotion-banners", response_model=list[PromotionBannerRead])
+async def list_admin_promotion_banners(db: DBSession, _: AdminUser):
+    try:
+        result = await db.execute(
+            select(PromotionBanner).order_by(
+                PromotionBanner.sort_order.asc(),
+                PromotionBanner.created_at.desc(),
+            )
+        )
+        return list(result.scalars().all())
+    except Exception as exc:
+        message = str(exc).lower()
+        if "promotion_banners" in message or "does not exist" in message or "undefinedtable" in message:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "promotion_banners table is missing. "
+                    "Run: cd movie-api && alembic upgrade head (or restart the api container)"
+                ),
+            ) from exc
+        raise HTTPException(status_code=500, detail="Could not load promotion banners") from exc
+
+
+@router.post("/promotion-banners", response_model=PromotionBannerRead, status_code=201)
+async def create_admin_promotion_banner(
+    data: PromotionBannerCreate,
+    db: DBSession,
+    _: AdminUser,
+):
+    banner = PromotionBanner(**data.model_dump())
+    db.add(banner)
+    await db.commit()
+    await db.refresh(banner)
+    return banner
+
+
+@router.patch("/promotion-banners/{banner_id}", response_model=PromotionBannerRead)
+async def update_admin_promotion_banner(
+    banner_id: uuid.UUID,
+    data: PromotionBannerUpdate,
+    db: DBSession,
+    _: AdminUser,
+):
+    result = await db.execute(
+        select(PromotionBanner).where(PromotionBanner.id == banner_id)
+    )
+    banner = result.scalar_one_or_none()
+    if not banner:
+        raise NotFoundError("Promotion banner not found")
+
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(banner, field, value)
+
+    await db.commit()
+    await db.refresh(banner)
+    return banner
+
+
+@router.delete("/promotion-banners/{banner_id}", status_code=204)
+async def delete_admin_promotion_banner(
+    banner_id: uuid.UUID,
+    db: DBSession,
+    _: AdminUser,
+):
+    result = await db.execute(
+        select(PromotionBanner).where(PromotionBanner.id == banner_id)
+    )
+    banner = result.scalar_one_or_none()
+    if not banner:
+        raise NotFoundError("Promotion banner not found")
+    await db.delete(banner)
+    await db.commit()
+
+
+@router.post(
+    "/promotion-banners/{banner_id}/image/start",
+    response_model=PromotionBannerImageStartRead,
+)
+async def start_admin_promotion_banner_image_upload(
+    banner_id: uuid.UUID,
+    data: PromotionBannerImageStart,
+    _: AdminUser,
+    db: DBSession,
+):
+    result = await db.execute(
+        select(PromotionBanner).where(PromotionBanner.id == banner_id)
+    )
+    banner = result.scalar_one_or_none()
+    if not banner:
+        raise NotFoundError("Promotion banner not found")
+
+    image_key = r2_keys.promotion_banner_image_key(banner_id, data.content_type)
+    upload_url = storage.generate_presigned_upload_url(image_key, data.content_type)
+    return PromotionBannerImageStartRead(image_key=image_key, upload_url=upload_url)
+
+
+# ── Hero featured items ───────────────────────────────────────────────────────
+
+
+@router.get("/hero-featured", response_model=list[HeroFeaturedItemRead])
+async def list_admin_hero_featured(db: DBSession, _: AdminUser):
+    try:
+        result = await db.execute(
+            select(HeroFeaturedItem).order_by(
+                HeroFeaturedItem.sort_order.asc(),
+                HeroFeaturedItem.created_at.desc(),
+            )
+        )
+        items = list(result.scalars().all())
+        return await enrich_admin_hero_items(db, items)
+    except Exception as exc:
+        message = str(exc).lower()
+        if "hero_featured_items" in message or "does not exist" in message or "undefinedtable" in message:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "hero_featured_items table is missing. "
+                    "Run: cd movie-api && alembic upgrade head (or restart the api container)"
+                ),
+            ) from exc
+        raise HTTPException(status_code=500, detail="Could not load hero featured items") from exc
+
+
+@router.post("/hero-featured", response_model=HeroFeaturedItemRead, status_code=201)
+async def create_admin_hero_featured(
+    data: HeroFeaturedItemCreate,
+    db: DBSession,
+    _: AdminUser,
+):
+    try:
+        await validate_hero_content(db, content_type=data.content_type, content_id=data.content_id)
+    except ValueError as exc:
+        raise NotFoundError(str(exc)) from exc
+
+    item = HeroFeaturedItem(**data.model_dump())
+    db.add(item)
+    try:
+        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        message = str(exc).lower()
+        if "unique" in message or "duplicate" in message:
+            raise ConflictError("This title is already featured for this placement") from exc
+        raise
+    await db.refresh(item)
+    enriched = await enrich_admin_hero_items(db, [item])
+    return enriched[0]
+
+
+@router.patch("/hero-featured/{item_id}", response_model=HeroFeaturedItemRead)
+async def update_admin_hero_featured(
+    item_id: uuid.UUID,
+    data: HeroFeaturedItemUpdate,
+    db: DBSession,
+    _: AdminUser,
+):
+    result = await db.execute(
+        select(HeroFeaturedItem).where(HeroFeaturedItem.id == item_id)
+    )
+    item = result.scalar_one_or_none()
+    if not item:
+        raise NotFoundError("Hero featured item not found")
+
+    updates = data.model_dump(exclude_unset=True)
+    content_type = updates.get("content_type", item.content_type)
+    content_id = updates.get("content_id", item.content_id)
+    if "content_type" in updates or "content_id" in updates:
+        try:
+            await validate_hero_content(db, content_type=content_type, content_id=content_id)
+        except ValueError as exc:
+            raise NotFoundError(str(exc)) from exc
+
+    for field, value in updates.items():
+        setattr(item, field, value)
+
+    try:
+        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        message = str(exc).lower()
+        if "unique" in message or "duplicate" in message:
+            raise ConflictError("This title is already featured for this placement") from exc
+        raise
+    await db.refresh(item)
+    enriched = await enrich_admin_hero_items(db, [item])
+    return enriched[0]
+
+
+@router.delete("/hero-featured/{item_id}", status_code=204)
+async def delete_admin_hero_featured(
+    item_id: uuid.UUID,
+    db: DBSession,
+    _: AdminUser,
+):
+    result = await db.execute(
+        select(HeroFeaturedItem).where(HeroFeaturedItem.id == item_id)
+    )
+    item = result.scalar_one_or_none()
+    if not item:
+        raise NotFoundError("Hero featured item not found")
+    await db.delete(item)
+    await db.commit()
+

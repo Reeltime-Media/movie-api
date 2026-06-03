@@ -24,7 +24,7 @@ from sqlalchemy import select
 
 from app.core.exceptions import NotFoundError
 from app.core.money import validate_usd_price
-from app.dependencies import AdminUser, CurrentUser, DBSession
+from app.dependencies import AdminUser, DBSession, OptionalUser
 from app.models.content import Content
 from app.models.series import Series
 from app.models.transcode_job import TranscodeJob
@@ -33,6 +33,7 @@ from app.schemas.pagination import PaginatedResponse, PaginationDep, build_pagin
 from app.schemas.series import SeriesListItemRead, SeriesRead, SeriesUpdate
 from app.services import storage
 from app.services import r2_keys
+from app.services.content_access import user_has_active_subscription
 from app.services.pagination import paginate_query
 from app.services.content_delete import (
     delete_content_dependencies,
@@ -169,12 +170,29 @@ class EpisodeUploadAbort(BaseModel):
 # ── Series CRUD ───────────────────────────────────────────────────────────────
 
 @router.get("/", response_model=PaginatedResponse[SeriesListItemRead])
-async def list_series(db: DBSession, pagination: PaginationDep):
+async def list_series(
+    db: DBSession,
+    pagination: PaginationDep,
+    search: str | None = Query(
+        default=None,
+        max_length=200,
+        description="Filter by title, description, or genre",
+    ),
+    genre: str | None = Query(
+        default=None,
+        max_length=100,
+        description="Filter by exact genre label (e.g. Drama)",
+    ),
+):
+    from app.services.catalog_search import apply_catalog_genre, apply_catalog_search
+
     stmt = (
         select(Series)
         .where(Series.is_published.is_(True))
         .order_by(Series.created_at.desc())
     )
+    stmt = apply_catalog_search(stmt, Series, search=search)
+    stmt = apply_catalog_genre(stmt, Series, genre=genre)
     items, total = await paginate_query(
         db,
         stmt,
@@ -190,8 +208,8 @@ async def list_series(db: DBSession, pagination: PaginationDep):
 
 
 @router.get("/{slug}", response_model=SeriesRead)
-async def get_series(slug: str, db: DBSession, current_user: CurrentUser):
-    published_only = current_user.role != "admin"
+async def get_series(slug: str, db: DBSession, current_user: OptionalUser):
+    published_only = not current_user or current_user.role != "admin"
     return await _get_series_or_404(slug, db, published_only=published_only)
 
 
@@ -254,7 +272,7 @@ async def delete_series(slug: str, db: DBSession, _: AdminUser):
 # ── Episode read endpoints ─────────────────────────────────────────────────────
 
 @router.get("/{slug}/episodes", response_model=list[SeasonRead])
-async def list_episodes(slug: str, db: DBSession):
+async def list_episodes(slug: str, db: DBSession, current_user: OptionalUser):
     """Published episodes for a series (public — used for free-episode discovery on the catalog)."""
     series = await _get_series_or_404(slug, db, published_only=True)
 
@@ -265,10 +283,20 @@ async def list_episodes(slug: str, db: DBSession):
     )
     episodes = eps_result.scalars().all()
 
-    seasons: dict[int, list[Content]] = {}
+    # Resolve entitlement once: admins and active subscribers may stream any
+    # episode; everyone else only gets the HLS key for free episodes. Playback
+    # itself is enforced again by the token-gated /playback endpoints.
+    is_admin = current_user is not None and current_user.role == "admin"
+    has_sub = current_user is not None and await user_has_active_subscription(
+        db, current_user.id
+    )
+
+    seasons: dict[int, list[ContentRead]] = {}
     for ep in episodes:
-        sn = ep.season_number or 1
-        seasons.setdefault(sn, []).append(ep)
+        data = ContentRead.model_validate(ep)
+        if not (is_admin or ep.is_free or has_sub):
+            data.hls_master_key = None
+        seasons.setdefault(ep.season_number or 1, []).append(data)
 
     return [
         SeasonRead(season_number=sn, episodes=eps)

@@ -3,6 +3,8 @@ from app.models.comment_report import CommentReport
 from app.models.comment_vote import CommentVote
 from app.models.content import Content
 from app.models.payment_intent import PaymentIntent
+from app.models.hero_featured_item import HeroFeaturedItem
+from app.models.promotion_banner import PromotionBanner
 from app.models.purchase import Purchase
 from app.models.series import Series
 from app.models.subscription import Subscription
@@ -26,6 +28,8 @@ __all__ = [
     "SubscriptionPlan",
     "WatchProgress",
     "PaymentIntent",
+    "HeroFeaturedItem",
+    "PromotionBanner",
     "WebhookEvent",
     "TranscodeJob",
 ]

@@ -11,6 +11,7 @@ from app.database import AsyncSessionLocal
 from app.models.user import User
 
 bearer_scheme = HTTPBearer()
+optional_bearer_scheme = HTTPBearer(auto_error=False)
 
 
 async def get_db():
@@ -43,6 +44,31 @@ async def get_current_user(
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+async def get_current_user_optional(
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(optional_bearer_scheme)
+    ],
+    db: DBSession,
+) -> User | None:
+    if credentials is None:
+        return None
+    try:
+        payload = decode_access_token(credentials.credentials)
+    except HTTPException:
+        return None
+    user_id: str | None = payload.get("sub")
+    if not user_id:
+        return None
+    result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
+    user = result.scalar_one_or_none()
+    if not user or not user.is_active:
+        return None
+    return user
+
+
+OptionalUser = Annotated[User | None, Depends(get_current_user_optional)]
 
 
 async def require_admin(current_user: CurrentUser) -> User:

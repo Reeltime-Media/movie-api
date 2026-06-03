@@ -24,10 +24,11 @@ from sqlalchemy import select
 
 from app.core.exceptions import NotFoundError
 from app.core.money import validate_usd_price
-from app.dependencies import AdminUser, CurrentUser, DBSession
+from app.dependencies import AdminUser, DBSession, OptionalUser
 from app.models.content import Content
 from app.models.transcode_job import TranscodeJob
 from app.schemas.content import ContentListItemRead, ContentRead, ContentUpdate
+from app.services.content_access import user_can_access_content
 from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
 from app.services.pagination import paginate_query
 from app.services import storage
@@ -266,12 +267,29 @@ async def abort_movie_upload(data: MovieUploadAbort, _: AdminUser):
 # ── CRUD ──────────────────────────────────────────────────────────────────────
 
 @router.get("/", response_model=PaginatedResponse[ContentListItemRead])
-async def list_movies(db: DBSession, pagination: PaginationDep):
+async def list_movies(
+    db: DBSession,
+    pagination: PaginationDep,
+    search: str | None = Query(
+        default=None,
+        max_length=200,
+        description="Filter by title, description, or genre",
+    ),
+    genre: str | None = Query(
+        default=None,
+        max_length=100,
+        description="Filter by exact genre label (e.g. Action)",
+    ),
+):
+    from app.services.catalog_search import apply_catalog_genre, apply_catalog_search
+
     stmt = (
         select(Content)
         .where(Content.type == "single", Content.is_published.is_(True))
         .order_by(Content.created_at.desc())
     )
+    stmt = apply_catalog_search(stmt, Content, search=search)
+    stmt = apply_catalog_genre(stmt, Content, genre=genre)
     items, total = await paginate_query(
         db,
         stmt,
@@ -287,15 +305,20 @@ async def list_movies(db: DBSession, pagination: PaginationDep):
 
 
 @router.get("/{slug}", response_model=ContentRead)
-async def get_movie(slug: str, db: DBSession, current_user: CurrentUser):
+async def get_movie(slug: str, db: DBSession, current_user: OptionalUser):
     stmt = select(Content).where(Content.slug == slug, Content.type == "single")
-    if current_user.role != "admin":
+    if not current_user or current_user.role != "admin":
         stmt = stmt.where(Content.is_published.is_(True))
     result = await db.execute(stmt)
     movie = result.scalar_one_or_none()
     if not movie:
         raise NotFoundError("Movie not found")
-    return movie
+    # Never expose the HLS key to users who aren't entitled — playback goes
+    # through the token-gated /playback endpoints instead.
+    data = ContentRead.model_validate(movie)
+    if not (current_user and await user_can_access_content(db, current_user, movie)):
+        data.hls_master_key = None
+    return data
 
 
 @router.patch("/{slug}", response_model=ContentRead)

@@ -22,6 +22,7 @@ from typing import Final
 
 MOVIES_PREFIX: Final = "movies"
 SERIES_PREFIX: Final = "series"
+PROMOTIONS_PREFIX: Final = "promotions"
 
 _POSTER_EXT = {
     "image/jpeg": "jpg",
@@ -118,3 +119,15 @@ def hls_prefix_for_source_key(source_key: str, content_id: uuid.UUID) -> str:
 
 def hls_master_key_for_source_key(source_key: str, content_id: uuid.UUID) -> str:
     return f"{hls_prefix_for_source_key(source_key, content_id)}/master.m3u8"
+
+
+# ── Promotion banners ───────────────────────────────────────────────────────
+
+
+def promotion_banner_image_key(banner_id: uuid.UUID, content_type: str) -> str:
+    return f"{PROMOTIONS_PREFIX}/{banner_id}/image.{poster_extension(content_type)}"
+
+
+def is_promotion_banner_image_key(banner_id: uuid.UUID, key: str) -> bool:
+    prefix = f"{PROMOTIONS_PREFIX}/{banner_id}/"
+    return key.startswith(prefix) and key.endswith((".jpg", ".jpeg", ".png", ".webp"))

@@ -64,6 +64,8 @@ class ContentListItemRead(BaseModel):
     type: str
     slug: str
     title: str
+    description: str | None
+    genres: list[str]
     poster_key: str | None
     price_usd: Decimal | None
     rating: Decimal | None

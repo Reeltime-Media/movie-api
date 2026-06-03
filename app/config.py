@@ -2,6 +2,14 @@ from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# movie-client (:3000) and movie-admin (:3001)
+LOCAL_DEV_CORS_ORIGINS: tuple[str, ...] = (
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
+)
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
@@ -29,9 +37,21 @@ class Settings(BaseSettings):
     transcode_database_url: str | None = None
 
     @property
+    def cors_origin_list(self) -> list[str]:
+        """Parsed CORS_ORIGINS plus local dev frontends (3000 client, 3001 admin)."""
+        from_env = [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        seen: set[str] = set()
+        merged: list[str] = []
+        for origin in (*LOCAL_DEV_CORS_ORIGINS, *from_env):
+            if origin not in seen:
+                seen.add(origin)
+                merged.append(origin)
+        return merged
+
+    @property
     def effective_database_url(self) -> str:
         """Prefer IPv4 pooler when set (Docker and macOS often cannot reach db.* direct host)."""
-        return self.pooler_database_url or self.transcode_database_url or self.database_url
+        return self.pooler_database_url or self.database_url
 
     @property
     def alembic_database_url(self) -> str:
@@ -43,6 +63,11 @@ class Settings(BaseSettings):
     r2_secret_access_key: str
     r2_bucket_name: str
     r2_public_url: str  # CDN / public bucket URL prefix
+
+    # How long an issued playback token (and its presigned segment URLs) stays
+    # valid. Must exceed the longest title's runtime so a stream doesn't expire
+    # mid-watch. Default 6h.
+    playback_token_expiry_seconds: int = 21600
 
     # Baray Payment Gateway
     baray_api_key: str = ""
