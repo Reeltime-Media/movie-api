@@ -10,6 +10,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy.exc import DBAPIError, OperationalError, SQLAlchemyError
 
 from app.config import get_settings
+from app.db_connect import is_transient_db_error, transient_db_detail, verify_database_connection
 from app.rate_limit import limiter
 from app.routers import (
     admin,
@@ -35,11 +36,7 @@ settings = get_settings()
 @asynccontextmanager
 async def app_lifespan(app: FastAPI):
     from app.database import engine
-    from app.db_connect import (
-        database_connection_label,
-        validate_database_url,
-        verify_database_connection,
-    )
+    from app.db_connect import database_connection_label, validate_database_url
 
     db_url = settings.effective_database_url
     app.state.db_ready = False
@@ -121,29 +118,39 @@ async def security_headers(request: Request, call_next):
     return response
 
 
-def _is_db_unreachable(exc: BaseException) -> bool:
-    if isinstance(exc, TimeoutError):
-        return True
-    if isinstance(exc, (OperationalError, DBAPIError)):
-        message = str(exc).lower()
-        return "timeout" in message or "cancelled" in message or "connection" in message
-    cause = getattr(exc, "__cause__", None)
-    return bool(cause and _is_db_unreachable(cause))
+@app.middleware("http")
+async def database_warmup(request: Request, call_next):
+    """
+    After Supabase wakes from pause (or a failed startup ping), retry once per request
+    instead of failing every catalog query until restart.
+    """
+    if not getattr(request.app.state, "db_ready", False):
+        from app.database import engine
+
+        try:
+            await verify_database_connection(engine, attempts=2, base_delay_seconds=1.0)
+            request.app.state.db_ready = True
+            logger.info("Database connection restored")
+        except Exception:
+            pass
+    return await call_next(request)
+
+
+def _db_unavailable_response() -> JSONResponse:
+    return JSONResponse(status_code=503, content={"detail": transient_db_detail()})
+
+
+@app.exception_handler(TimeoutError)
+async def timeout_error_handler(_request: Request, _exc: TimeoutError) -> JSONResponse:
+    logger.error("Database timeout")
+    return _db_unavailable_response()
 
 
 @app.exception_handler(SQLAlchemyError)
 async def sqlalchemy_error_handler(_request: Request, exc: SQLAlchemyError) -> JSONResponse:
-    if _is_db_unreachable(exc):
+    if is_transient_db_error(exc):
         logger.error("Database unreachable: %s", exc.__class__.__name__)
-        return JSONResponse(
-            status_code=503,
-            content={
-                "detail": (
-                    "Database is unreachable. Verify POOLER_DATABASE_URL "
-                    "(Supabase session pooler, port 5432) and that the project is active."
-                ),
-            },
-        )
+        return _db_unavailable_response()
 
     logger.exception("Database error")
     detail = "Database error. Please try again."
@@ -162,13 +169,19 @@ async def sqlalchemy_error_handler(_request: Request, exc: SQLAlchemyError) -> J
 
 @app.get("/health", tags=["health"])
 async def health(request: Request):
-    if getattr(request.app.state, "db_ready", False):
+    from app.database import engine
+
+    try:
+        await verify_database_connection(engine, attempts=2, base_delay_seconds=1.0)
+        request.app.state.db_ready = True
         return {"status": "ok", "database": "connected"}
-    return JSONResponse(
-        status_code=503,
-        content={
-            "status": "degraded",
-            "database": "unavailable",
-            "detail": "Set POOLER_DATABASE_URL to Supabase session pooler (port 5432).",
-        },
-    )
+    except Exception:
+        request.app.state.db_ready = False
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "degraded",
+                "database": "unavailable",
+                "detail": transient_db_detail(),
+            },
+        )

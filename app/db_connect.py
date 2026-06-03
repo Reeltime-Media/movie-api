@@ -5,12 +5,25 @@ from __future__ import annotations
 import asyncio
 import logging
 import ssl
+from collections.abc import Awaitable, Callable
+from typing import TypeVar
 from urllib.parse import urlparse
 
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
+
+# Supabase session pooler has limited slots; keep the app pool small.
+DEFAULT_POOL_SIZE = 3
+DEFAULT_MAX_OVERFLOW = 2
+DEFAULT_POOL_TIMEOUT = 30
+DEFAULT_POOL_RECYCLE = 180
+DEFAULT_CONNECT_TIMEOUT = 30
+DEFAULT_COMMAND_TIMEOUT = 60
 
 
 def _database_host(database_url: str) -> str:
@@ -63,6 +76,50 @@ def _remote_ssl_context() -> ssl.SSLContext:
     return ctx
 
 
+def is_transient_db_error(exc: BaseException) -> bool:
+    """True for timeouts and connection drops that may succeed on retry."""
+    if isinstance(exc, (TimeoutError, asyncio.TimeoutError, OSError, ConnectionError)):
+        return True
+    if isinstance(exc, (OperationalError, DBAPIError)):
+        message = str(exc).lower()
+        return any(
+            token in message
+            for token in ("timeout", "timed out", "connection", "cancelled", "closed")
+        )
+    cause = getattr(exc, "__cause__", None) or getattr(exc, "__context__", None)
+    return bool(cause and cause is not exc and is_transient_db_error(cause))
+
+
+async def run_with_db_retry(
+    operation: Callable[[], Awaitable[T]],
+    *,
+    attempts: int = 3,
+    base_delay_seconds: float = 0.5,
+    label: str = "database operation",
+) -> T:
+    """Retry transient Supabase / pooler connection failures."""
+    last_error: BaseException | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return await operation()
+        except BaseException as exc:
+            last_error = exc
+            if not is_transient_db_error(exc) or attempt >= attempts:
+                raise
+            delay = base_delay_seconds * attempt
+            logger.warning(
+                "%s failed (%s); retry %s/%s in %ss",
+                label,
+                exc.__class__.__name__,
+                attempt,
+                attempts,
+                delay,
+            )
+            await asyncio.sleep(delay)
+    assert last_error is not None
+    raise last_error
+
+
 def asyncpg_connect_args(database_url: str) -> dict:
     """
     Supabase pooler (PgBouncer) + asyncpg:
@@ -72,8 +129,8 @@ def asyncpg_connect_args(database_url: str) -> dict:
     args: dict = {
         "statement_cache_size": 0,
         "prepared_statement_cache_size": 0,
-        "timeout": 60,
-        "command_timeout": 60,
+        "timeout": DEFAULT_CONNECT_TIMEOUT,
+        "command_timeout": DEFAULT_COMMAND_TIMEOUT,
     }
     host = _database_host(database_url)
     if host not in ("", "localhost", "127.0.0.1"):
@@ -84,11 +141,11 @@ def asyncpg_connect_args(database_url: str) -> dict:
 def sqlalchemy_engine_kwargs(database_url: str, *, debug: bool = False) -> dict:
     """Engine options tuned for Supabase session pooler from Docker / uvicorn."""
     return {
-        "pool_size": 5,
-        "max_overflow": 10,
+        "pool_size": DEFAULT_POOL_SIZE,
+        "max_overflow": DEFAULT_MAX_OVERFLOW,
         "pool_pre_ping": True,
-        "pool_recycle": 300,
-        "pool_timeout": 30,
+        "pool_recycle": DEFAULT_POOL_RECYCLE,
+        "pool_timeout": DEFAULT_POOL_TIMEOUT,
         "echo": debug,
         "connect_args": asyncpg_connect_args(database_url),
     }
@@ -97,27 +154,26 @@ def sqlalchemy_engine_kwargs(database_url: str, *, debug: bool = False) -> dict:
 async def verify_database_connection(
     engine: AsyncEngine,
     *,
-    attempts: int = 3,
+    attempts: int = 5,
     base_delay_seconds: float = 2.0,
 ) -> None:
     """Ping the database with retries (helps during cold Supabase / Docker startup)."""
-    last_error: Exception | None = None
-    for attempt in range(1, attempts + 1):
-        try:
-            async with engine.connect() as conn:
-                await conn.execute(text("SELECT 1"))
-            return
-        except Exception as exc:
-            last_error = exc
-            if attempt < attempts:
-                delay = base_delay_seconds * attempt
-                logger.warning(
-                    "Database connection attempt %s/%s failed (%s); retrying in %ss",
-                    attempt,
-                    attempts,
-                    exc.__class__.__name__,
-                    delay,
-                )
-                await asyncio.sleep(delay)
-    assert last_error is not None
-    raise last_error
+
+    async def ping() -> None:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+
+    await run_with_db_retry(
+        ping,
+        attempts=attempts,
+        base_delay_seconds=base_delay_seconds,
+        label="database startup ping",
+    )
+
+
+def transient_db_detail() -> str:
+    return (
+        "Database is temporarily unreachable. "
+        "If using Supabase: confirm the project is not paused, use POOLER_DATABASE_URL "
+        "(session mode, port 5432), and retry in a few seconds."
+    )
