@@ -82,6 +82,7 @@ async def _resolve_item_to_slide(
             rating=movie.rating,
             runtime=movie.runtime,
             poster_key=movie.poster_key,
+            banner_key=movie.banner_key,
             watch_href=f"/watch?slug={movie.slug}",
             sort_order=item.sort_order,
         )
@@ -107,6 +108,7 @@ async def _resolve_item_to_slide(
             rating=series.rating,
             runtime="Series",
             poster_key=series.poster_key,
+            banner_key=series.banner_key,
             watch_href=f"/watch/series/{series.slug}/1/1",
             sort_order=item.sort_order,
         )

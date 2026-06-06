@@ -22,6 +22,7 @@ class Series(Base):
     release_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     rating: Mapped[Decimal | None] = mapped_column(Numeric(3, 1), nullable=True)
     poster_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    banner_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     trailer_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     monthly_price_usd: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     is_published: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

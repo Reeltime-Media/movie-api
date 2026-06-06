@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
-from app.dependencies import CurrentUser, DBSession
+from app.dependencies import CurrentUser, DBSession, OptionalUser
 from app.models.comment import Comment
 from app.models.user import User
 from app.schemas.comment import (
@@ -31,14 +31,14 @@ router = APIRouter(prefix="/comments", tags=["comments"])
 async def list_comments(
     content_id: uuid.UUID,
     db: DBSession,
-    current_user: CurrentUser,
+    current_user: OptionalUser,
     pagination: PaginationDep,
 ):
     await ensure_commentable_movie(db, content_id)
     items, total = await list_comment_threads(
         db,
         content_id=content_id,
-        current_user_id=current_user.id,
+        current_user_id=current_user.id if current_user else None,
         page=pagination.page,
         page_size=pagination.page_size,
     )

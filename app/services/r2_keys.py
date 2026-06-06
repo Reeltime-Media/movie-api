@@ -3,10 +3,12 @@
 Movies:
   movies/{slug}/source.mp4
   movies/{slug}/poster.{ext}
+  movies/{slug}/banner.{ext}
   movies/{slug}/hls/master.m3u8 (+ segments)
 
 Series:
   series/{series_slug}/poster.{ext}
+  series/{series_slug}/banner.{ext}
   series/{series_slug}/episodes/{episode_slug}/source.mp4
   series/{series_slug}/episodes/{episode_slug}/poster.{ext}
   series/{series_slug}/episodes/{episode_slug}/hls/master.m3u8
@@ -51,6 +53,10 @@ def movie_poster_key(slug: str, content_type: str) -> str:
     return f"{movie_dir(slug)}/poster.{poster_extension(content_type)}"
 
 
+def movie_banner_key(slug: str, content_type: str) -> str:
+    return f"{movie_dir(slug)}/banner.{poster_extension(content_type)}"
+
+
 def movie_hls_prefix(slug: str) -> str:
     return f"{movie_dir(slug)}/hls"
 
@@ -72,6 +78,14 @@ def series_dir(series_slug: str) -> str:
 
 def series_poster_key(series_slug: str, content_type: str) -> str:
     return f"{series_dir(series_slug)}/poster.{poster_extension(content_type)}"
+
+
+def series_banner_key(series_slug: str, content_type: str) -> str:
+    return f"{series_dir(series_slug)}/banner.{poster_extension(content_type)}"
+
+
+def is_series_asset_key(series_slug: str, key: str) -> bool:
+    return key.startswith(f"{series_dir(series_slug)}/")
 
 
 def episode_dir(series_slug: str, episode_slug: str) -> str:

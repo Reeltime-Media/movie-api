@@ -16,7 +16,9 @@ from app.routers import (
     admin,
     auth,
     comments,
+    favorites,
     hero_featured,
+    library,
     movies,
     payments,
     playback,
@@ -80,13 +82,15 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origin_list,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept"],
-)
+_cors_kwargs: dict = {
+    "allow_origins": settings.cors_origin_list,
+    "allow_credentials": True,
+    "allow_methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    "allow_headers": ["Authorization", "Content-Type", "Accept"],
+}
+if settings.cors_origin_regex:
+    _cors_kwargs["allow_origin_regex"] = settings.cors_origin_regex
+app.add_middleware(CORSMiddleware, **_cors_kwargs)
 
 app.include_router(auth.router)
 app.include_router(users.router)
@@ -100,6 +104,8 @@ app.include_router(purchases.router)
 app.include_router(subscriptions.router)
 app.include_router(watch_progress.router)
 app.include_router(comments.router)
+app.include_router(favorites.router)
+app.include_router(library.router)
 app.include_router(webhooks.router)
 app.include_router(admin.router)
 

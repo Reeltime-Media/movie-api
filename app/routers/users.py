@@ -30,6 +30,7 @@ async def update_me(data: UserUpdate, current_user: CurrentUser, db: DBSession):
     return user_to_read(current_user)
 
 
+@router.get("", response_model=PaginatedResponse[UserRead])
 @router.get("/", response_model=PaginatedResponse[UserRead])
 async def list_users(
     _: AdminUser,

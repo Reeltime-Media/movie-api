@@ -67,6 +67,7 @@ class MovieUploadStart(BaseModel):
     file_size_bytes: int = Field(gt=0, description="Raw video file size — used to presign all part URLs")
     video_content_type: str = "video/mp4"
     poster_content_type: str | None = None
+    banner_content_type: str | None = None
 
 
 class MultipartPartUrl(BaseModel):
@@ -84,6 +85,8 @@ class MovieUploadStartRead(BaseModel):
     part_urls: list[MultipartPartUrl]
     poster_key: str | None = None
     poster_upload_url: str | None = None
+    banner_key: str | None = None
+    banner_upload_url: str | None = None
 
 
 class PartUrlRead(BaseModel):
@@ -111,6 +114,7 @@ class MovieUploadComplete(BaseModel):
     status: str = "draft"
     trailer_url: str | None = None
     poster_key: str | None = None
+    banner_key: str | None = None
 
     @field_validator("price_usd")
     @classmethod
@@ -154,6 +158,14 @@ async def start_movie_upload(data: MovieUploadStart, db: DBSession, _: AdminUser
             poster_key, data.poster_content_type
         )
 
+    banner_key: str | None = None
+    banner_upload_url: str | None = None
+    if data.banner_content_type:
+        banner_key = r2_keys.movie_banner_key(slug, data.banner_content_type)
+        banner_upload_url = storage.generate_presigned_upload_url(
+            banner_key, data.banner_content_type
+        )
+
     part_count = storage.multipart_part_count(data.file_size_bytes)
     part_urls = storage.generate_presigned_part_urls(source_key, upload_id, part_count)
 
@@ -167,6 +179,8 @@ async def start_movie_upload(data: MovieUploadStart, db: DBSession, _: AdminUser
         part_urls=[MultipartPartUrl(**entry) for entry in part_urls],
         poster_key=poster_key,
         poster_upload_url=poster_upload_url,
+        banner_key=banner_key,
+        banner_upload_url=banner_upload_url,
     )
 
 
@@ -199,6 +213,9 @@ async def complete_movie_upload(data: MovieUploadComplete, db: DBSession, _: Adm
     if data.poster_key and not r2_keys.is_movie_asset_key(data.slug, data.poster_key):
         raise HTTPException(status_code=422, detail="poster_key does not match slug")
 
+    if data.banner_key and not r2_keys.is_movie_asset_key(data.slug, data.banner_key):
+        raise HTTPException(status_code=422, detail="banner_key does not match slug")
+
     if not data.parts:
         raise HTTPException(status_code=422, detail="parts list is empty")
 
@@ -224,6 +241,11 @@ async def complete_movie_upload(data: MovieUploadComplete, db: DBSession, _: Adm
         if not poster_exists:
             raise HTTPException(status_code=409, detail="Poster upload is not available in storage yet")
 
+    if data.banner_key:
+        banner_exists = await loop.run_in_executor(None, storage.object_exists, data.banner_key)
+        if not banner_exists:
+            raise HTTPException(status_code=409, detail="Banner upload is not available in storage yet")
+
     movie = Content(
         id=data.content_id,
         type="single",
@@ -235,6 +257,7 @@ async def complete_movie_upload(data: MovieUploadComplete, db: DBSession, _: Adm
         rating=data.rating,
         price_usd=data.price_usd,
         poster_key=data.poster_key,
+        banner_key=data.banner_key,
         trailer_url=data.trailer_url,
         status=data.status,
         is_published=(data.status == "published"),

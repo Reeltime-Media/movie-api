@@ -21,6 +21,8 @@ class Settings(BaseSettings):
         "http://localhost:3000,http://127.0.0.1:3000,"
         "http://localhost:3001,http://127.0.0.1:3001"
     )
+    # Allow all Vercel production + preview URLs (e.g. *-team.vercel.app)
+    cors_origin_regex: str = r"https://.*\.vercel\.app"
     secret_key: str
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 480  # 8 hours

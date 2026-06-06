@@ -139,6 +139,7 @@ def _transcode_jobs_select():
 class MovieAssetUploadStart(BaseModel):
     video_content_type: str | None = None
     poster_content_type: str | None = None
+    banner_content_type: str | None = None
 
 
 class MovieAssetUploadStartRead(BaseModel):
@@ -146,11 +147,14 @@ class MovieAssetUploadStartRead(BaseModel):
     video_upload_url: str | None = None
     poster_key: str | None = None
     poster_upload_url: str | None = None
+    banner_key: str | None = None
+    banner_upload_url: str | None = None
 
 
 class MovieAssetUploadComplete(BaseModel):
     source_key: str | None = None
     poster_key: str | None = None
+    banner_key: str | None = None
 
 
 class DashboardUserSummary(BaseModel):
@@ -643,6 +647,8 @@ async def start_admin_movie_asset_upload(
     video_upload_url: str | None = None
     poster_key: str | None = None
     poster_upload_url: str | None = None
+    banner_key: str | None = None
+    banner_upload_url: str | None = None
 
     if data.video_content_type:
         source_key = r2_keys.movie_source_key(movie.slug)
@@ -658,14 +664,23 @@ async def start_admin_movie_asset_upload(
             data.poster_content_type,
         )
 
-    if not source_key and not poster_key:
-        raise HTTPException(status_code=422, detail="Choose a video or poster file to replace")
+    if data.banner_content_type:
+        banner_key = r2_keys.movie_banner_key(movie.slug, data.banner_content_type)
+        banner_upload_url = storage.generate_presigned_upload_url(
+            banner_key,
+            data.banner_content_type,
+        )
+
+    if not source_key and not poster_key and not banner_key:
+        raise HTTPException(status_code=422, detail="Choose a video, poster, or banner file to replace")
 
     return MovieAssetUploadStartRead(
         source_key=source_key,
         video_upload_url=video_upload_url,
         poster_key=poster_key,
         poster_upload_url=poster_upload_url,
+        banner_key=banner_key,
+        banner_upload_url=banner_upload_url,
     )
 
 
@@ -712,7 +727,20 @@ async def complete_admin_movie_asset_upload(
 
         movie.poster_key = data.poster_key
 
-    if not data.source_key and not data.poster_key:
+    if data.banner_key:
+        if not r2_keys.is_movie_asset_key(movie.slug, data.banner_key):
+            raise HTTPException(status_code=422, detail="banner_key does not match movie")
+        banner_exists = await asyncio.get_event_loop().run_in_executor(
+            None,
+            storage.object_exists,
+            data.banner_key,
+        )
+        if not banner_exists:
+            raise HTTPException(status_code=409, detail="Banner upload is not available in storage yet")
+
+        movie.banner_key = data.banner_key
+
+    if not data.source_key and not data.poster_key and not data.banner_key:
         raise HTTPException(status_code=422, detail="No uploaded assets provided")
 
     await db.commit()

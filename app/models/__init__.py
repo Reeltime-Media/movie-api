@@ -2,6 +2,7 @@ from app.models.comment import Comment
 from app.models.comment_report import CommentReport
 from app.models.comment_vote import CommentVote
 from app.models.content import Content
+from app.models.favorite import Favorite
 from app.models.payment_intent import PaymentIntent
 from app.models.hero_featured_item import HeroFeaturedItem
 from app.models.promotion_banner import PromotionBanner
@@ -22,6 +23,7 @@ __all__ = [
     "User",
     "Series",
     "Content",
+    "Favorite",
     "Purchase",
     "Subscription",
     "SubscriptionPayment",

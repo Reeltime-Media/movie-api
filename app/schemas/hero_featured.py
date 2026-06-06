@@ -55,6 +55,7 @@ class HeroFeaturedSlideRead(BaseModel):
     rating: Decimal | None
     runtime: str | None
     poster_key: str | None
+    banner_key: str | None = None
     watch_href: str
     sort_order: int
 

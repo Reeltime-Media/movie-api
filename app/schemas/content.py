@@ -46,6 +46,7 @@ class ContentRead(BaseModel):
     runtime: str | None
     duration_seconds: int | None
     poster_key: str | None
+    banner_key: str | None
     trailer_url: str | None
     hls_master_key: str | None
     price_usd: Decimal | None

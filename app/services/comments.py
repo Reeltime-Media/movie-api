@@ -151,7 +151,7 @@ async def validate_parent_comment(
 async def load_vote_and_report_maps(
     db: AsyncSession,
     comment_ids: list[uuid.UUID],
-    current_user_id: uuid.UUID,
+    current_user_id: uuid.UUID | None,
 ) -> tuple[dict[uuid.UUID, int], dict[uuid.UUID, int], set[uuid.UUID]]:
     if not comment_ids:
         return {}, {}, set()
@@ -162,6 +162,9 @@ async def load_vote_and_report_maps(
         .group_by(CommentVote.comment_id)
     )
     scores = {row.comment_id: int(row[1]) for row in score_result.all()}
+
+    if current_user_id is None:
+        return scores, {}, set()
 
     vote_result = await db.execute(
         select(CommentVote).where(
@@ -216,7 +219,7 @@ async def list_comment_threads(
     db: AsyncSession,
     *,
     content_id: uuid.UUID,
-    current_user_id: uuid.UUID,
+    current_user_id: uuid.UUID | None,
     page: int,
     page_size: int,
 ) -> tuple[list[CommentThreadRead], int]:

@@ -17,6 +17,7 @@ class SeriesUpdate(BaseModel):
     is_published: bool | None = None
     trailer_url: str | None = None
     poster_key: str | None = None  # set after uploading poster via /poster/start
+    banner_key: str | None = None  # set after uploading banner via /banner/start
 
     @field_validator("monthly_price_usd")
     @classmethod
@@ -35,6 +36,7 @@ class SeriesRead(BaseModel):
     release_year: int | None
     rating: Decimal | None
     poster_key: str | None
+    banner_key: str | None
     trailer_url: str | None
     monthly_price_usd: Decimal
     is_published: bool
@@ -52,6 +54,7 @@ class SeriesListItemRead(BaseModel):
     release_year: int | None
     rating: Decimal | None
     poster_key: str | None
+    banner_key: str | None
     monthly_price_usd: Decimal
 
     model_config = {"from_attributes": True}

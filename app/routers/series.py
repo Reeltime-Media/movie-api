@@ -109,6 +109,16 @@ class SeriesPosterStartRead(BaseModel):
     poster_upload_url: str
 
 
+class SeriesBannerStart(BaseModel):
+    banner_content_type: str = "image/jpeg"
+
+
+class SeriesBannerStartRead(BaseModel):
+    series_id: uuid.UUID
+    banner_key: str
+    banner_upload_url: str
+
+
 # ── Episode upload schemas ─────────────────────────────────────────────────────
 
 class EpisodeUploadStart(BaseModel):
@@ -238,13 +248,18 @@ async def create_series(data: CreateSeriesBody, db: DBSession, _: AdminUser):
 async def start_series_poster_upload(slug: str, data: SeriesPosterStart, db: DBSession, _: AdminUser):
     """Get a presigned URL to upload the series poster directly to R2."""
     series = await _get_series_or_404(slug, db)
-    ext = {
-        "image/jpeg": "jpg", "image/jpg": "jpg",
-        "image/png": "png", "image/webp": "webp",
-    }.get(data.poster_content_type, "jpg")
     poster_key = r2_keys.series_poster_key(series.slug, data.poster_content_type)
     url = storage.generate_presigned_upload_url(poster_key, data.poster_content_type)
     return SeriesPosterStartRead(series_id=series.id, poster_key=poster_key, poster_upload_url=url)
+
+
+@router.post("/{slug}/banner/start", response_model=SeriesBannerStartRead)
+async def start_series_banner_upload(slug: str, data: SeriesBannerStart, db: DBSession, _: AdminUser):
+    """Get a presigned URL to upload the series banner directly to R2."""
+    series = await _get_series_or_404(slug, db)
+    banner_key = r2_keys.series_banner_key(series.slug, data.banner_content_type)
+    url = storage.generate_presigned_upload_url(banner_key, data.banner_content_type)
+    return SeriesBannerStartRead(series_id=series.id, banner_key=banner_key, banner_upload_url=url)
 
 
 @router.patch("/{slug}", response_model=SeriesRead)

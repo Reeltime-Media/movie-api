@@ -34,6 +34,7 @@ class Content(Base):
     runtime: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     poster_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    banner_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     trailer_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     hls_master_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     price_usd: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
