@@ -35,6 +35,10 @@ except Exception as e:
 PYEOF
     alembic upgrade head
 
+  elif grep -qE 'relation "genres" already exists' /tmp/alembic-migrate.err; then
+    echo "genres table already exists — stamping 0015 and continuing..."
+    alembic stamp 0015
+    alembic upgrade head
   else
     cat /tmp/alembic-migrate.err >&2
     exit 1

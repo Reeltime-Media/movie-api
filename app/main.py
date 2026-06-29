@@ -17,6 +17,7 @@ from app.routers import (
     auth,
     comments,
     favorites,
+    genres,
     hero_featured,
     library,
     movies,
@@ -105,6 +106,7 @@ app.include_router(subscriptions.router)
 app.include_router(watch_progress.router)
 app.include_router(comments.router)
 app.include_router(favorites.router)
+app.include_router(genres.router)
 app.include_router(library.router)
 app.include_router(webhooks.router)
 app.include_router(admin.router)

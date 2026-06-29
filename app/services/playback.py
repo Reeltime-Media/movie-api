@@ -10,15 +10,26 @@ a private R2 prefix and are never served directly. Instead:
 
 Segments are therefore fetched straight from R2 via expiring signatures (no app
 round-trip per segment), while the playlists stay gated behind the token.
+
+Raw playlist text is cached in memory for up to 60 seconds so concurrent viewers
+of the same title don't each trigger an R2 GET.
 """
 
 import asyncio
 import posixpath
+import time
+import threading
 
 from app.config import get_settings
 from app.services import storage
 
 settings = get_settings()
+
+# Simple TTL cache for raw playlist text fetched from R2.
+# Key = R2 object key, Value = (text, expiry_monotonic).
+_PLAYLIST_CACHE_TTL = 60  # seconds
+_playlist_cache: dict[str, tuple[str, float]] = {}
+_cache_lock = threading.Lock()
 
 
 def _is_uri_line(line: str) -> bool:
@@ -28,13 +39,25 @@ def _is_uri_line(line: str) -> bool:
 
 
 async def _get_object_text(key: str) -> str:
+    # Check cache first.
+    now = time.monotonic()
+    with _cache_lock:
+        cached = _playlist_cache.get(key)
+        if cached and cached[1] > now:
+            return cached[0]
+
     def _fetch() -> str:
         obj = storage._client().get_object(
             Bucket=settings.r2_bucket_name, Key=key
         )
         return obj["Body"].read().decode("utf-8")
 
-    return await asyncio.to_thread(_fetch)
+    text = await asyncio.to_thread(_fetch)
+
+    with _cache_lock:
+        _playlist_cache[key] = (text, now + _PLAYLIST_CACHE_TTL)
+
+    return text
 
 
 async def build_master_playlist(

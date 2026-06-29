@@ -3,6 +3,7 @@ import asyncio
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.database import AsyncSessionLocal
 from app.db_connect import is_transient_db_error
 
 
@@ -18,8 +19,18 @@ async def paginate_query(
     for attempt in range(1, 4):
         try:
             count_stmt = select(func.count()).select_from(stmt.subquery())
-            total = await db.scalar(count_stmt) or 0
-            result = await db.execute(stmt.offset((page - 1) * page_size).limit(page_size))
+            data_stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+
+            # Run count and data queries in parallel using a separate session
+            # for the count so they execute concurrently.
+            async def _run_count() -> int:
+                async with AsyncSessionLocal() as count_db:
+                    return (await count_db.scalar(count_stmt)) or 0
+
+            total_task = asyncio.create_task(_run_count())
+            result = await db.execute(data_stmt)
+            total = await total_task
+
             if scalar:
                 return list(result.scalars().all()), total
             return list(result.all()), total

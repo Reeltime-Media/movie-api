@@ -1,9 +1,13 @@
-FROM python:3.12-slim
+# Pin bookworm — python:3.12-slim tracks Debian trixie with more scanner noise.
+FROM python:3.12-slim-bookworm
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates gcc libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
+# Wheels cover asyncpg/psycopg2-binary; gcc/libpq-dev only added build-time CVE surface.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir --upgrade "pip>=26.1.2"
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

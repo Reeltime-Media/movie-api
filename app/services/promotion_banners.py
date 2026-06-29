@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.promotion_banner import PromotionBanner
@@ -21,16 +21,10 @@ async def list_active_promotion_banners(
         .where(
             PromotionBanner.placement == placement,
             PromotionBanner.is_active.is_(True),
+            or_(PromotionBanner.starts_at.is_(None), PromotionBanner.starts_at <= now),
+            or_(PromotionBanner.ends_at.is_(None), PromotionBanner.ends_at >= now),
         )
         .order_by(PromotionBanner.sort_order.asc(), PromotionBanner.created_at.desc())
     )
     result = await db.execute(stmt)
-    rows = list(result.scalars().all())
-    active: list[PromotionBanner] = []
-    for row in rows:
-        if row.starts_at and row.starts_at > now:
-            continue
-        if row.ends_at and row.ends_at < now:
-            continue
-        active.append(row)
-    return active
+    return list(result.scalars().all())

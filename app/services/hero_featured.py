@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.content import Content
@@ -25,19 +25,13 @@ async def list_active_hero_items(
         .where(
             HeroFeaturedItem.placement == placement,
             HeroFeaturedItem.is_active.is_(True),
+            or_(HeroFeaturedItem.starts_at.is_(None), HeroFeaturedItem.starts_at <= now),
+            or_(HeroFeaturedItem.ends_at.is_(None), HeroFeaturedItem.ends_at >= now),
         )
         .order_by(HeroFeaturedItem.sort_order.asc(), HeroFeaturedItem.created_at.desc())
     )
     result = await db.execute(stmt)
-    rows = list(result.scalars().all())
-    active: list[HeroFeaturedItem] = []
-    for row in rows:
-        if row.starts_at and row.starts_at > now:
-            continue
-        if row.ends_at and row.ends_at < now:
-            continue
-        active.append(row)
-    return active
+    return list(result.scalars().all())
 
 
 async def resolve_hero_slides(
@@ -46,29 +40,50 @@ async def resolve_hero_slides(
     placement: str = "home",
 ) -> list[HeroFeaturedSlideRead]:
     items = await list_active_hero_items(db, placement=placement)
-    slides: list[HeroFeaturedSlideRead] = []
+    if not items:
+        return []
 
-    for item in items:
-        slide = await _resolve_item_to_slide(db, item)
-        if slide:
-            slides.append(slide)
+    # Batch-load all referenced movies and series in two queries (not per-item).
+    movie_ids = [item.content_id for item in items if item.content_type == "movie"]
+    series_ids = [item.content_id for item in items if item.content_type == "series"]
 
-    return slides
+    movies_by_id: dict[UUID, Content] = {}
+    series_by_id: dict[UUID, Series] = {}
 
-
-async def _resolve_item_to_slide(
-    db: AsyncSession,
-    item: HeroFeaturedItem,
-) -> HeroFeaturedSlideRead | None:
-    if item.content_type == "movie":
+    if movie_ids:
         result = await db.execute(
             select(Content).where(
-                Content.id == item.content_id,
+                Content.id.in_(movie_ids),
                 Content.type == "single",
                 Content.is_published.is_(True),
             )
         )
-        movie = result.scalar_one_or_none()
+        movies_by_id = {row.id: row for row in result.scalars().all()}
+
+    if series_ids:
+        result = await db.execute(
+            select(Series).where(
+                Series.id.in_(series_ids),
+                Series.is_published.is_(True),
+            )
+        )
+        series_by_id = {row.id: row for row in result.scalars().all()}
+
+    slides: list[HeroFeaturedSlideRead] = []
+    for item in items:
+        slide = _build_slide(item, movies_by_id, series_by_id)
+        if slide:
+            slides.append(slide)
+    return slides
+
+
+def _build_slide(
+    item: HeroFeaturedItem,
+    movies_by_id: dict[UUID, Content],
+    series_by_id: dict[UUID, Series],
+) -> HeroFeaturedSlideRead | None:
+    if item.content_type == "movie":
+        movie = movies_by_id.get(item.content_id)
         if not movie:
             return None
         return HeroFeaturedSlideRead(
@@ -88,13 +103,7 @@ async def _resolve_item_to_slide(
         )
 
     if item.content_type == "series":
-        result = await db.execute(
-            select(Series).where(
-                Series.id == item.content_id,
-                Series.is_published.is_(True),
-            )
-        )
-        series = result.scalar_one_or_none()
+        series = series_by_id.get(item.content_id)
         if not series:
             return None
         return HeroFeaturedSlideRead(
