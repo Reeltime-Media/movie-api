@@ -47,6 +47,10 @@ class UserUpdate(BaseModel):
         return value
 
 
+class UserStatusUpdate(BaseModel):
+    is_active: bool
+
+
 class UserRead(BaseModel):
     id: UUID
     email: str

@@ -2,13 +2,14 @@ import uuid
 
 from fastapi import APIRouter
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
 from app.core.security import hash_password
 from app.dependencies import AdminUser, CurrentUser, DBSession
 from app.models.user import User
 from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
-from app.schemas.user import UserRead, UserUpdate, user_to_read
+from app.schemas.user import UserRead, UserStatusUpdate, UserUpdate, user_to_read
 from app.services.pagination import paginate_query
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -56,3 +57,41 @@ async def get_user(user_id: uuid.UUID, _: AdminUser, db: DBSession):
     if not user:
         raise NotFoundError("User not found")
     return user_to_read(user)
+
+
+@router.patch("/{user_id}", response_model=UserRead)
+async def admin_update_user_status(
+    user_id: uuid.UUID,
+    data: UserStatusUpdate,
+    admin: AdminUser,
+    db: DBSession,
+):
+    if user_id == admin.id:
+        raise ForbiddenError("You cannot change your own account status")
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise NotFoundError("User not found")
+    user.is_active = data.is_active
+    await db.commit()
+    await db.refresh(user)
+    return user_to_read(user)
+
+
+@router.delete("/{user_id}", status_code=204)
+async def admin_delete_user(user_id: uuid.UUID, admin: AdminUser, db: DBSession):
+    if user_id == admin.id:
+        raise ForbiddenError("You cannot delete your own account")
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise NotFoundError("User not found")
+    await db.delete(user)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise ConflictError(
+            "Cannot delete a user with payments, purchases, or subscriptions. "
+            "Suspend the account instead."
+        )
