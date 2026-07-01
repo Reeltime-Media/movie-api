@@ -590,6 +590,21 @@ async def list_admin_movies(
     )
 
 
+@router.get("/movies/{movie_id}", response_model=AdminContentRead)
+async def get_admin_movie(movie_id: uuid.UUID, db: DBSession, _: AdminUser):
+    result = await db.execute(
+        select(Content).where(Content.id == movie_id, Content.type == "single")
+    )
+    movie = result.scalar_one_or_none()
+    if not movie:
+        raise NotFoundError("Movie not found")
+    watch_counts = await _watch_counts_for_content(db, [movie.id])
+    return AdminContentRead(
+        **ContentRead.model_validate(movie).model_dump(),
+        watch_count=watch_counts.get(movie.id, 0),
+    )
+
+
 @router.patch("/movies/{movie_id}", response_model=ContentRead)
 async def update_admin_movie(
     movie_id: uuid.UUID,
@@ -1019,6 +1034,15 @@ async def list_admin_series(
         page=pagination.page,
         page_size=pagination.page_size,
     )
+
+
+@router.get("/series/{series_id}", response_model=SeriesRead)
+async def get_admin_series(series_id: uuid.UUID, db: DBSession, _: AdminUser):
+    result = await db.execute(select(Series).where(Series.id == series_id))
+    series = result.scalar_one_or_none()
+    if not series:
+        raise NotFoundError("Series not found")
+    return series
 
 
 @router.get("/series/{series_slug}/episodes", response_model=list[SeasonRead])
