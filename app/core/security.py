@@ -1,12 +1,12 @@
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from fastapi import HTTPException, status
 import jwt
 from jwt.exceptions import PyJWTError
 from passlib.context import CryptContext
 
 from app.config import get_settings
+from app.core.exceptions import ForbiddenError, UnauthorizedError
 
 settings = get_settings()
 
@@ -37,11 +37,7 @@ def decode_access_token(token: str) -> dict:
     try:
         return jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
     except PyJWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        raise UnauthorizedError("Could not validate credentials")
 
 
 def create_playback_token(content_id: UUID, expires_in: int) -> str:
@@ -58,12 +54,6 @@ def verify_playback_token(token: str, content_id: UUID) -> None:
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
     except PyJWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired playback token",
-        )
+        raise UnauthorizedError("Invalid or expired playback token")
     if payload.get("scope") != "playback" or payload.get("sub") != str(content_id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Playback token does not grant access to this content",
-        )
+        raise ForbiddenError("Playback token does not grant access to this content")

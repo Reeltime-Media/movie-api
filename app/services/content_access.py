@@ -4,10 +4,10 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import UUID
 
-from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import ForbiddenError, NotFoundError
 from app.models.content import Content
 from app.models.purchase import Purchase
 from app.models.subscription import Subscription
@@ -23,11 +23,11 @@ async def get_published_content_or_404(
     result = await db.execute(select(Content).where(Content.id == content_id))
     content = result.scalar_one_or_none()
     if not content:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content not found")
+        raise NotFoundError("Content not found")
     if user and user.role == "admin":
         return content
     if not content.is_published:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content not found")
+        raise NotFoundError("Content not found")
     return content
 
 
@@ -80,8 +80,5 @@ async def assert_can_track_watch_progress(
 ) -> Content:
     content = await get_published_content_or_404(db, content_id, user=user)
     if not await user_can_access_content(db, user, content):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have access to this title",
-        )
+        raise ForbiddenError("You do not have access to this title")
     return content

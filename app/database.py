@@ -11,6 +11,7 @@ engine = create_async_engine(
     **sqlalchemy_engine_kwargs(
         settings.effective_database_url,
         debug=settings.debug,
+        ssl_root_cert=settings.database_ssl_root_cert or None,
     ),
 )
 

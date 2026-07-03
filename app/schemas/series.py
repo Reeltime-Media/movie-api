@@ -2,9 +2,10 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from app.core.money import validate_usd_price
+from app.schemas.upload import MultipartPart, MultipartPartUrl, MultipartUploadAbort
 
 
 class SeriesUpdate(BaseModel):
@@ -58,3 +59,79 @@ class SeriesListItemRead(BaseModel):
     monthly_price_usd: Decimal
 
     model_config = {"from_attributes": True}
+
+
+class CreateSeriesBody(BaseModel):
+    title: str
+    monthly_price_usd: Decimal
+    description: str | None = None
+    genres: list[str] = []
+    release_year: int | None = None
+    rating: Decimal | None = None
+    trailer_url: str | None = None
+
+    @field_validator("monthly_price_usd")
+    @classmethod
+    def check_monthly_price_usd(cls, value: Decimal) -> Decimal:
+        return validate_usd_price(value)
+
+
+class SeriesPosterStart(BaseModel):
+    poster_content_type: str = "image/jpeg"
+
+
+class SeriesPosterStartRead(BaseModel):
+    series_id: UUID
+    poster_key: str
+    poster_upload_url: str
+
+
+class SeriesBannerStart(BaseModel):
+    banner_content_type: str = "image/jpeg"
+
+
+class SeriesBannerStartRead(BaseModel):
+    series_id: UUID
+    banner_key: str
+    banner_upload_url: str
+
+
+class EpisodeUploadStart(BaseModel):
+    season_number: int
+    episode_number: int
+    file_size_bytes: int = Field(gt=0, description="Raw video file size — used to presign all part URLs")
+    video_content_type: str = "video/mp4"
+    poster_content_type: str | None = None
+
+
+class EpisodeUploadStartRead(BaseModel):
+    content_id: UUID
+    episode_slug: str
+    upload_id: str
+    source_key: str
+    part_size: int
+    part_count: int
+    part_urls: list[MultipartPartUrl]
+    poster_key: str | None = None
+    poster_upload_url: str | None = None
+
+
+class EpisodeUploadComplete(BaseModel):
+    content_id: UUID
+    episode_slug: str
+    source_key: str
+    upload_id: str
+    parts: list[MultipartPart]
+    title: str
+    season_number: int
+    episode_number: int
+    description: str | None = None
+    runtime: str | None = None
+    status: str = "draft"
+    is_free: bool = False
+    trailer_url: str | None = None
+    poster_key: str | None = None
+
+
+class EpisodeUploadAbort(MultipartUploadAbort):
+    pass

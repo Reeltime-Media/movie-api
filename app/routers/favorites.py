@@ -1,23 +1,15 @@
 import uuid
-from datetime import datetime
 
 from fastapi import APIRouter
-from pydantic import BaseModel
 from sqlalchemy import select
 
 from app.core.exceptions import NotFoundError
 from app.dependencies import CurrentUser, DBSession
 from app.models.content import Content
 from app.models.favorite import Favorite
+from app.schemas.favorite import FavoriteRead
 
 router = APIRouter(prefix="/favorites", tags=["favorites"])
-
-
-class FavoriteRead(BaseModel):
-    content_id: uuid.UUID
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
 
 
 async def _assert_favoritable_movie(db: DBSession, content_id: uuid.UUID) -> Content:

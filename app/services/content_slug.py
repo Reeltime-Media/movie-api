@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.content import Content
+from app.models.series import Series
 
 
 def slugify(text: str) -> str:
@@ -18,6 +19,14 @@ def slugify(text: str) -> str:
 async def unique_content_slug(base: str, db: AsyncSession) -> str:
     slug = slugify(base)
     existing = await db.execute(select(Content).where(Content.slug == slug))
+    if not existing.scalar_one_or_none():
+        return slug
+    return f"{slug}-{uuid.uuid4().hex[:6]}"
+
+
+async def unique_series_slug(base: str, db: AsyncSession) -> str:
+    slug = slugify(base)
+    existing = await db.execute(select(Series).where(Series.slug == slug))
     if not existing.scalar_one_or_none():
         return slug
     return f"{slug}-{uuid.uuid4().hex[:6]}"

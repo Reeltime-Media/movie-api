@@ -16,3 +16,4 @@ venv/
 hls/
 uploads/
 env/
+.DS_Store

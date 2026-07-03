@@ -1,16 +1,18 @@
-"""Shared asyncpg / SQLAlchemy settings for Supabase pooler connections."""
-
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
+import random
 import ssl
+import time
 from collections.abc import Awaitable, Callable
-from typing import TypeVar
+from typing import Any, TypeVar
 from urllib.parse import urlparse
 
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, OperationalError
+from sqlalchemy.exc import TimeoutError as SATimeoutError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 logger = logging.getLogger(__name__)
@@ -26,16 +28,20 @@ DEFAULT_CONNECT_TIMEOUT = 30
 DEFAULT_COMMAND_TIMEOUT = 60
 
 
-def _database_host(database_url: str) -> str:
-    # Normalise sqlalchemy URL for urlparse (needs a scheme with //)
+@functools.lru_cache(maxsize=8)
+def _parse_database_url(database_url: str) -> object:
+    """Parse and cache database URL."""
+    # Normalize for urlparse
     normalised = database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
-    return (urlparse(normalised).hostname or "").lower()
+    return urlparse(normalised)
+
+
+def _database_host(database_url: str) -> str:
+    return (_parse_database_url(database_url).hostname or "").lower()
 
 
 def _database_port(database_url: str) -> int | None:
-    normalised = database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
-    port = urlparse(normalised).port
-    return port
+    return _parse_database_url(database_url).port
 
 
 def database_connection_label(database_url: str) -> str:
@@ -63,13 +69,20 @@ def validate_database_url(database_url: str, *, pooler_configured: bool) -> list
     return warnings
 
 
-def _remote_ssl_context() -> ssl.SSLContext:
-    """
-    TLS for Supabase pooler from Docker.
+@functools.lru_cache(maxsize=4)
+def _remote_ssl_context(root_cert_path: str | None = None) -> ssl.SSLContext:
+    """SSL context for remote connections; verifies against root_cert_path when given.
 
-    Encryption is required, but the pooler cert chain often fails verification in
-    python:3.12-slim (self-signed in chain). CERT_NONE still encrypts traffic.
+    Without a CA bundle we fall back to unverified TLS, because the Supabase
+    pooler presents a certificate signed by a project-specific CA that is not
+    in the system trust store.
     """
+    if root_cert_path:
+        return ssl.create_default_context(cafile=root_cert_path)
+    logger.warning(
+        "Database TLS certificate verification is disabled. "
+        "Set DATABASE_SSL_ROOT_CERT to your Supabase CA bundle to enable it."
+    )
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
@@ -79,6 +92,9 @@ def _remote_ssl_context() -> ssl.SSLContext:
 def is_transient_db_error(exc: BaseException) -> bool:
     """True for timeouts and connection drops that may succeed on retry."""
     if isinstance(exc, (TimeoutError, asyncio.TimeoutError, OSError, ConnectionError)):
+        return True
+    if isinstance(exc, SATimeoutError):
+        # Pool checkout timed out — expected while the database is unreachable.
         return True
     if isinstance(exc, (OperationalError, DBAPIError)):
         message = str(exc).lower()
@@ -106,7 +122,7 @@ async def run_with_db_retry(
             last_error = exc
             if not is_transient_db_error(exc) or attempt >= attempts:
                 raise
-            delay = base_delay_seconds * attempt
+            delay = base_delay_seconds * attempt + random.uniform(0, base_delay_seconds)
             logger.warning(
                 "%s failed (%s); retry %s/%s in %ss",
                 label,
@@ -120,13 +136,13 @@ async def run_with_db_retry(
     raise last_error
 
 
-def asyncpg_connect_args(database_url: str) -> dict:
-    """
-    Supabase pooler (PgBouncer) + asyncpg:
-    - Disable prepared statement caches (required on pooler ports).
-    - Use explicit TLS for remote hosts (avoids handshake resets with uvloop).
-    """
-    args: dict = {
+def asyncpg_connect_args(
+    database_url: str,
+    *,
+    ssl_root_cert: str | None = None,
+) -> dict[str, Any]:
+    """Generate asyncpg connection args (disable caches, add TLS for remote hosts)."""
+    args: dict[str, Any] = {
         "statement_cache_size": 0,
         "prepared_statement_cache_size": 0,
         "timeout": DEFAULT_CONNECT_TIMEOUT,
@@ -134,12 +150,17 @@ def asyncpg_connect_args(database_url: str) -> dict:
     }
     host = _database_host(database_url)
     if host not in ("", "localhost", "127.0.0.1"):
-        args["ssl"] = _remote_ssl_context()
+        args["ssl"] = _remote_ssl_context(ssl_root_cert or None)
     return args
 
 
-def sqlalchemy_engine_kwargs(database_url: str, *, debug: bool = False) -> dict:
-    """Engine options tuned for Supabase session pooler from Docker / uvicorn."""
+def sqlalchemy_engine_kwargs(
+    database_url: str,
+    *,
+    debug: bool = False,
+    ssl_root_cert: str | None = None,
+) -> dict[str, Any]:
+    """Return SQLAlchemy engine kwargs optimized for Supabase pooler."""
     return {
         "pool_size": DEFAULT_POOL_SIZE,
         "max_overflow": DEFAULT_MAX_OVERFLOW,
@@ -147,7 +168,7 @@ def sqlalchemy_engine_kwargs(database_url: str, *, debug: bool = False) -> dict:
         "pool_recycle": DEFAULT_POOL_RECYCLE,
         "pool_timeout": DEFAULT_POOL_TIMEOUT,
         "echo": debug,
-        "connect_args": asyncpg_connect_args(database_url),
+        "connect_args": asyncpg_connect_args(database_url, ssl_root_cert=ssl_root_cert),
     }
 
 
@@ -157,7 +178,7 @@ async def verify_database_connection(
     attempts: int = 5,
     base_delay_seconds: float = 2.0,
 ) -> None:
-    """Ping the database with retries (helps during cold Supabase / Docker startup)."""
+    """Ping database with retries for cold Supabase startup."""
 
     async def ping() -> None:
         async with engine.connect() as conn:
@@ -169,6 +190,67 @@ async def verify_database_connection(
         base_delay_seconds=base_delay_seconds,
         label="database startup ping",
     )
+
+
+_DB_LAYER_MODULE_PREFIXES = ("sqlalchemy", "asyncpg", "app.database", "app.db_connect")
+
+
+def exception_from_db_layer(exc: BaseException) -> bool:
+    """True when the exception's traceback passes through the database stack.
+
+    Used to tell database timeouts apart from other asyncio timeouts, since
+    asyncpg can raise bare TimeoutError (== asyncio.TimeoutError on 3.11+).
+    """
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        tb = current.__traceback__
+        while tb is not None:
+            module = tb.tb_frame.f_globals.get("__name__", "")
+            if module.startswith(_DB_LAYER_MODULE_PREFIXES):
+                return True
+            tb = tb.tb_next
+        current = current.__cause__ or current.__context__
+    return False
+
+
+class DatabaseWarmup:
+    """Single-flight, rate-limited reconnect probe for a database that is down.
+
+    Many requests can arrive while the database is unreachable; only one should
+    pay for a reconnect attempt (bounded by timeout_seconds), and failed
+    attempts are spaced out by cooldown_seconds so traffic bursts do not stack
+    slow connection attempts.
+    """
+
+    def __init__(
+        self,
+        ping: Callable[[], Awaitable[None]],
+        *,
+        cooldown_seconds: float = 5.0,
+        timeout_seconds: float = 5.0,
+    ) -> None:
+        self._ping = ping
+        self._cooldown_seconds = cooldown_seconds
+        self._timeout_seconds = timeout_seconds
+        self._lock = asyncio.Lock()
+        self._next_attempt_at = 0.0
+
+    async def try_connect(self) -> bool:
+        """Probe the database once; True when it answered."""
+        if self._lock.locked():
+            # Another request is already probing; let it report the result.
+            return False
+        async with self._lock:
+            if time.monotonic() < self._next_attempt_at:
+                return False
+            try:
+                await asyncio.wait_for(self._ping(), self._timeout_seconds)
+            except Exception:
+                self._next_attempt_at = time.monotonic() + self._cooldown_seconds
+                return False
+            return True
 
 
 def transient_db_detail() -> str:

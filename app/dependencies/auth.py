@@ -1,25 +1,17 @@
 import uuid
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import ForbiddenError, UnauthorizedError
 from app.core.security import decode_access_token
-from app.database import AsyncSessionLocal
+from app.dependencies.db import DBSession
 from app.models.user import User
 
 bearer_scheme = HTTPBearer()
 optional_bearer_scheme = HTTPBearer(auto_error=False)
-
-
-async def get_db():
-    async with AsyncSessionLocal() as session:
-        yield session
-
-
-DBSession = Annotated[AsyncSession, Depends(get_db)]
 
 
 async def get_current_user(
@@ -29,17 +21,11 @@ async def get_current_user(
     payload = decode_access_token(credentials.credentials)
     user_id: str | None = payload.get("sub")
     if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token payload",
-        )
+        raise UnauthorizedError("Invalid token payload")
     result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
     user = result.scalar_one_or_none()
     if not user or not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found or inactive",
-        )
+        raise UnauthorizedError("User not found or inactive")
     return user
 
 
@@ -56,7 +42,7 @@ async def get_current_user_optional(
         return None
     try:
         payload = decode_access_token(credentials.credentials)
-    except HTTPException:
+    except UnauthorizedError:
         return None
     user_id: str | None = payload.get("sub")
     if not user_id:
@@ -73,10 +59,7 @@ OptionalUser = Annotated[User | None, Depends(get_current_user_optional)]
 
 async def require_admin(current_user: CurrentUser) -> User:
     if current_user.role != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required",
-        )
+        raise ForbiddenError("Admin access required")
     return current_user
 
 
