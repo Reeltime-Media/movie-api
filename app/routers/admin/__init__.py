@@ -6,6 +6,7 @@ from app.routers.admin import (
     hero_featured,
     movies,
     payments,
+    playback,
     promotions,
     series,
     subscription_plans,
@@ -15,6 +16,7 @@ from app.routers.admin import (
 router = APIRouter(prefix="/admin", tags=["admin"])
 router.include_router(dashboard.router)
 router.include_router(movies.router)
+router.include_router(playback.router)
 router.include_router(transcode.router)
 router.include_router(payments.router)
 router.include_router(subscription_plans.router)
