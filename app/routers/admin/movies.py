@@ -22,6 +22,7 @@ from app.services.admin.helpers import watch_counts_for_content
 from app.services.content_delete import delete_content_dependencies
 from app.services.content_publish import ensure_movie_publishable
 from app.services.content_slug import unique_content_slug
+from app.services.image_process import optimize_r2_image
 from app.services.pagination import paginate_query
 from app.services.runtime import apply_runtime_minutes
 
@@ -235,7 +236,7 @@ async def complete_admin_movie_asset_upload(
         if not poster_exists:
             raise HTTPException(status_code=409, detail="Poster upload is not available in storage yet")
 
-        movie.poster_key = data.poster_key
+        movie.poster_key = await optimize_r2_image(data.poster_key, kind="poster")
 
     if data.banner_key:
         if not r2_keys.is_movie_asset_key(movie.slug, data.banner_key):
@@ -248,7 +249,7 @@ async def complete_admin_movie_asset_upload(
         if not banner_exists:
             raise HTTPException(status_code=409, detail="Banner upload is not available in storage yet")
 
-        movie.banner_key = data.banner_key
+        movie.banner_key = await optimize_r2_image(data.banner_key, kind="banner")
 
     if not data.source_key and not data.poster_key and not data.banner_key:
         raise HTTPException(status_code=422, detail="No uploaded assets provided")

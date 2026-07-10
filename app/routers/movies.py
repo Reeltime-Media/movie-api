@@ -44,6 +44,7 @@ from app.services.content_upload import (
     start_multipart_upload,
     verify_storage_objects_exist,
 )
+from app.services.image_process import optimize_r2_image
 from app.services.pagination import paginate_query
 from app.services.runtime import apply_runtime_minutes
 
@@ -136,6 +137,9 @@ async def complete_movie_upload(data: MovieUploadComplete, db: DBSession, _: Adm
         missing_detail="Banner upload is not available in storage yet",
     )
 
+    poster_key = await optimize_r2_image(data.poster_key, kind="poster")
+    banner_key = await optimize_r2_image(data.banner_key, kind="banner")
+
     movie = Content(
         id=data.content_id,
         type="single",
@@ -146,8 +150,8 @@ async def complete_movie_upload(data: MovieUploadComplete, db: DBSession, _: Adm
         release_year=data.release_year,
         rating=data.rating,
         price_usd=data.price_usd,
-        poster_key=data.poster_key,
-        banner_key=data.banner_key,
+        poster_key=poster_key,
+        banner_key=banner_key,
         trailer_url=data.trailer_url,
         status=data.status,
         is_published=(data.status == "published"),

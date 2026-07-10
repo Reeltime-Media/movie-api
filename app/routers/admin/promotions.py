@@ -14,6 +14,7 @@ from app.schemas.promotion_banner import (
     PromotionBannerUpdate,
 )
 from app.services import r2_keys, storage
+from app.services.image_process import optimize_r2_image
 
 router = APIRouter()
 
@@ -68,7 +69,10 @@ async def update_admin_promotion_banner(
     if not banner:
         raise NotFoundError("Promotion banner not found")
 
-    for field, value in data.model_dump(exclude_unset=True).items():
+    updates = data.model_dump(exclude_unset=True)
+    if updates.get("image_key"):
+        updates["image_key"] = await optimize_r2_image(updates["image_key"], kind="banner")
+    for field, value in updates.items():
         setattr(banner, field, value)
 
     await db.commit()

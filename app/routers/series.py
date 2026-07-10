@@ -55,6 +55,7 @@ from app.services.content_upload import (
     start_multipart_upload,
     verify_storage_objects_exist,
 )
+from app.services.image_process import optimize_r2_image
 from app.services.pagination import paginate_query
 from app.services.series import get_series_or_404
 
@@ -150,6 +151,10 @@ async def update_series(slug: str, data: SeriesUpdate, db: DBSession, _: AdminUs
     updates = data.model_dump(exclude_unset=True)
     if updates.get("monthly_price_usd") is None:
         updates.pop("monthly_price_usd", None)
+    if updates.get("poster_key"):
+        updates["poster_key"] = await optimize_r2_image(updates["poster_key"], kind="poster")
+    if updates.get("banner_key"):
+        updates["banner_key"] = await optimize_r2_image(updates["banner_key"], kind="banner")
     for field, value in updates.items():
         setattr(series, field, value)
     await db.commit()
@@ -263,6 +268,8 @@ async def complete_episode_upload(slug: str, data: EpisodeUploadComplete, db: DB
         missing_detail="Poster upload is not available in storage yet",
     )
 
+    poster_key = await optimize_r2_image(data.poster_key, kind="poster")
+
     episode = Content(
         id=data.content_id,
         type="episode",
@@ -273,7 +280,7 @@ async def complete_episode_upload(slug: str, data: EpisodeUploadComplete, db: DB
         title=data.title,
         description=data.description,
         runtime=data.runtime,
-        poster_key=data.poster_key,
+        poster_key=poster_key,
         trailer_url=data.trailer_url,
         status=data.status,
         is_published=(data.status == "published"),

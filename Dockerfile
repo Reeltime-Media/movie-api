@@ -5,7 +5,7 @@ WORKDIR /app
 
 # Wheels cover asyncpg/psycopg2-binary; gcc/libpq-dev only added build-time CVE surface.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
+    && apt-get install -y --no-install-recommends ca-certificates libjpeg62-turbo zlib1g \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir --upgrade "pip>=26.1.2"
 

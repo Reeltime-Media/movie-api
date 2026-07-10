@@ -87,6 +87,20 @@ def delete_object(key: str) -> None:
     _client().delete_object(Bucket=settings.r2_bucket_name, Key=key)
 
 
+def get_object_bytes(key: str) -> bytes:
+    obj = _client().get_object(Bucket=settings.r2_bucket_name, Key=key)
+    return obj["Body"].read()
+
+
+def put_object_bytes(key: str, data: bytes, content_type: str) -> None:
+    _client().put_object(
+        Bucket=settings.r2_bucket_name,
+        Key=key,
+        Body=data,
+        ContentType=content_type,
+    )
+
+
 def public_url(key: str) -> str:
     """Return the CDN public URL for a key (no signing required for public buckets)."""
     return f"{settings.r2_public_url.rstrip('/')}/{key}"
