@@ -35,11 +35,13 @@ async def app_lifespan(app: FastAPI):
 
     yield
 
+    from app.services.email import close_http_client as close_email_http_client
     from app.services.payment import close_http_client as close_payment_http_client
     from app.services.storage import reset_client as reset_storage_client
     from app.services.transcode_client import close_http_client as close_transcode_http_client
 
     await close_payment_http_client()
     await close_transcode_http_client()
+    await close_email_http_client()
     reset_storage_client()
     await engine.dispose()

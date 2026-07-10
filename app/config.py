@@ -98,6 +98,14 @@ class Settings(BaseSettings):
     transcode_service_url: str = ""
     transcode_api_key: str = ""
 
+    # Resend (transactional email — password reset, etc.)
+    resend_api_key: str = ""
+    resend_from_email: str = "Reeltime <onboarding@resend.dev>"
+    password_reset_token_expire_minutes: int = 30
+
+    # Concurrent device sessions allowed per account before login is rejected
+    max_active_sessions_per_user: int = 3
+
     @model_validator(mode="after")
     def validate_non_debug_settings(self) -> Self:
         if self.debug:

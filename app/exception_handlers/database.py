@@ -3,7 +3,7 @@ import logging
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-from app.db_connect import exception_from_db_layer, transient_db_detail
+from app.db_connect import exception_from_db_layer, is_transient_db_error, transient_db_detail
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +21,9 @@ async def timeout_error_handler(_request: Request, exc: TimeoutError) -> JSONRes
 
 
 async def sqlalchemy_error_handler(_request: Request, exc) -> JSONResponse:
-    from sqlalchemy.exc import SQLAlchemyError
-
     from app.config import get_settings
+
+    settings = get_settings()
     if is_transient_db_error(exc):
         logger.error("Database unreachable: %s", exc.__class__.__name__)
         return db_unavailable_response()

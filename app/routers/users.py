@@ -6,11 +6,13 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
 from app.core.security import hash_password
-from app.dependencies import AdminUser, CurrentUser, DBSession
+from app.dependencies import AdminUser, CurrentSessionId, CurrentUser, DBSession
 from app.models.user import User
 from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
+from app.schemas.session import SessionRead, session_to_read
 from app.schemas.user import UserRead, UserStatusUpdate, UserUpdate, user_to_read
 from app.services.pagination import paginate_query
+from app.services.session import list_active_sessions, revoke_session
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -29,6 +31,19 @@ async def update_me(data: UserUpdate, current_user: CurrentUser, db: DBSession):
     await db.commit()
     await db.refresh(current_user)
     return user_to_read(current_user)
+
+
+@router.get("/me/sessions", response_model=list[SessionRead])
+async def list_my_sessions(current_user: CurrentUser, current_session_id: CurrentSessionId, db: DBSession):
+    sessions = await list_active_sessions(db, current_user.id)
+    return [session_to_read(s, is_current=s.id == current_session_id) for s in sessions]
+
+
+@router.delete("/me/sessions/{session_id}", status_code=204)
+async def revoke_my_session(
+    session_id: uuid.UUID, current_user: CurrentUser, db: DBSession
+):
+    await revoke_session(db, current_user.id, session_id)
 
 
 @router.get("", response_model=PaginatedResponse[UserRead])

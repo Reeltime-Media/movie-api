@@ -1,3 +1,5 @@
+import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
@@ -21,13 +23,25 @@ def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
 
-def create_access_token(user_id: UUID, role: str) -> str:
+def generate_reset_token() -> tuple[str, str]:
+    """Return (raw_token, token_hash). Only the hash is persisted; the raw
+    value goes into the emailed link and is never stored."""
+    raw = secrets.token_urlsafe(32)
+    return raw, hashlib.sha256(raw.encode()).hexdigest()
+
+
+def hash_reset_token(raw_token: str) -> str:
+    return hashlib.sha256(raw_token.encode()).hexdigest()
+
+
+def create_access_token(user_id: UUID, role: str, session_id: UUID) -> str:
     expire = datetime.now(timezone.utc) + timedelta(
         minutes=settings.access_token_expire_minutes
     )
     payload = {
         "sub": str(user_id),
         "role": role,
+        "sid": str(session_id),
         "exp": expire,
     }
     return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
