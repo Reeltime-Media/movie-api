@@ -4,6 +4,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.content import Content
+from app.models.hero_featured_item import HeroFeaturedItem
 from app.models.payment_intent import PaymentIntent
 from app.models.purchase import Purchase
 from app.models.transcode_job import TranscodeJob
@@ -54,3 +55,17 @@ async def delete_content_dependencies_for_series(
     )
     for (content_id,) in result.all():
         await delete_content_dependencies(db, content_id)
+
+
+async def delete_series_and_dependencies(
+    db: AsyncSession, series_id: uuid.UUID
+) -> None:
+    """Remove episode dependencies, hero picks, and episode rows before deleting the series."""
+    await delete_content_dependencies_for_series(db, series_id)
+    await db.execute(
+        delete(HeroFeaturedItem).where(
+            HeroFeaturedItem.content_id == series_id,
+            HeroFeaturedItem.content_type == "series",
+        )
+    )
+    await db.execute(delete(Content).where(Content.series_id == series_id))

@@ -45,7 +45,7 @@ from app.services import r2_keys, storage
 from app.services.content_access import user_has_active_subscription
 from app.services.content_delete import (
     delete_content_dependencies,
-    delete_content_dependencies_for_series,
+    delete_series_and_dependencies,
 )
 from app.services.content_slug import unique_content_slug, unique_series_slug
 from app.services.content_upload import (
@@ -165,7 +165,7 @@ async def update_series(slug: str, data: SeriesUpdate, db: DBSession, _: AdminUs
 @router.delete("/{slug}", status_code=204)
 async def delete_series(slug: str, db: DBSession, _: AdminUser):
     series = await get_series_or_404(slug, db)
-    await delete_content_dependencies_for_series(db, series.id)
+    await delete_series_and_dependencies(db, series.id)
     await db.delete(series)
     await db.commit()
 

@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import APIRouter
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.core.exceptions import NotFoundError
 from app.dependencies import AdminUser, DBSession
@@ -10,6 +10,7 @@ from app.models.series import Series
 from app.schemas.content import SeasonRead
 from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
 from app.schemas.series import SeriesRead
+from app.services.content_delete import delete_series_and_dependencies
 from app.services.pagination import paginate_query
 
 router = APIRouter()
@@ -66,3 +67,15 @@ async def list_admin_series_episodes(series_slug: str, db: DBSession, _: AdminUs
         SeasonRead(season_number=sn, episodes=eps)
         for sn, eps in sorted(seasons.items())
     ]
+
+
+@router.delete("/series/{series_id}", status_code=204)
+async def delete_admin_series(series_id: uuid.UUID, db: DBSession, _: AdminUser):
+    """Delete a series, all episodes, and related rows."""
+    result = await db.execute(select(Series).where(Series.id == series_id))
+    series = result.scalar_one_or_none()
+    if not series:
+        raise NotFoundError("Series not found")
+    await delete_series_and_dependencies(db, series.id)
+    await db.delete(series)
+    await db.commit()
