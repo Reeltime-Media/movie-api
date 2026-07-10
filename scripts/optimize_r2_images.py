@@ -45,13 +45,14 @@ async def _optimize_key(key: str | None, *, kind: str) -> str | None:
 
 async def main(commit: bool) -> None:
     settings = get_settings()
+    database_url = settings.effective_database_url
     engine = create_async_engine(
-        settings.database_url,
-        **sqlalchemy_engine_kwargs(settings),
+        database_url,
+        **sqlalchemy_engine_kwargs(database_url, debug=settings.debug),
     )
     session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-    print(f"Database: {database_connection_label(settings)}")
+    print(f"Database: {database_connection_label(database_url)}")
 
     async with session_factory() as db:
         movies = (await db.execute(select(Content))).scalars().all()
