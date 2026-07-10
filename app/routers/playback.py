@@ -6,19 +6,16 @@ Flow:
   2. GET /playback/{content_id}/master.m3u8?t=<token>
        -> rewritten master; rendition refs point at the variant endpoint.
   3. GET /playback/{content_id}/v/{name}?t=<token>
-       -> rewritten rendition playlist; segment refs point at the segment endpoint.
-  4. GET /playback/{content_id}/s/{name}?t=<token>
-       -> proxies the .ts segment from R2 (same-origin for the browser).
+       -> rewritten rendition playlist; segments are presigned R2 URLs.
+  4. Player fetches .ts segments directly from R2 via the presigned URLs.
 
 Because the token rides in the URL, this works for both hls.js (MSE) and
 Safari's native HLS, with no custom request headers anywhere in the chain.
 """
 
-import posixpath
 import re
 import uuid
 
-from botocore.exceptions import ClientError
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from sqlalchemy import select
 
@@ -38,12 +35,8 @@ settings = get_settings()
 _M3U8_MEDIA_TYPE = "application/vnd.apple.mpegurl"
 # Rendition playlist filename as written by the transcoder, e.g. "720p.m3u8".
 _VARIANT_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+\.m3u8$")
-# HLS transport stream segment, e.g. "720p_00001.ts".
-_SEGMENT_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+\.ts$")
-# Playlists carry token URLs — never let a shared cache store them.
+# Playlists carry presigned/token URLs — never let a shared cache store them.
 _NO_STORE = {"Cache-Control": "no-store"}
-# Segments are immutable once transcoded; token still gates access.
-_SEGMENT_CACHE = {"Cache-Control": "private, max-age=3600"}
 
 
 async def _content_or_404(db, content_id: uuid.UUID) -> Content:
@@ -102,33 +95,7 @@ async def variant_playlist(
         )
     verify_playback_token(t, content_id)
     content = await _content_or_404(db, content_id)
-    body = await playback.build_variant_playlist(content.hls_master_key, name, t)
+    body = await playback.build_variant_playlist(
+        content.hls_master_key, name, settings.playback_token_expiry_seconds
+    )
     return Response(content=body, media_type=_M3U8_MEDIA_TYPE, headers=_NO_STORE)
-
-
-@router.get("/{content_id}/s/{name}")
-async def segment(
-    content_id: uuid.UUID, name: str, db: DBSession, t: str = Query(...)
-) -> Response:
-    if not _SEGMENT_NAME_RE.match(name):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid segment"
-        )
-    if posixpath.basename(name) != name:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid segment"
-        )
-    verify_playback_token(t, content_id)
-    content = await _content_or_404(db, content_id)
-    try:
-        body, media_type = await playback.get_segment_bytes(
-            content.hls_master_key, name
-        )
-    except ClientError as exc:
-        code = exc.response.get("Error", {}).get("Code", "")
-        if code in ("NoSuchKey", "404", "NotFound"):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Segment not found"
-            ) from exc
-        raise
-    return Response(content=body, media_type=media_type, headers=_SEGMENT_CACHE)

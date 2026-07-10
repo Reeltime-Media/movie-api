@@ -5,11 +5,11 @@ a private R2 prefix and are never served directly. Instead:
 
   * The master playlist is rewritten so each rendition reference points back at
     the variant endpoint, carrying the caller's playback token.
-  * Each rendition playlist is rewritten so every segment reference points at
-    the token-gated segment endpoint (same origin as the API proxy).
+  * Each rendition playlist is rewritten so every segment reference becomes a
+    short-lived presigned R2 URL.
 
-Segments are proxied through the API so browsers never fetch HLS .ts files
-directly from R2 (which would fail CORS on the client domain).
+Segments are therefore fetched straight from R2 via expiring signatures (no app
+round-trip per segment), while the playlists stay gated behind the token.
 
 Raw playlist text is cached in memory for up to 60 seconds so concurrent viewers
 of the same title don't each trigger an R2 GET.
@@ -80,12 +80,12 @@ async def build_master_playlist(
 
 
 async def build_variant_playlist(
-    hls_master_key: str, variant_name: str, playback_token: str
+    hls_master_key: str, variant_name: str, expires_in: int
 ) -> str:
-    """Rewrite each segment reference to the token-gated segment endpoint.
+    """Rewrite each segment reference in a rendition playlist to a presigned URL.
 
-    URLs are relative to the variant playlist (`../s/...`) so the player
-    resolves them against the API host (or `/api-proxy` on the client).
+    `variant_name` is validated by the caller. Segment names come from our own
+    transcoder output (trusted), but are still resolved within the HLS prefix.
     """
     prefix = posixpath.dirname(hls_master_key)  # e.g. movies/<slug>/hls
     variant_key = f"{prefix}/{variant_name}"
@@ -94,24 +94,11 @@ async def build_variant_playlist(
     out: list[str] = []
     for line in text.splitlines():
         if _is_uri_line(line):
-            segment_name = line.strip()
-            out.append(f"../s/{segment_name}?t={playback_token}")
+            segment_key = f"{prefix}/{line.strip()}"
+            # Presigning is a local crypto op (no network) — safe to call inline.
+            out.append(
+                storage.generate_presigned_download_url(segment_key, expires_in)
+            )
         else:
             out.append(line)
     return "\n".join(out) + "\n"
-
-
-async def get_segment_bytes(hls_master_key: str, segment_name: str) -> tuple[bytes, str]:
-    """Fetch one HLS segment from R2. `segment_name` is validated by the caller."""
-    prefix = posixpath.dirname(hls_master_key)
-    segment_key = f"{prefix}/{segment_name}"
-
-    def _fetch() -> tuple[bytes, str]:
-        obj = storage._client().get_object(
-            Bucket=settings.r2_bucket_name, Key=segment_key
-        )
-        body = obj["Body"].read()
-        content_type = obj.get("ContentType") or "video/mp2t"
-        return body, content_type
-
-    return await asyncio.to_thread(_fetch)
