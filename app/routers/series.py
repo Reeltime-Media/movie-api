@@ -103,7 +103,7 @@ async def list_series(
 @router.get("/{slug}", response_model=SeriesRead)
 async def get_series(slug: str, db: DBSession, current_user: OptionalUser):
     published_only = not current_user or current_user.role != "admin"
-    return await get_series_or_404(slug, db, published_only=published_only)
+    return await get_series_or_404(db, slug, published_only=published_only)
 
 
 @router.post("/", response_model=SeriesRead, status_code=201)
@@ -130,7 +130,7 @@ async def create_series(data: CreateSeriesBody, db: DBSession, _: AdminUser):
 @router.post("/{slug}/poster/start", response_model=SeriesPosterStartRead)
 async def start_series_poster_upload(slug: str, data: SeriesPosterStart, db: DBSession, _: AdminUser):
     """Get a presigned URL to upload the series poster directly to R2."""
-    series = await get_series_or_404(slug, db)
+    series = await get_series_or_404(db, slug)
     poster_key = r2_keys.series_poster_key(series.slug, data.poster_content_type)
     url = storage.generate_presigned_upload_url(poster_key, data.poster_content_type)
     return SeriesPosterStartRead(series_id=series.id, poster_key=poster_key, poster_upload_url=url)
@@ -139,7 +139,7 @@ async def start_series_poster_upload(slug: str, data: SeriesPosterStart, db: DBS
 @router.post("/{slug}/banner/start", response_model=SeriesBannerStartRead)
 async def start_series_banner_upload(slug: str, data: SeriesBannerStart, db: DBSession, _: AdminUser):
     """Get a presigned URL to upload the series banner directly to R2."""
-    series = await get_series_or_404(slug, db)
+    series = await get_series_or_404(db, slug)
     banner_key = r2_keys.series_banner_key(series.slug, data.banner_content_type)
     url = storage.generate_presigned_upload_url(banner_key, data.banner_content_type)
     return SeriesBannerStartRead(series_id=series.id, banner_key=banner_key, banner_upload_url=url)
@@ -147,7 +147,7 @@ async def start_series_banner_upload(slug: str, data: SeriesBannerStart, db: DBS
 
 @router.patch("/{slug}", response_model=SeriesRead)
 async def update_series(slug: str, data: SeriesUpdate, db: DBSession, _: AdminUser):
-    series = await get_series_or_404(slug, db)
+    series = await get_series_or_404(db, slug)
     updates = data.model_dump(exclude_unset=True)
     if updates.get("monthly_price_usd") is None:
         updates.pop("monthly_price_usd", None)
@@ -164,7 +164,7 @@ async def update_series(slug: str, data: SeriesUpdate, db: DBSession, _: AdminUs
 
 @router.delete("/{slug}", status_code=204)
 async def delete_series(slug: str, db: DBSession, _: AdminUser):
-    series = await get_series_or_404(slug, db)
+    series = await get_series_or_404(db, slug)
     await delete_series_and_dependencies(db, series.id)
     await db.delete(series)
     await db.commit()
@@ -173,7 +173,7 @@ async def delete_series(slug: str, db: DBSession, _: AdminUser):
 @router.get("/{slug}/episodes", response_model=list[SeasonRead])
 async def list_episodes(slug: str, db: DBSession, current_user: OptionalUser):
     """Published episodes for a series (public — used for free-episode discovery on the catalog)."""
-    series = await get_series_or_404(slug, db, published_only=True)
+    series = await get_series_or_404(db, slug, published_only=True)
 
     eps_result = await db.execute(
         select(Content)
@@ -203,7 +203,7 @@ async def list_episodes(slug: str, db: DBSession, current_user: OptionalUser):
 @router.post("/{slug}/episodes/uploads/start", response_model=EpisodeUploadStartRead)
 async def start_episode_upload(slug: str, data: EpisodeUploadStart, db: DBSession, _: AdminUser):
     """Initiate a multipart upload for an episode."""
-    await get_series_or_404(slug, db)
+    await get_series_or_404(db, slug)
 
     content_id = uuid.uuid4()
     episode_slug = await unique_content_slug(
@@ -253,7 +253,7 @@ async def complete_episode_upload(slug: str, data: EpisodeUploadComplete, db: DB
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    series = await get_series_or_404(slug, db)
+    series = await get_series_or_404(db, slug)
 
     expected_source_key = r2_keys.episode_source_key(slug, data.episode_slug)
     if data.source_key != expected_source_key:
@@ -305,7 +305,7 @@ async def abort_episode_upload(slug: str, data: EpisodeUploadAbort, _: AdminUser
 async def update_episode(
     slug: str, episode_slug: str, data: ContentUpdate, db: DBSession, _: AdminUser
 ):
-    series = await get_series_or_404(slug, db)
+    series = await get_series_or_404(db, slug)
 
     ep_result = await db.execute(
         select(Content).where(
@@ -336,7 +336,7 @@ async def update_episode(
 
 @router.delete("/{slug}/episodes/{episode_slug}", status_code=204)
 async def delete_episode(slug: str, episode_slug: str, db: DBSession, _: AdminUser):
-    series = await get_series_or_404(slug, db)
+    series = await get_series_or_404(db, slug)
 
     ep_result = await db.execute(
         select(Content).where(
