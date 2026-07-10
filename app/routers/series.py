@@ -100,6 +100,19 @@ async def list_series(
     )
 
 
+@router.get("/{slug}/related", response_model=list[SeriesListItemRead])
+async def get_related_series(
+    slug: str,
+    db: DBSession,
+    limit: int = Query(default=8, ge=1, le=24),
+):
+    from app.services.catalog_related import related_series
+
+    series = await get_series_or_404(db, slug, published_only=True)
+    items = await related_series(db, series=series, limit=limit)
+    return [SeriesListItemRead.model_validate(item) for item in items]
+
+
 @router.get("/{slug}", response_model=SeriesRead)
 async def get_series(slug: str, db: DBSession, current_user: OptionalUser):
     published_only = not current_user or current_user.role != "admin"

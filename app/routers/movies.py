@@ -213,6 +213,24 @@ async def list_movies(
     )
 
 
+@router.get("/{slug}/related", response_model=list[ContentListItemRead])
+async def get_related_movies(
+    slug: str,
+    db: DBSession,
+    limit: int = Query(default=8, ge=1, le=24),
+):
+    from app.services.catalog_related import related_movies
+
+    stmt = select(Content).where(Content.slug == slug, Content.type == "single")
+    stmt = stmt.where(Content.is_published.is_(True))
+    result = await db.execute(stmt)
+    movie = result.scalar_one_or_none()
+    if not movie:
+        raise NotFoundError("Movie not found")
+    items = await related_movies(db, movie=movie, limit=limit)
+    return [ContentListItemRead.model_validate(item) for item in items]
+
+
 @router.get("/{slug}", response_model=ContentRead)
 async def get_movie(slug: str, db: DBSession, current_user: OptionalUser):
     stmt = select(Content).where(Content.slug == slug, Content.type == "single")

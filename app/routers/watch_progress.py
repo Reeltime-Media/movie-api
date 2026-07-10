@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
 from app.dependencies import CurrentUser, DBSession
@@ -18,6 +18,24 @@ async def list_watch_progress(db: DBSession, current_user: CurrentUser):
         select(WatchProgress).where(WatchProgress.user_id == current_user.id)
     )
     return result.scalars().all()
+
+
+@router.get("/{content_id}", response_model=WatchProgressRead)
+async def get_watch_progress(
+    content_id: uuid.UUID,
+    db: DBSession,
+    current_user: CurrentUser,
+):
+    result = await db.execute(
+        select(WatchProgress).where(
+            WatchProgress.user_id == current_user.id,
+            WatchProgress.content_id == content_id,
+        )
+    )
+    progress = result.scalar_one_or_none()
+    if not progress:
+        raise HTTPException(status_code=404, detail="Watch progress not found")
+    return progress
 
 
 @router.put("/{content_id}", response_model=WatchProgressRead)
