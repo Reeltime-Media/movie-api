@@ -52,8 +52,11 @@ jobs:
             sudo -u "$APP_USER" git -C "$SRC_DIR" checkout main
             sudo -u "$APP_USER" git -C "$SRC_DIR" pull --ff-only origin main
 
-            cd "$COMPOSE_DIR"
-            sudo docker compose up -d --build api
+            # COMPOSE_DIR is owned by APP_USER — use sudo + project-directory (no cd).
+            sudo docker compose \
+              --project-directory "$COMPOSE_DIR" \
+              -f "$COMPOSE_DIR/docker-compose.yml" \
+              up -d --build api
 
             for i in $(seq 1 30); do
               if curl -sf http://127.0.0.1:8000/health >/dev/null; then
@@ -63,5 +66,5 @@ jobs:
               sleep 2
             done
             echo "health check failed"
-            sudo docker compose ps
+            sudo docker compose --project-directory "$COMPOSE_DIR" -f "$COMPOSE_DIR/docker-compose.yml" ps
             exit 1
