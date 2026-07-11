@@ -16,7 +16,6 @@ class SubscriptionRead(BaseModel):
     status: str
     current_period_start: datetime
     current_period_end: datetime
-    reminder_sent_at: datetime | None
     created_at: datetime
     updated_at: datetime
 

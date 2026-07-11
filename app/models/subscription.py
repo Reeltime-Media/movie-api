@@ -25,9 +25,6 @@ class Subscription(Base):
     current_period_end: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
-    reminder_sent_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

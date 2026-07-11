@@ -22,7 +22,5 @@ class PurchaseRead(BaseModel):
     bank: str | None
     amount_usd: Decimal
     purchased_at: datetime
-    expires_at: datetime | None
-    first_played_at: datetime | None
 
     model_config = {"from_attributes": True}

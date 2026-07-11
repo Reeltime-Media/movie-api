@@ -3,6 +3,7 @@ from app.models.comment_report import CommentReport
 from app.models.comment_vote import CommentVote
 from app.models.content import Content
 from app.models.favorite import Favorite
+from app.models.genre import Genre
 from app.models.payment_intent import PaymentIntent
 from app.models.hero_featured_item import HeroFeaturedItem
 from app.models.password_reset_token import PasswordResetToken
@@ -26,6 +27,7 @@ __all__ = [
     "Series",
     "Content",
     "Favorite",
+    "Genre",
     "Purchase",
     "Subscription",
     "SubscriptionPayment",
