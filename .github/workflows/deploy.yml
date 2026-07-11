@@ -24,32 +24,36 @@ jobs:
           pip install pytest
 
       - name: Run tests
-        run: pytest -q
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        # Only collect tests/ — app/routers/*_test.py are FastAPI routers, not pytest.
+        run: pytest -q tests/
 
   # ── CD: deploy to GCE VM over SSH (main only) ──────────────────────────────
   deploy:
     needs: test
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
       - name: Deploy to GCE over SSH
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.GCE_HOST }}
           username: ${{ secrets.GCE_USER }}
           key: ${{ secrets.GCE_SSH_KEY }}
+          script_stop: true
           script: |
-            set -e
+            set -euo pipefail
             SRC_DIR="${{ secrets.SRC_DIR }}"
-            COMPOSE_FILE="${{ secrets.COMPOSE_FILE }}"
+            COMPOSE_DIR="${{ secrets.COMPOSE_DIR }}"
             APP_USER="${{ secrets.APP_USER }}"
 
-            sudo -u "$APP_USER" git -C "$SRC_DIR" fetch --all
-            sudo -u "$APP_USER" git -C "$SRC_DIR" pull --ff-only
+            sudo -u "$APP_USER" git -C "$SRC_DIR" fetch --all --prune
+            sudo -u "$APP_USER" git -C "$SRC_DIR" checkout main
+            sudo -u "$APP_USER" git -C "$SRC_DIR" pull --ff-only origin main
 
-            sudo docker compose -f "$COMPOSE_FILE" up -d --build api
+            cd "$COMPOSE_DIR"
+            sudo docker compose up -d --build api
 
             for i in $(seq 1 30); do
               if curl -sf http://127.0.0.1:8000/health >/dev/null; then
@@ -59,5 +63,5 @@ jobs:
               sleep 2
             done
             echo "health check failed"
-            sudo docker compose -f "$COMPOSE_FILE" ps
+            sudo docker compose ps
             exit 1
