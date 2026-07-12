@@ -68,6 +68,7 @@ class ContentListItemRead(BaseModel):
     description: str | None
     genres: list[str]
     poster_key: str | None
+    banner_key: str | None = None
     price_usd: Decimal | None
     rating: Decimal | None
     runtime: str | None
