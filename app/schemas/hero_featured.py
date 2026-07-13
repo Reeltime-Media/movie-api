@@ -3,33 +3,61 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+HERO_BANNER_TYPES = {"image/jpeg", "image/jpg", "image/png", "image/webp"}
+HERO_VIDEO_TYPES = {"video/mp4", "video/webm"}
 
 
 class HeroFeaturedItemCreate(BaseModel):
-    content_type: Literal["movie", "series"]
-    content_id: UUID
+    content_type: Literal["movie", "series", "custom"]
+    content_id: UUID | None = None
     placement: str = Field(default="home", max_length=32)
     is_active: bool = True
     sort_order: int = 0
     starts_at: datetime | None = None
     ends_at: datetime | None = None
+    # Custom-slide fields (content_type == "custom")
+    title: str | None = None
+    description: str | None = None
+    banner_key: str | None = None
+    link_url: str | None = None
+    # Promo video (any slide type). Uploaded video_key wins over youtube_url.
+    video_key: str | None = None
+    youtube_url: str | None = None
+
+    @model_validator(mode="after")
+    def check_slide_shape(self) -> "HeroFeaturedItemCreate":
+        if self.content_type == "custom":
+            if not (self.title or "").strip():
+                raise ValueError("custom slides require a title")
+            if self.content_id is not None:
+                raise ValueError("custom slides must not reference catalog content")
+        elif self.content_id is None:
+            raise ValueError("content_id is required for movie and series slides")
+        return self
 
 
 class HeroFeaturedItemUpdate(BaseModel):
-    content_type: Literal["movie", "series"] | None = None
+    content_type: Literal["movie", "series", "custom"] | None = None
     content_id: UUID | None = None
     placement: str | None = Field(default=None, max_length=32)
     is_active: bool | None = None
     sort_order: int | None = None
     starts_at: datetime | None = None
     ends_at: datetime | None = None
+    title: str | None = None
+    description: str | None = None
+    banner_key: str | None = None
+    link_url: str | None = None
+    video_key: str | None = None
+    youtube_url: str | None = None
 
 
 class HeroFeaturedItemRead(BaseModel):
     id: UUID
     content_type: str
-    content_id: UUID
+    content_id: UUID | None
     placement: str
     is_active: bool
     sort_order: int
@@ -37,6 +65,12 @@ class HeroFeaturedItemRead(BaseModel):
     ends_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    title: str | None = None
+    description: str | None = None
+    banner_key: str | None = None
+    link_url: str | None = None
+    video_key: str | None = None
+    youtube_url: str | None = None
     content_title: str | None = None
     content_slug: str | None = None
     poster_key: str | None = None
@@ -46,9 +80,9 @@ class HeroFeaturedItemRead(BaseModel):
 
 class HeroFeaturedSlideRead(BaseModel):
     id: UUID
-    content_type: Literal["movie", "series"]
+    content_type: Literal["movie", "series", "custom"]
     title: str
-    slug: str
+    slug: str = ""
     description: str | None
     genres: list[str]
     release_year: int | None
@@ -56,10 +90,34 @@ class HeroFeaturedSlideRead(BaseModel):
     runtime: str | None
     poster_key: str | None
     banner_key: str | None = None
-    watch_href: str
+    watch_href: str | None = None
     sort_order: int
+    # Exactly one of these is set when the slide has a video (video_key wins).
+    video_key: str | None = None
+    youtube_url: str | None = None
 
     @field_validator("genres", mode="before")
     @classmethod
     def default_genres(cls, value: list[str] | None) -> list[str]:
         return value or []
+
+
+class HeroUploadStart(BaseModel):
+    kind: Literal["banner", "video"]
+    content_type: str
+
+    @model_validator(mode="after")
+    def check_content_type(self) -> "HeroUploadStart":
+        normalized = self.content_type.strip().lower()
+        allowed = HERO_BANNER_TYPES if self.kind == "banner" else HERO_VIDEO_TYPES
+        if normalized not in allowed:
+            raise ValueError(
+                f"content_type must be one of {', '.join(sorted(allowed))}"
+            )
+        self.content_type = normalized
+        return self
+
+
+class HeroUploadStartRead(BaseModel):
+    key: str
+    upload_url: str
