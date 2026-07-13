@@ -15,7 +15,17 @@ class HeroFeaturedItem(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     content_type: Mapped[str] = mapped_column(Text, nullable=False)
-    content_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    content_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    # Custom-slide fields (used when content_type == "custom")
+    title: Mapped[str | None] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    banner_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    link_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Promo video (any slide type). Uploaded video_key wins over youtube_url.
+    video_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    youtube_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     placement: Mapped[str] = mapped_column(Text, nullable=False, default="home")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
