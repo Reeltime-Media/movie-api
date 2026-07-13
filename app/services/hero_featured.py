@@ -82,6 +82,29 @@ def _build_slide(
     movies_by_id: dict[UUID, Content],
     series_by_id: dict[UUID, Series],
 ) -> HeroFeaturedSlideRead | None:
+    # Uploaded video wins; emit exactly one of video_key / youtube_url.
+    video_key = item.video_key
+    youtube_url = None if item.video_key else item.youtube_url
+
+    if item.content_type == "custom":
+        return HeroFeaturedSlideRead(
+            id=item.id,
+            content_type="custom",
+            title=item.title or "",
+            slug="",
+            description=item.description,
+            genres=[],
+            release_year=None,
+            rating=None,
+            runtime=None,
+            poster_key=item.banner_key,
+            banner_key=item.banner_key,
+            watch_href=item.link_url,
+            sort_order=item.sort_order,
+            video_key=video_key,
+            youtube_url=youtube_url,
+        )
+
     if item.content_type == "movie":
         movie = movies_by_id.get(item.content_id)
         if not movie:
@@ -100,6 +123,8 @@ def _build_slide(
             banner_key=movie.banner_key,
             watch_href=f"/watch?slug={movie.slug}",
             sort_order=item.sort_order,
+            video_key=video_key,
+            youtube_url=youtube_url,
         )
 
     if item.content_type == "series":
@@ -120,6 +145,8 @@ def _build_slide(
             banner_key=series.banner_key,
             watch_href=f"/watch/series/{series.slug}/1/1",
             sort_order=item.sort_order,
+            video_key=video_key,
+            youtube_url=youtube_url,
         )
 
     return None
@@ -161,6 +188,9 @@ async def enrich_admin_hero_items(
                 read.content_title = series.title
                 read.content_slug = series.slug
                 read.poster_key = series.poster_key
+        elif item.content_type == "custom":
+            read.content_title = item.title
+            read.poster_key = item.banner_key
         enriched.append(read)
 
     return enriched
@@ -170,8 +200,19 @@ async def validate_hero_content(
     db: AsyncSession,
     *,
     content_type: str,
-    content_id: UUID,
+    content_id: UUID | None,
+    title: str | None = None,
 ) -> None:
+    if content_type == "custom":
+        if content_id is not None:
+            raise ValueError("custom slides must not reference catalog content")
+        if not (title or "").strip():
+            raise ValueError("custom slides require a title")
+        return
+
+    if content_id is None:
+        raise ValueError("content_id is required for movie and series slides")
+
     if content_type == "movie":
         result = await db.execute(
             select(Content.id).where(
@@ -189,4 +230,4 @@ async def validate_hero_content(
             raise ValueError("Series not found")
         return
 
-    raise ValueError("content_type must be movie or series")
+    raise ValueError("content_type must be movie, series, or custom")
