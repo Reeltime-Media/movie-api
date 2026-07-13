@@ -10,7 +10,10 @@ from app.schemas.hero_featured import (
     HeroFeaturedItemCreate,
     HeroFeaturedItemRead,
     HeroFeaturedItemUpdate,
+    HeroUploadStart,
+    HeroUploadStartRead,
 )
+from app.services import r2_keys, storage
 from app.services.hero_featured import enrich_admin_hero_items, validate_hero_content
 
 router = APIRouter()
@@ -47,7 +50,12 @@ async def create_admin_hero_featured(
     _: AdminUser,
 ):
     try:
-        await validate_hero_content(db, content_type=data.content_type, content_id=data.content_id)
+        await validate_hero_content(
+            db,
+            content_type=data.content_type,
+            content_id=data.content_id,
+            title=data.title,
+        )
     except ValueError as exc:
         raise NotFoundError(str(exc)) from exc
 
@@ -83,9 +91,19 @@ async def update_admin_hero_featured(
     updates = data.model_dump(exclude_unset=True)
     content_type = updates.get("content_type", item.content_type)
     content_id = updates.get("content_id", item.content_id)
-    if "content_type" in updates or "content_id" in updates:
+    title = updates.get("title", item.title)
+    if content_type == "custom":
+        # Switching to custom drops any catalog reference.
+        content_id = None
+        updates["content_id"] = None
+    if "content_type" in updates or "content_id" in updates or "title" in updates:
         try:
-            await validate_hero_content(db, content_type=content_type, content_id=content_id)
+            await validate_hero_content(
+                db,
+                content_type=content_type,
+                content_id=content_id,
+                title=title,
+            )
         except ValueError as exc:
             raise NotFoundError(str(exc)) from exc
 
@@ -119,3 +137,14 @@ async def delete_admin_hero_featured(
         raise NotFoundError("Hero featured item not found")
     await db.delete(item)
     await db.commit()
+
+
+@router.post("/hero-featured/uploads/start", response_model=HeroUploadStartRead)
+async def start_admin_hero_upload(data: HeroUploadStart, _: AdminUser):
+    media_id = uuid.uuid4()
+    if data.kind == "banner":
+        key = r2_keys.hero_banner_key(media_id, data.content_type)
+    else:
+        key = r2_keys.hero_video_key(media_id, data.content_type)
+    upload_url = storage.generate_presigned_upload_url(key, data.content_type)
+    return HeroUploadStartRead(key=key, upload_url=upload_url)
