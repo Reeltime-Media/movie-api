@@ -45,6 +45,37 @@ def test_movie_slide_requires_content_id():
         HeroFeaturedItemCreate(content_type="movie")
 
 
+def test_series_slide_requires_content_id():
+    with pytest.raises(ValidationError, match="content_id"):
+        HeroFeaturedItemCreate(content_type="series")
+
+
+def test_custom_title_is_stripped():
+    item = HeroFeaturedItemCreate(content_type="custom", title="  Promo  ")
+    assert item.title == "Promo"
+
+
+def test_link_url_rejects_javascript_scheme():
+    with pytest.raises(ValidationError):
+        HeroFeaturedItemCreate(
+            content_type="custom", title="Promo", link_url="javascript:alert(1)"
+        )
+
+
+def test_link_url_accepts_internal_path():
+    item = HeroFeaturedItemCreate(
+        content_type="custom", title="Promo", link_url="/pricing"
+    )
+    assert item.link_url == "/pricing"
+
+
+def test_youtube_url_rejects_non_http():
+    with pytest.raises(ValidationError):
+        HeroFeaturedItemCreate(
+            content_type="custom", title="Promo", youtube_url="ftp://x"
+        )
+
+
 def test_movie_slide_accepts_video_fields():
     item = HeroFeaturedItemCreate(
         content_type="movie",
