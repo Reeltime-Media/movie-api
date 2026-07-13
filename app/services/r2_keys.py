@@ -13,6 +13,10 @@ Series:
   series/{series_slug}/episodes/{episode_slug}/poster.{ext}
   series/{series_slug}/episodes/{episode_slug}/hls/master.m3u8
 
+Hero slides:
+  hero/banners/{uuid}.{ext}
+  hero/videos/{uuid}.{ext}
+
 Legacy keys (raw/, posters/, hls/{uuid}/) remain supported by the transcoder.
 """
 
@@ -25,6 +29,7 @@ from typing import Final
 MOVIES_PREFIX: Final = "movies"
 SERIES_PREFIX: Final = "series"
 PROMOTIONS_PREFIX: Final = "promotions"
+HERO_PREFIX: Final = "hero"
 
 _POSTER_EXT = {
     "image/jpeg": "jpg",
@@ -145,3 +150,19 @@ def promotion_banner_image_key(banner_id: uuid.UUID, content_type: str) -> str:
 def is_promotion_banner_image_key(banner_id: uuid.UUID, key: str) -> bool:
     prefix = f"{PROMOTIONS_PREFIX}/{banner_id}/"
     return key.startswith(prefix) and key.endswith((".jpg", ".jpeg", ".png", ".webp"))
+
+
+# ── Hero slides ───────────────────────────────────────────────────────────────
+
+_HERO_VIDEO_EXT = {
+    "video/mp4": "mp4",
+    "video/webm": "webm",
+}
+
+
+def hero_banner_key(media_id: uuid.UUID, content_type: str) -> str:
+    return f"{HERO_PREFIX}/banners/{media_id}.{poster_extension(content_type)}"
+
+
+def hero_video_key(media_id: uuid.UUID, content_type: str) -> str:
+    return f"{HERO_PREFIX}/videos/{media_id}.{_HERO_VIDEO_EXT.get(content_type, 'mp4')}"
