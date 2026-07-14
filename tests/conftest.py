@@ -1,12 +1,9 @@
 """Pytest configuration and shared fixtures."""
 
 import asyncio
+import os
 from collections.abc import Iterator
 from typing import Any
-
-import pytest
-
-from app.config import Settings, clear_settings_cache, get_settings
 
 _SETTINGS_DEFAULTS: dict[str, Any] = {
     "secret_key": "test-secret-key-thirty-two-characters-min",
@@ -17,6 +14,17 @@ _SETTINGS_DEFAULTS: dict[str, Any] = {
     "r2_bucket_name": "movies",
     "r2_public_url": "https://cdn.example.com",
 }
+
+# Seed a valid baseline env before any app import below: app.database builds
+# its engine when imported, and CI runs with a bare environment (no .env).
+# Real env vars win — setdefault never overrides.
+for _key, _value in _SETTINGS_DEFAULTS.items():
+    os.environ.setdefault(_key.upper(), str(_value))
+os.environ.setdefault("TRANSCODE_API_KEY", "test-transcode-key")
+
+import pytest  # noqa: E402
+
+from app.config import Settings, clear_settings_cache, get_settings  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
