@@ -69,6 +69,13 @@ def test_link_url_accepts_internal_path():
     assert item.link_url == "/pricing"
 
 
+def test_link_url_rejects_protocol_relative():
+    with pytest.raises(ValidationError, match="link_url"):
+        HeroFeaturedItemCreate(
+            content_type="custom", title="Promo", link_url="//evil.com"
+        )
+
+
 def test_youtube_url_rejects_non_http():
     with pytest.raises(ValidationError):
         HeroFeaturedItemCreate(

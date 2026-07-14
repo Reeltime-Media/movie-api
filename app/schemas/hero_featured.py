@@ -19,8 +19,15 @@ def _normalize_optional_text(value: str | None) -> str | None:
 
 def _validate_link_url(value: str | None) -> str | None:
     value = _normalize_optional_text(value)
-    if value is not None and not value.startswith(("/", "http://", "https://")):
-        raise ValueError("link_url must be a path starting with / or an http(s) URL")
+    if value is None:
+        return None
+    # "//host" is protocol-relative (off-site), not an internal path.
+    is_path = value.startswith("/") and not value.startswith("//")
+    is_http = value.startswith(("http://", "https://"))
+    if not (is_path or is_http):
+        raise ValueError(
+            "link_url must be a path starting with / (not //) or an http(s) URL"
+        )
     return value
 
 
