@@ -32,7 +32,7 @@ from app.schemas.upload import (
     MultipartUploadAbort,
     PartUrlRead,
 )
-from app.services import r2_keys
+from app.services import free_today, r2_keys
 from app.services.content_access import user_can_access_content
 from app.services.content_delete import delete_content_dependencies
 from app.services.content_publish import ensure_movie_publishable
@@ -241,6 +241,7 @@ async def get_movie(slug: str, db: DBSession, current_user: OptionalUser):
     if not movie:
         raise NotFoundError("Movie not found")
     data = ContentRead.model_validate(movie)
+    data.is_free_today = await free_today.is_free_today(db, movie.id)
     if not (current_user and await user_can_access_content(db, current_user, movie)):
         data.hls_master_key = None
     return data

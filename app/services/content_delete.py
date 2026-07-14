@@ -4,6 +4,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.content import Content
+from app.models.free_today_item import FreeTodayItem
 from app.models.hero_featured_item import HeroFeaturedItem
 from app.models.payment_intent import PaymentIntent
 from app.models.purchase import Purchase
@@ -36,6 +37,9 @@ async def delete_content_dependencies(
 ) -> None:
     """Remove rows that reference content before deleting the content record."""
     await db.execute(delete(Purchase).where(Purchase.content_id == content_id))
+    await db.execute(
+        delete(FreeTodayItem).where(FreeTodayItem.content_id == content_id)
+    )
     await db.execute(
         delete(WatchProgress).where(WatchProgress.content_id == content_id)
     )

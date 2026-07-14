@@ -53,6 +53,8 @@ class ContentRead(BaseModel):
     status: str
     is_published: bool
     is_free: bool
+    # True while the movie is in the admin-curated "Free movies today" list.
+    is_free_today: bool = False
     transcode_status: str
     created_at: datetime
     updated_at: datetime
