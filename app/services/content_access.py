@@ -12,6 +12,7 @@ from app.models.content import Content
 from app.models.purchase import Purchase
 from app.models.subscription import Subscription
 from app.models.user import User
+from app.services import free_today
 
 
 async def get_published_content_or_404(
@@ -60,6 +61,9 @@ async def user_can_access_content(db: AsyncSession, user: User, content: Content
         return True
     if content.type == "single":
         if _movie_is_free(content):
+            return True
+        # Admin-curated "Free movies today" picks are free while listed.
+        if await free_today.is_free_today(db, content.id):
             return True
         purchase = await db.execute(
             select(Purchase).where(
