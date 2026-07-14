@@ -201,13 +201,16 @@ async def validate_hero_content(
     *,
     content_type: str,
     content_id: UUID | None,
-    title: str | None = None,
+    video_key: str | None = None,
+    youtube_url: str | None = None,
 ) -> None:
     if content_type == "custom":
         if content_id is not None:
             raise ValueError("custom slides must not reference catalog content")
-        if not (title or "").strip():
-            raise ValueError("custom slides require a title")
+        if not (video_key or youtube_url):
+            raise ValueError(
+                "custom slides require an uploaded video or a YouTube URL"
+            )
         return
 
     if content_id is None:

@@ -12,20 +12,32 @@ from app.schemas.hero_featured import (
 )
 
 
-def test_custom_slide_requires_title():
-    with pytest.raises(ValidationError, match="title"):
+def test_custom_slide_requires_video():
+    with pytest.raises(ValidationError, match="video"):
         HeroFeaturedItemCreate(content_type="custom")
 
 
-def test_custom_slide_rejects_blank_title():
-    with pytest.raises(ValidationError, match="title"):
-        HeroFeaturedItemCreate(content_type="custom", title="   ")
+def test_custom_slide_title_is_optional():
+    item = HeroFeaturedItemCreate(
+        content_type="custom", youtube_url="https://youtu.be/abc123"
+    )
+    assert item.title is None
+    assert item.youtube_url == "https://youtu.be/abc123"
+
+
+def test_custom_slide_accepts_uploaded_video():
+    item = HeroFeaturedItemCreate(
+        content_type="custom", video_key="hero/videos/x.mp4"
+    )
+    assert item.video_key == "hero/videos/x.mp4"
 
 
 def test_custom_slide_rejects_content_id():
     with pytest.raises(ValidationError, match="catalog"):
         HeroFeaturedItemCreate(
-            content_type="custom", title="Promo", content_id=uuid.uuid4()
+            content_type="custom",
+            youtube_url="https://youtu.be/abc123",
+            content_id=uuid.uuid4(),
         )
 
 
@@ -51,20 +63,28 @@ def test_series_slide_requires_content_id():
 
 
 def test_custom_title_is_stripped():
-    item = HeroFeaturedItemCreate(content_type="custom", title="  Promo  ")
+    item = HeroFeaturedItemCreate(
+        content_type="custom",
+        title="  Promo  ",
+        youtube_url="https://youtu.be/abc123",
+    )
     assert item.title == "Promo"
 
 
 def test_link_url_rejects_javascript_scheme():
     with pytest.raises(ValidationError):
         HeroFeaturedItemCreate(
-            content_type="custom", title="Promo", link_url="javascript:alert(1)"
+            content_type="custom",
+            youtube_url="https://youtu.be/abc123",
+            link_url="javascript:alert(1)",
         )
 
 
 def test_link_url_accepts_internal_path():
     item = HeroFeaturedItemCreate(
-        content_type="custom", title="Promo", link_url="/pricing"
+        content_type="custom",
+        youtube_url="https://youtu.be/abc123",
+        link_url="/pricing",
     )
     assert item.link_url == "/pricing"
 
@@ -72,15 +92,15 @@ def test_link_url_accepts_internal_path():
 def test_link_url_rejects_protocol_relative():
     with pytest.raises(ValidationError, match="link_url"):
         HeroFeaturedItemCreate(
-            content_type="custom", title="Promo", link_url="//evil.com"
+            content_type="custom",
+            youtube_url="https://youtu.be/abc123",
+            link_url="//evil.com",
         )
 
 
 def test_youtube_url_rejects_non_http():
     with pytest.raises(ValidationError):
-        HeroFeaturedItemCreate(
-            content_type="custom", title="Promo", youtube_url="ftp://x"
-        )
+        HeroFeaturedItemCreate(content_type="custom", youtube_url="ftp://x")
 
 
 def test_movie_slide_accepts_video_fields():

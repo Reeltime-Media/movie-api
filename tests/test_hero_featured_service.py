@@ -98,12 +98,10 @@ def test_movie_slide_passes_video_fields_through():
     assert slide.watch_href == "/watch?slug=test-movie"
 
 
-def test_validate_custom_requires_title():
-    with pytest.raises(ValueError, match="title"):
+def test_validate_custom_requires_video():
+    with pytest.raises(ValueError, match="video"):
         asyncio.run(
-            validate_hero_content(
-                None, content_type="custom", content_id=None, title="  "
-            )
+            validate_hero_content(None, content_type="custom", content_id=None)
         )
 
 
@@ -114,15 +112,29 @@ def test_validate_custom_rejects_content_id():
                 None,
                 content_type="custom",
                 content_id=uuid.uuid4(),
-                title="Promo",
+                youtube_url="https://youtu.be/abc",
             )
         )
 
 
-def test_validate_custom_ok():
+def test_validate_custom_ok_with_youtube():
     asyncio.run(
         validate_hero_content(
-            None, content_type="custom", content_id=None, title="Promo"
+            None,
+            content_type="custom",
+            content_id=None,
+            youtube_url="https://youtu.be/abc",
+        )
+    )
+
+
+def test_validate_custom_ok_with_uploaded_video():
+    asyncio.run(
+        validate_hero_content(
+            None,
+            content_type="custom",
+            content_id=None,
+            video_key="hero/videos/x.mp4",
         )
     )
 

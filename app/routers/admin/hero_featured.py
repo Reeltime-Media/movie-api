@@ -54,7 +54,8 @@ async def create_admin_hero_featured(
             db,
             content_type=data.content_type,
             content_id=data.content_id,
-            title=data.title,
+            video_key=data.video_key,
+            youtube_url=data.youtube_url,
         )
     except ValueError as exc:
         raise NotFoundError(str(exc)) from exc
@@ -91,18 +92,23 @@ async def update_admin_hero_featured(
     updates = data.model_dump(exclude_unset=True)
     content_type = updates.get("content_type", item.content_type)
     content_id = updates.get("content_id", item.content_id)
-    title = updates.get("title", item.title)
+    video_key = updates.get("video_key", item.video_key)
+    youtube_url = updates.get("youtube_url", item.youtube_url)
     if content_type == "custom":
         # Switching to custom drops any catalog reference.
         content_id = None
         updates["content_id"] = None
-    if "content_type" in updates or "content_id" in updates or "title" in updates:
+    if any(
+        key in updates
+        for key in ("content_type", "content_id", "video_key", "youtube_url")
+    ):
         try:
             await validate_hero_content(
                 db,
                 content_type=content_type,
                 content_id=content_id,
-                title=title,
+                video_key=video_key,
+                youtube_url=youtube_url,
             )
         except ValueError as exc:
             raise NotFoundError(str(exc)) from exc

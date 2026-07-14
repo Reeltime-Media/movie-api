@@ -73,10 +73,12 @@ class HeroFeaturedItemCreate(BaseModel):
     @model_validator(mode="after")
     def check_slide_shape(self) -> "HeroFeaturedItemCreate":
         if self.content_type == "custom":
-            if not (self.title or "").strip():
-                raise ValueError("custom slides require a title")
             if self.content_id is not None:
                 raise ValueError("custom slides must not reference catalog content")
+            if not (self.video_key or self.youtube_url):
+                raise ValueError(
+                    "custom slides require an uploaded video or a YouTube URL"
+                )
         elif self.content_id is None:
             raise ValueError("content_id is required for movie and series slides")
         return self
