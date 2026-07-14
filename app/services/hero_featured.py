@@ -83,6 +83,8 @@ def _build_slide(
     series_by_id: dict[UUID, Series],
 ) -> HeroFeaturedSlideRead | None:
     # Uploaded video wins; emit exactly one of video_key / youtube_url.
+    # Catalog slides fall back to the title's own trailer when the hero item
+    # has no explicit video.
     video_key = item.video_key
     youtube_url = None if item.video_key else item.youtube_url
 
@@ -109,6 +111,8 @@ def _build_slide(
         movie = movies_by_id.get(item.content_id)
         if not movie:
             return None
+        if not video_key and not youtube_url:
+            youtube_url = movie.trailer_url
         return HeroFeaturedSlideRead(
             id=movie.id,
             content_type="movie",
@@ -131,6 +135,8 @@ def _build_slide(
         series = series_by_id.get(item.content_id)
         if not series:
             return None
+        if not video_key and not youtube_url:
+            youtube_url = series.trailer_url
         return HeroFeaturedSlideRead(
             id=series.id,
             content_type="series",

@@ -98,6 +98,76 @@ def test_movie_slide_passes_video_fields_through():
     assert slide.watch_href == "/watch?slug=test-movie"
 
 
+def make_movie(movie_id, **overrides) -> Content:
+    defaults = dict(
+        id=movie_id,
+        title="Test Movie",
+        slug="test-movie",
+        description=None,
+        genres=[],
+        release_year=2026,
+        rating=None,
+        runtime="2h",
+        poster_key=None,
+        banner_key=None,
+        trailer_url=None,
+    )
+    defaults.update(overrides)
+    return Content(**defaults)
+
+
+def make_movie_item(movie_id, **overrides) -> HeroFeaturedItem:
+    defaults = dict(
+        id=uuid.uuid4(),
+        content_type="movie",
+        content_id=movie_id,
+        placement="home",
+        is_active=True,
+        sort_order=0,
+    )
+    defaults.update(overrides)
+    return HeroFeaturedItem(**defaults)
+
+
+def test_movie_slide_falls_back_to_catalog_trailer():
+    movie_id = uuid.uuid4()
+    movie = make_movie(movie_id, trailer_url="https://youtu.be/trailer")
+    item = make_movie_item(movie_id)
+    slide = _build_slide(item, {movie_id: movie}, {})
+    assert slide is not None
+    assert slide.youtube_url == "https://youtu.be/trailer"
+    assert slide.video_key is None
+
+
+def test_movie_explicit_youtube_beats_trailer():
+    movie_id = uuid.uuid4()
+    movie = make_movie(movie_id, trailer_url="https://youtu.be/trailer")
+    item = make_movie_item(movie_id, youtube_url="https://youtu.be/manual")
+    slide = _build_slide(item, {movie_id: movie}, {})
+    assert slide is not None
+    assert slide.youtube_url == "https://youtu.be/manual"
+
+
+def test_movie_uploaded_video_beats_trailer():
+    movie_id = uuid.uuid4()
+    movie = make_movie(movie_id, trailer_url="https://youtu.be/trailer")
+    item = make_movie_item(movie_id, video_key="hero/videos/x.mp4")
+    slide = _build_slide(item, {movie_id: movie}, {})
+    assert slide is not None
+    assert slide.video_key == "hero/videos/x.mp4"
+    assert slide.youtube_url is None
+
+
+def test_movie_without_trailer_or_video_has_no_video():
+    movie_id = uuid.uuid4()
+    movie = make_movie(movie_id)
+    item = make_movie_item(movie_id)
+    slide = _build_slide(item, {movie_id: movie}, {})
+    assert slide is not None
+    assert slide.video_key is None
+    assert slide.youtube_url is None
+
+
 def test_validate_custom_requires_video():
     with pytest.raises(ValueError, match="video"):
         asyncio.run(
