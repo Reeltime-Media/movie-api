@@ -168,6 +168,30 @@ def test_movie_without_trailer_or_video_has_no_video():
     assert slide.youtube_url is None
 
 
+def test_video_disabled_suppresses_trailer_and_explicit_video():
+    movie_id = uuid.uuid4()
+    movie = make_movie(movie_id, trailer_url="https://youtu.be/trailer")
+    item = make_movie_item(
+        movie_id,
+        video_key="hero/videos/x.mp4",
+        youtube_url="https://youtu.be/manual",
+        video_enabled=False,
+    )
+    slide = _build_slide(item, {movie_id: movie}, {})
+    assert slide is not None
+    assert slide.video_key is None
+    assert slide.youtube_url is None
+
+
+def test_video_enabled_true_keeps_trailer_fallback():
+    movie_id = uuid.uuid4()
+    movie = make_movie(movie_id, trailer_url="https://youtu.be/trailer")
+    item = make_movie_item(movie_id, video_enabled=True)
+    slide = _build_slide(item, {movie_id: movie}, {})
+    assert slide is not None
+    assert slide.youtube_url == "https://youtu.be/trailer"
+
+
 def test_validate_custom_requires_video():
     with pytest.raises(ValueError, match="video"):
         asyncio.run(

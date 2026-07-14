@@ -26,6 +26,8 @@ class HeroFeaturedItem(Base):
     # Promo video (any slide type). Uploaded video_key wins over youtube_url.
     video_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     youtube_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Catalog slides: false = show just the banner, no trailer autoplay.
+    video_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     placement: Mapped[str] = mapped_column(Text, nullable=False, default="home")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

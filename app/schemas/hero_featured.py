@@ -54,6 +54,8 @@ class HeroFeaturedItemCreate(BaseModel):
     # Promo video (any slide type). Uploaded video_key wins over youtube_url.
     video_key: str | None = None
     youtube_url: str | None = None
+    # Catalog slides: false = show just the banner, no trailer autoplay.
+    video_enabled: bool = True
 
     @field_validator("title")
     @classmethod
@@ -98,6 +100,7 @@ class HeroFeaturedItemUpdate(BaseModel):
     link_url: str | None = None
     video_key: str | None = None
     youtube_url: str | None = None
+    video_enabled: bool | None = None
 
     @field_validator("title")
     @classmethod
@@ -132,6 +135,7 @@ class HeroFeaturedItemRead(BaseModel):
     link_url: str | None = None
     video_key: str | None = None
     youtube_url: str | None = None
+    video_enabled: bool = True
     content_title: str | None = None
     content_slug: str | None = None
     poster_key: str | None = None

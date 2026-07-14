@@ -84,9 +84,11 @@ def _build_slide(
 ) -> HeroFeaturedSlideRead | None:
     # Uploaded video wins; emit exactly one of video_key / youtube_url.
     # Catalog slides fall back to the title's own trailer when the hero item
-    # has no explicit video.
-    video_key = item.video_key
-    youtube_url = None if item.video_key else item.youtube_url
+    # has no explicit video, unless the admin turned video off for the slide.
+    # (video_enabled is None on objects never flushed to the DB — treat as on.)
+    allow_video = item.content_type == "custom" or item.video_enabled is not False
+    video_key = item.video_key if allow_video else None
+    youtube_url = None if (not allow_video or item.video_key) else item.youtube_url
 
     if item.content_type == "custom":
         return HeroFeaturedSlideRead(
@@ -111,7 +113,7 @@ def _build_slide(
         movie = movies_by_id.get(item.content_id)
         if not movie:
             return None
-        if not video_key and not youtube_url:
+        if allow_video and not video_key and not youtube_url:
             youtube_url = movie.trailer_url
         return HeroFeaturedSlideRead(
             id=movie.id,
@@ -135,7 +137,7 @@ def _build_slide(
         series = series_by_id.get(item.content_id)
         if not series:
             return None
-        if not video_key and not youtube_url:
+        if allow_video and not video_key and not youtube_url:
             youtube_url = series.trailer_url
         return HeroFeaturedSlideRead(
             id=series.id,
