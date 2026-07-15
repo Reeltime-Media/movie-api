@@ -18,7 +18,7 @@ from app.schemas.admin import (
 from app.schemas.content import AdminContentRead, ContentRead, ContentUpdate
 from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
 from app.services import r2_keys, storage
-from app.services.admin.helpers import watch_counts_for_content
+from app.services.admin.helpers import purchase_counts_for_content, watch_counts_for_content
 from app.services.content_delete import delete_content_dependencies
 from app.services.content_publish import ensure_movie_publishable
 from app.services.content_slug import unique_content_slug
@@ -69,12 +69,15 @@ async def list_admin_movies(
     items, total = await paginate_query(
         db, stmt, page=pagination.page, page_size=pagination.page_size
     )
-    watch_counts = await watch_counts_for_content(db, [m.id for m in items])
+    content_ids = [m.id for m in items]
+    watch_counts = await watch_counts_for_content(db, content_ids)
+    purchase_counts = await purchase_counts_for_content(db, content_ids)
     return build_paginated_response(
         [
             AdminContentRead(
                 **ContentRead.model_validate(m).model_dump(),
                 watch_count=watch_counts.get(m.id, 0),
+                purchase_count=purchase_counts.get(m.id, 0),
             )
             for m in items
         ],
@@ -93,9 +96,11 @@ async def get_admin_movie(movie_id: uuid.UUID, db: DBSession, _: AdminUser):
     if not movie:
         raise NotFoundError("Movie not found")
     watch_counts = await watch_counts_for_content(db, [movie.id])
+    purchase_counts = await purchase_counts_for_content(db, [movie.id])
     return AdminContentRead(
         **ContentRead.model_validate(movie).model_dump(),
         watch_count=watch_counts.get(movie.id, 0),
+        purchase_count=purchase_counts.get(movie.id, 0),
     )
 
 

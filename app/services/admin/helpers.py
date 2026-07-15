@@ -4,6 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.content import Content
+from app.models.purchase import Purchase
 from app.models.series import Series
 from app.models.transcode_job import TranscodeJob
 from app.models.watch_progress import WatchProgress
@@ -72,3 +73,20 @@ async def watch_counts_for_content(
         .group_by(WatchProgress.content_id)
     )
     return {row.content_id: int(row.watch_count) for row in result.all()}
+
+
+async def purchase_counts_for_content(
+    db: AsyncSession, content_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, int]:
+    """Purchases per content id. Ids with no purchases are absent — callers default to 0."""
+    if not content_ids:
+        return {}
+    result = await db.execute(
+        select(
+            Purchase.content_id,
+            func.count(Purchase.id).label("purchase_count"),
+        )
+        .where(Purchase.content_id.in_(content_ids))
+        .group_by(Purchase.content_id)
+    )
+    return {row.content_id: int(row.purchase_count) for row in result.all()}

@@ -81,9 +81,10 @@ class ContentListItemRead(BaseModel):
 
 
 class AdminContentRead(ContentRead):
-    """Admin catalog row — includes unique viewer count from watch_progress."""
+    """Admin catalog row — unique viewers from watch_progress, purchases from purchases."""
 
     watch_count: int = 0
+    purchase_count: int = 0
 
 
 class SeasonRead(BaseModel):
