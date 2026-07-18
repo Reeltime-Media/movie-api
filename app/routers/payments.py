@@ -12,8 +12,10 @@ from app.models.content import Content
 from app.models.payment_intent import PaymentIntent
 from app.models.purchase import Purchase
 from app.models.series import Series
-from app.schemas.payment import PaymentIntentCreate, PaymentIntentRead
+from app.schemas.payment import BakongPaymentIntentRead, PaymentIntentCreate, PaymentIntentRead
+from app.services import bakong
 from app.services.payment import checkout_url, create_intent
+from app.services.payment_fulfillment import fulfill_payment_intent
 from app.services.subscription_plans import resolve_active_plan
 
 router = APIRouter(prefix="/payments", tags=["payments"])
@@ -22,11 +24,17 @@ _MIN_USD = Decimal("0.03")
 
 
 def _read_intent(intent: PaymentIntent) -> PaymentIntentRead:
-    url = validate_checkout_url(checkout_url(intent.intent_id))
+    # Bakong intents poll in place — there's no redirect target to validate.
+    url = (
+        validate_checkout_url(checkout_url(intent.intent_id))
+        if intent.method == "baray"
+        else None
+    )
     return PaymentIntentRead(
         intent_id=intent.intent_id,
         order_id=intent.order_id,
         user_id=intent.user_id,
+        method=intent.method,
         kind=intent.kind,
         content_id=intent.content_id,
         amount_usd=intent.amount_usd,
@@ -123,6 +131,7 @@ async def create_movie_payment_intent(
         order_id=order_id,
         user_id=user.id if user else None,
         guest_id=guest_id,
+        method="baray",
         kind="single",
         content_id=movie.id,
         amount_usd=amount,
@@ -132,6 +141,96 @@ async def create_movie_payment_intent(
     await db.commit()
     await db.refresh(intent)
     return _read_intent(intent)
+
+
+@router.post(
+    "/movies/{content_id}/bakong-intent",
+    response_model=BakongPaymentIntentRead,
+    status_code=201,
+)
+async def create_movie_bakong_intent(
+    content_id: uuid.UUID,
+    db: DBSession,
+    request: Request,
+    response: Response,
+    user: OptionalUser,
+):
+    """Inline KHQR checkout — no redirect. The client polls GET
+    /payments/intents/{id}, which actively checks Bakong (no webhook exists)."""
+    guest_id = None if user else get_or_create_guest_id(request, response)
+    identity_filter = (
+        (PaymentIntent.user_id == user.id) if user else (PaymentIntent.guest_id == guest_id)
+    )
+    purchase_filter = (
+        (Purchase.user_id == user.id) if user else (Purchase.guest_id == guest_id)
+    )
+
+    existing_purchase = await db.execute(
+        select(Purchase).where(purchase_filter, Purchase.content_id == content_id)
+    )
+    if existing_purchase.scalar_one_or_none():
+        raise ConflictError("Movie already purchased")
+
+    pending = await db.execute(
+        select(PaymentIntent).where(
+            identity_filter,
+            PaymentIntent.method == "bakong",
+            PaymentIntent.kind == "single",
+            PaymentIntent.content_id == content_id,
+            PaymentIntent.status == "pending",
+        )
+    )
+    pending_intent = pending.scalar_one_or_none()
+    if pending_intent:
+        return BakongPaymentIntentRead(
+            intent_id=pending_intent.intent_id,
+            order_id=pending_intent.order_id,
+            qr_string=pending_intent.bakong_qr,
+            amount_usd=pending_intent.amount_usd,
+            status=pending_intent.status,
+            created_at=pending_intent.created_at,
+        )
+
+    result = await db.execute(
+        select(Content).where(
+            Content.id == content_id,
+            Content.type == "single",
+            Content.is_published.is_(True),
+        )
+    )
+    movie = result.scalar_one_or_none()
+    if not movie:
+        raise NotFoundError("Movie not found")
+
+    amount = _validate_amount(movie.price_usd)
+    order_id = f"movie-{uuid.uuid4().hex}"
+    bill_number = uuid.uuid4().hex[:20]
+    qr_string, md5 = bakong.generate_khqr(amount, bill_number)
+
+    intent = PaymentIntent(
+        intent_id=f"bkg-{uuid.uuid4().hex}",
+        order_id=order_id,
+        user_id=user.id if user else None,
+        guest_id=guest_id,
+        method="bakong",
+        bakong_md5=md5,
+        bakong_qr=qr_string,
+        kind="single",
+        content_id=movie.id,
+        amount_usd=amount,
+        status="pending",
+    )
+    db.add(intent)
+    await db.commit()
+    await db.refresh(intent)
+    return BakongPaymentIntentRead(
+        intent_id=intent.intent_id,
+        order_id=intent.order_id,
+        qr_string=qr_string,
+        amount_usd=intent.amount_usd,
+        status=intent.status,
+        created_at=intent.created_at,
+    )
 
 
 @router.post(
@@ -205,8 +304,10 @@ async def get_payment_intent(
     user: OptionalUser,
 ):
     """
-    Poll payment status after Baray redirect. Fulfillment is webhook-only;
-    this endpoint never marks an intent as succeeded without gateway confirmation.
+    Poll payment status. Baray fulfillment is webhook-only — this endpoint
+    never marks a Baray intent succeeded without gateway confirmation. Bakong
+    has no webhook, so for a pending Bakong intent we actively check Bakong
+    ourselves right here before responding.
     """
     if user:
         identity_filter = PaymentIntent.user_id == user.id
@@ -221,4 +322,11 @@ async def get_payment_intent(
     intent = result.scalar_one_or_none()
     if not intent:
         raise NotFoundError("Payment intent not found")
+
+    if intent.method == "bakong" and intent.status == "pending" and intent.bakong_md5:
+        if await bakong.check_khqr_paid(intent.bakong_md5):
+            await fulfill_payment_intent(db, intent, bank="bakong")
+            await db.commit()
+            await db.refresh(intent)
+
     return _read_intent(intent)

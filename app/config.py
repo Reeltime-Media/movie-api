@@ -94,6 +94,14 @@ class Settings(BaseSettings):
     # Public URL of this API — must be reachable by Baray to deliver webhooks
     api_public_url: str = ""
 
+    # Bakong KHQR (National Bank of Cambodia) — inline QR checkout, no redirect.
+    # Register a developer token at api-bakong.nbc.gov.kh (requires Cambodia-hosted
+    # servers) or use an "rbk_"-prefixed relay token from bakongrelay.com otherwise.
+    bakong_developer_token: str = ""
+    bakong_account_id: str = ""  # format: username@bank
+    bakong_merchant_name: str = ""
+    bakong_merchant_city: str = "Phnom Penh"
+
     # Transcode worker (admin proxy only — never expose key to browsers)
     transcode_service_url: str = ""
     transcode_api_key: str = ""
@@ -140,6 +148,14 @@ class Settings(BaseSettings):
         if self.transcode_service_url.strip() and not self.transcode_api_key.strip():
             raise ValueError(
                 "TRANSCODE_API_KEY is required when TRANSCODE_SERVICE_URL is set (DEBUG is false)"
+            )
+
+        if self.bakong_developer_token.strip() and (
+            not self.bakong_account_id.strip() or not self.bakong_merchant_name.strip()
+        ):
+            raise ValueError(
+                "BAKONG_ACCOUNT_ID and BAKONG_MERCHANT_NAME are required when "
+                "BAKONG_DEVELOPER_TOKEN is set (DEBUG is false)"
             )
 
         return self

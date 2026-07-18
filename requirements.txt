@@ -16,3 +16,4 @@ google-auth>=2.29.0
 requests>=2.31.0
 slowapi>=0.1.9
 Pillow>=10.4.0
+bakong-khqr>=0.6.0
