@@ -114,6 +114,7 @@ class TopTitleReportRead(BaseModel):
 
 class AdminMovieCreate(BaseModel):
     title: str
+    title_km: str | None = None
     description: str | None = None
     genres: list[str] = []
     release_year: int | None = None
@@ -129,6 +130,14 @@ class AdminMovieCreate(BaseModel):
         if not value:
             raise ValueError("title is required")
         return value
+
+    @field_validator("title_km")
+    @classmethod
+    def normalize_title_km(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
 
     @field_validator("price_usd")
     @classmethod

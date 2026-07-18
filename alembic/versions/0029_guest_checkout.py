@@ -8,11 +8,12 @@ Lets an unauthenticated buyer purchase a movie: the intent/purchase row is
 keyed by an anonymous `guest_id` cookie token instead of `user_id`. Same shape
 as 0008_user_google_auth making `users.password_hash` nullable for a second
 auth path.
+
+Idempotent: columns/indexes may already exist if applied outside Alembic.
 """
 from typing import Sequence, Union
 
 from alembic import op
-import sqlalchemy as sa
 
 revision: str = "0029"
 down_revision: Union[str, None] = "0028"
@@ -21,20 +22,29 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.alter_column("payment_intents", "user_id", existing_type=sa.dialects.postgresql.UUID(as_uuid=True), nullable=True)
-    op.add_column("payment_intents", sa.Column("guest_id", sa.Text(), nullable=True))
-    op.create_index("ix_payment_intents_guest_id", "payment_intents", ["guest_id"])
+    op.execute(
+        "ALTER TABLE payment_intents ALTER COLUMN user_id DROP NOT NULL"
+    )
+    op.execute(
+        "ALTER TABLE payment_intents ADD COLUMN IF NOT EXISTS guest_id TEXT"
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS ix_payment_intents_guest_id "
+        "ON payment_intents (guest_id)"
+    )
 
-    op.alter_column("purchases", "user_id", existing_type=sa.dialects.postgresql.UUID(as_uuid=True), nullable=True)
-    op.add_column("purchases", sa.Column("guest_id", sa.Text(), nullable=True))
-    op.create_index("ix_purchases_guest_id", "purchases", ["guest_id"])
+    op.execute("ALTER TABLE purchases ALTER COLUMN user_id DROP NOT NULL")
+    op.execute("ALTER TABLE purchases ADD COLUMN IF NOT EXISTS guest_id TEXT")
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS ix_purchases_guest_id ON purchases (guest_id)"
+    )
 
 
 def downgrade() -> None:
-    op.drop_index("ix_purchases_guest_id", table_name="purchases")
-    op.drop_column("purchases", "guest_id")
-    op.alter_column("purchases", "user_id", existing_type=sa.dialects.postgresql.UUID(as_uuid=True), nullable=False)
+    op.execute("DROP INDEX IF EXISTS ix_purchases_guest_id")
+    op.execute("ALTER TABLE purchases DROP COLUMN IF EXISTS guest_id")
+    op.execute("ALTER TABLE purchases ALTER COLUMN user_id SET NOT NULL")
 
-    op.drop_index("ix_payment_intents_guest_id", table_name="payment_intents")
-    op.drop_column("payment_intents", "guest_id")
-    op.alter_column("payment_intents", "user_id", existing_type=sa.dialects.postgresql.UUID(as_uuid=True), nullable=False)
+    op.execute("DROP INDEX IF EXISTS ix_payment_intents_guest_id")
+    op.execute("ALTER TABLE payment_intents DROP COLUMN IF EXISTS guest_id")
+    op.execute("ALTER TABLE payment_intents ALTER COLUMN user_id SET NOT NULL")

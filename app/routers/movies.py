@@ -146,6 +146,7 @@ async def complete_movie_upload(data: MovieUploadComplete, db: DBSession, _: Adm
         type="single",
         slug=data.slug,
         title=data.title,
+        title_km=data.title_km,
         description=data.description,
         genres=data.genres,
         release_year=data.release_year,

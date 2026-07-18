@@ -8,8 +8,16 @@ from app.core.money import validate_usd_price
 from app.schemas.upload import MultipartPart, MultipartPartUrl, MultipartUploadAbort
 
 
+def _empty_to_none(value: str | None) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
 class SeriesUpdate(BaseModel):
     title: str | None = None
+    title_km: str | None = None
     description: str | None = None
     genres: list[str] | None = None
     release_year: int | None = None
@@ -19,6 +27,11 @@ class SeriesUpdate(BaseModel):
     trailer_url: str | None = None
     poster_key: str | None = None  # set after uploading poster via /poster/start
     banner_key: str | None = None  # set after uploading banner via /banner/start
+
+    @field_validator("title_km")
+    @classmethod
+    def normalize_title_km(cls, value: str | None) -> str | None:
+        return _empty_to_none(value)
 
     @field_validator("monthly_price_usd")
     @classmethod
@@ -32,6 +45,7 @@ class SeriesRead(BaseModel):
     id: UUID
     slug: str
     title: str
+    title_km: str | None = None
     description: str | None
     genres: list[str]
     release_year: int | None
@@ -51,6 +65,7 @@ class SeriesListItemRead(BaseModel):
     id: UUID
     slug: str
     title: str
+    title_km: str | None = None
     genres: list[str]
     release_year: int | None
     rating: Decimal | None
@@ -63,12 +78,18 @@ class SeriesListItemRead(BaseModel):
 
 class CreateSeriesBody(BaseModel):
     title: str
+    title_km: str | None = None
     monthly_price_usd: Decimal
     description: str | None = None
     genres: list[str] = []
     release_year: int | None = None
     rating: Decimal | None = None
     trailer_url: str | None = None
+
+    @field_validator("title_km")
+    @classmethod
+    def normalize_title_km(cls, value: str | None) -> str | None:
+        return _empty_to_none(value)
 
     @field_validator("monthly_price_usd")
     @classmethod

@@ -127,6 +127,7 @@ async def create_series(data: CreateSeriesBody, db: DBSession, _: AdminUser):
         id=uuid.uuid4(),
         slug=slug,
         title=data.title,
+        title_km=data.title_km,
         description=data.description,
         genres=data.genres,
         release_year=data.release_year,

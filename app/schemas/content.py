@@ -7,8 +7,16 @@ from pydantic import BaseModel, Field, field_validator
 from app.core.money import validate_usd_price
 
 
+def _empty_to_none(value: str | None) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
 class ContentUpdate(BaseModel):
     title: str | None = None
+    title_km: str | None = None
     description: str | None = None
     genres: list[str] | None = None
     release_year: int | None = None
@@ -23,6 +31,11 @@ class ContentUpdate(BaseModel):
     season_number: int | None = None
     episode_number: int | None = None
 
+    @field_validator("title_km")
+    @classmethod
+    def normalize_title_km(cls, value: str | None) -> str | None:
+        return _empty_to_none(value)
+
     @field_validator("price_usd")
     @classmethod
     def check_price_usd(cls, value: Decimal | None) -> Decimal | None:
@@ -36,6 +49,7 @@ class ContentRead(BaseModel):
     type: str
     slug: str
     title: str
+    title_km: str | None = None
     description: str | None
     series_id: UUID | None
     season_number: int | None
@@ -67,6 +81,7 @@ class ContentListItemRead(BaseModel):
     type: str
     slug: str
     title: str
+    title_km: str | None = None
     description: str | None
     genres: list[str]
     poster_key: str | None

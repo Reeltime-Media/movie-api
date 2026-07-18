@@ -13,13 +13,15 @@ def apply_catalog_search(stmt: Select[tuple[T]], model: type[T], *, search: str 
         return stmt
     pattern = f"%{term}%"
     genres_text = func.coalesce(func.array_to_string(model.genres, " "), "")
-    return stmt.where(
-        or_(
-            model.title.ilike(pattern),
-            func.coalesce(model.description, "").ilike(pattern),
-            genres_text.ilike(pattern),
-        )
-    )
+    clauses = [
+        model.title.ilike(pattern),
+        func.coalesce(model.description, "").ilike(pattern),
+        genres_text.ilike(pattern),
+    ]
+    title_km = getattr(model, "title_km", None)
+    if title_km is not None:
+        clauses.append(func.coalesce(title_km, "").ilike(pattern))
+    return stmt.where(or_(*clauses))
 
 
 def apply_catalog_genre(stmt: Select[tuple[T]], model: type[T], *, genre: str | None) -> Select[tuple[T]]:

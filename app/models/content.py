@@ -27,6 +27,7 @@ class Content(Base):
     episode_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     slug: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
+    title_km: Mapped[str | None] = mapped_column(Text, nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     genres: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list)
     release_year: Mapped[int | None] = mapped_column(Integer, nullable=True)

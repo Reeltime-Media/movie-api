@@ -54,6 +54,7 @@ class MovieUploadComplete(BaseModel):
     upload_id: str
     parts: list[MultipartPart]
     title: str
+    title_km: str | None = None
     price_usd: Decimal
     description: str | None = None
     genres: list[str] = []
@@ -64,6 +65,14 @@ class MovieUploadComplete(BaseModel):
     trailer_url: str | None = None
     poster_key: str | None = None
     banner_key: str | None = None
+
+    @field_validator("title_km")
+    @classmethod
+    def normalize_title_km(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
 
     @field_validator("price_usd")
     @classmethod
