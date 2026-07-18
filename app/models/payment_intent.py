@@ -20,7 +20,9 @@ class PaymentIntent(Base):
     # Anonymous checkout identity (rt_guest_id cookie token) when there's no user_id.
     guest_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Payment provider: 'baray' (redirect + webhook) | 'bakong' (inline QR + poll).
-    method: Mapped[str] = mapped_column(Text, nullable=False, default="baray")
+    method: Mapped[str] = mapped_column(
+        Text, nullable=False, default="baray", server_default="baray"
+    )
     # md5 of the generated KHQR string — Bakong's own correlation key, only set
     # for method='bakong' (there's no webhook, so we poll Bakong with this).
     bakong_md5: Mapped[str | None] = mapped_column(Text, nullable=True)

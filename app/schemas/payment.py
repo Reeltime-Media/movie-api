@@ -33,5 +33,7 @@ class BakongPaymentIntentRead(BaseModel):
     amount_usd: Decimal
     status: str
     created_at: datetime
+    # Merchant / receiver name on the KHQR card (matches QR payload).
+    merchant_name: str = ""
 
     model_config = {"from_attributes": True}

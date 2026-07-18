@@ -7,6 +7,7 @@ from sqlalchemy import select
 from app.core.exceptions import ConflictError, NotFoundError
 from app.core.guest import get_guest_id, get_or_create_guest_id
 from app.core.url_validation import validate_checkout_url, validate_custom_success_url
+from app.config import get_settings
 from app.dependencies import CurrentUser, DBSession, OptionalUser
 from app.models.content import Content
 from app.models.payment_intent import PaymentIntent
@@ -172,15 +173,18 @@ async def create_movie_bakong_intent(
         raise ConflictError("Movie already purchased")
 
     pending = await db.execute(
-        select(PaymentIntent).where(
+        select(PaymentIntent)
+        .where(
             identity_filter,
             PaymentIntent.method == "bakong",
             PaymentIntent.kind == "single",
             PaymentIntent.content_id == content_id,
             PaymentIntent.status == "pending",
         )
+        .order_by(PaymentIntent.created_at.asc())
+        .with_for_update()
     )
-    pending_intent = pending.scalar_one_or_none()
+    pending_intent = pending.scalars().first()
     if pending_intent:
         return BakongPaymentIntentRead(
             intent_id=pending_intent.intent_id,
@@ -189,6 +193,7 @@ async def create_movie_bakong_intent(
             amount_usd=pending_intent.amount_usd,
             status=pending_intent.status,
             created_at=pending_intent.created_at,
+            merchant_name=get_settings().bakong_merchant_name,
         )
 
     result = await db.execute(
@@ -230,6 +235,7 @@ async def create_movie_bakong_intent(
         amount_usd=intent.amount_usd,
         status=intent.status,
         created_at=intent.created_at,
+        merchant_name=get_settings().bakong_merchant_name,
     )
 
 
@@ -328,5 +334,33 @@ async def get_payment_intent(
             await fulfill_payment_intent(db, intent, bank="bakong")
             await db.commit()
             await db.refresh(intent)
+        elif intent.content_id is not None:
+            # Recover from duplicate pending intents (race on create): if the
+            # user paid a sibling QR for the same title, fulfill that sibling
+            # and mark this poll target succeeded without a second purchase.
+            identity = (
+                (PaymentIntent.user_id == intent.user_id)
+                if intent.user_id is not None
+                else (PaymentIntent.guest_id == intent.guest_id)
+            )
+            siblings = await db.execute(
+                select(PaymentIntent).where(
+                    identity,
+                    PaymentIntent.method == "bakong",
+                    PaymentIntent.kind == "single",
+                    PaymentIntent.content_id == intent.content_id,
+                    PaymentIntent.status == "pending",
+                    PaymentIntent.intent_id != intent.intent_id,
+                    PaymentIntent.bakong_md5.is_not(None),
+                )
+            )
+            for sibling in siblings.scalars().all():
+                if sibling.bakong_md5 and await bakong.check_khqr_paid(sibling.bakong_md5):
+                    await fulfill_payment_intent(db, sibling, bank="bakong")
+                    intent.status = "succeeded"
+                    intent.resolved_at = sibling.resolved_at
+                    await db.commit()
+                    await db.refresh(intent)
+                    break
 
     return _read_intent(intent)
