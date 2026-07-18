@@ -45,8 +45,17 @@ async def close_http_client() -> None:
 
 
 def _api_base() -> str:
+    """NBC Open API only accepts Cambodia egress IPs. For GCE/AWS outside KH,
+    use an rbk_ relay token (bakongrelay.com) or set BAKONG_API_BASE_URL."""
+    override = (settings.bakong_api_base_url or "").strip().rstrip("/")
+    if override:
+        return override
     token = settings.bakong_developer_token
-    return "https://api.bakongrelay.com/v1" if token.startswith("rbk") else "https://api-bakong.nbc.gov.kh/v1"
+    return (
+        "https://api.bakongrelay.com/v1"
+        if token.startswith("rbk")
+        else "https://api-bakong.nbc.gov.kh/v1"
+    )
 
 
 def generate_khqr(amount_usd: Decimal, bill_number: str) -> tuple[str, str]:
@@ -80,19 +89,43 @@ async def check_khqr_paid(md5: str) -> bool:
     if not settings.bakong_developer_token:
         return False
 
+    url = f"{_api_base()}/check_transaction_by_md5"
     try:
         client = _get_bakong_client()
         response = await client.post(
-            f"{_api_base()}/check_transaction_by_md5",
+            url,
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {settings.bakong_developer_token}",
             },
             json={"md5": md5},
         )
-        body = response.json()
-    except (httpx.HTTPError, ValueError) as exc:
+    except httpx.HTTPError as exc:
         logger.warning("Bakong check_transaction_by_md5 request failed: %s", exc)
+        return False
+
+    # CloudFront HTML 403 = server IP is outside Cambodia (common on GCE TW/SG).
+    content_type = (response.headers.get("content-type") or "").lower()
+    if response.status_code == 403 or "text/html" in content_type:
+        logger.error(
+            "Bakong check blocked (HTTP %s) from this server IP — NBC only allows "
+            "Cambodia egress. Use an rbk_ token from bakongrelay.com or set "
+            "BAKONG_API_BASE_URL / BAKONG_HTTP_PROXY. url=%s body=%r",
+            response.status_code,
+            url,
+            response.text[:180],
+        )
+        return False
+
+    try:
+        body = response.json()
+    except ValueError as exc:
+        logger.warning(
+            "Bakong check_transaction_by_md5 non-JSON response (HTTP %s): %s body=%r",
+            response.status_code,
+            exc,
+            response.text[:180],
+        )
         return False
 
     if body.get("responseCode") == 0:

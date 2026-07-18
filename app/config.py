@@ -101,6 +101,8 @@ class Settings(BaseSettings):
     bakong_account_id: str = ""  # format: username@bank
     bakong_merchant_name: str = ""
     bakong_merchant_city: str = "Phnom Penh"
+    # Optional override (e.g. https://api.bakongrelay.com/v1). Empty = auto from token.
+    bakong_api_base_url: str = ""
 
     # Transcode worker (admin proxy only — never expose key to browsers)
     transcode_service_url: str = ""
