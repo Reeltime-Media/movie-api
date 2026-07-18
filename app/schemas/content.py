@@ -76,6 +76,8 @@ class ContentListItemRead(BaseModel):
     runtime: str | None
     release_year: int | None
     is_free: bool
+    # Lets catalog cards offer a trailer preview without a detail fetch.
+    trailer_url: str | None = None
 
     model_config = {"from_attributes": True}
 
