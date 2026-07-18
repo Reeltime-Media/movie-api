@@ -2,13 +2,18 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, Text, func
-from sqlalchemy.dialects.postgresql import ARRAY, UUID
+from sqlalchemy import Boolean, Computed, DateTime, ForeignKey, Integer, Numeric, Text, func
+from sqlalchemy.dialects.postgresql import ARRAY, TSVECTOR, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
 
 _STATUS = {"draft", "review", "scheduled", "published"}
+
+_SEARCH_VECTOR_SQL = (
+    "to_tsvector('simple', coalesce(title, '') || ' ' || coalesce(title_km, '') || ' ' || "
+    "coalesce(description, ''))"
+)
 
 
 class Content(Base):
@@ -44,6 +49,10 @@ class Content(Base):
     is_published: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_free: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     transcode_status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
+    search_vector: Mapped[str | None] = mapped_column(
+        TSVECTOR,
+        Computed(_SEARCH_VECTOR_SQL, persisted=True),
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
