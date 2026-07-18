@@ -35,6 +35,7 @@ async def fulfill_payment_intent(
         db.add(
             Purchase(
                 user_id=intent.user_id,
+                guest_id=intent.guest_id,
                 content_id=intent.content_id,
                 intent_id=intent.intent_id,
                 order_id=intent.order_id,

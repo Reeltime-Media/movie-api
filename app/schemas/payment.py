@@ -12,7 +12,7 @@ class PaymentIntentCreate(BaseModel):
 class PaymentIntentRead(BaseModel):
     intent_id: str
     order_id: str
-    user_id: UUID
+    user_id: UUID | None
     kind: str
     content_id: UUID | None
     amount_usd: Decimal

@@ -1,12 +1,13 @@
 import uuid
 from decimal import Decimal
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, Response, status
 from sqlalchemy import select
 
 from app.core.exceptions import ConflictError, NotFoundError
+from app.core.guest import get_guest_id, get_or_create_guest_id
 from app.core.url_validation import validate_checkout_url, validate_custom_success_url
-from app.dependencies import CurrentUser, DBSession
+from app.dependencies import CurrentUser, DBSession, OptionalUser
 from app.models.content import Content
 from app.models.payment_intent import PaymentIntent
 from app.models.purchase import Purchase
@@ -50,20 +51,27 @@ async def create_movie_payment_intent(
     content_id: uuid.UUID,
     data: PaymentIntentCreate,
     db: DBSession,
-    current_user: CurrentUser,
+    request: Request,
+    response: Response,
+    user: OptionalUser,
 ):
+    guest_id = None if user else get_or_create_guest_id(request, response)
+    identity_filter = (
+        (PaymentIntent.user_id == user.id) if user else (PaymentIntent.guest_id == guest_id)
+    )
+    purchase_filter = (
+        (Purchase.user_id == user.id) if user else (Purchase.guest_id == guest_id)
+    )
+
     existing_purchase = await db.execute(
-        select(Purchase).where(
-            Purchase.user_id == current_user.id,
-            Purchase.content_id == content_id,
-        )
+        select(Purchase).where(purchase_filter, Purchase.content_id == content_id)
     )
     if existing_purchase.scalar_one_or_none():
         raise ConflictError("Movie already purchased")
 
     pending = await db.execute(
         select(PaymentIntent).where(
-            PaymentIntent.user_id == current_user.id,
+            identity_filter,
             PaymentIntent.kind == "single",
             PaymentIntent.content_id == content_id,
             PaymentIntent.status == "pending",
@@ -91,7 +99,8 @@ async def create_movie_payment_intent(
         order_id=order_id,
         tracking={
             "kind": "single",
-            "user_id": str(current_user.id),
+            "user_id": str(user.id) if user else None,
+            "guest_id": guest_id,
             "content_id": str(movie.id),
         },
         order_details={
@@ -112,7 +121,8 @@ async def create_movie_payment_intent(
     intent = PaymentIntent(
         intent_id=baray_intent["_id"],
         order_id=order_id,
-        user_id=current_user.id,
+        user_id=user.id if user else None,
+        guest_id=guest_id,
         kind="single",
         content_id=movie.id,
         amount_usd=amount,
@@ -191,17 +201,22 @@ async def create_series_subscription_payment_intent(
 async def get_payment_intent(
     intent_id: str,
     db: DBSession,
-    current_user: CurrentUser,
+    request: Request,
+    user: OptionalUser,
 ):
     """
     Poll payment status after Baray redirect. Fulfillment is webhook-only;
     this endpoint never marks an intent as succeeded without gateway confirmation.
     """
+    if user:
+        identity_filter = PaymentIntent.user_id == user.id
+    else:
+        guest_id = get_guest_id(request)
+        if not guest_id:
+            raise NotFoundError("Payment intent not found")
+        identity_filter = PaymentIntent.guest_id == guest_id
     result = await db.execute(
-        select(PaymentIntent).where(
-            PaymentIntent.intent_id == intent_id,
-            PaymentIntent.user_id == current_user.id,
-        )
+        select(PaymentIntent).where(PaymentIntent.intent_id == intent_id, identity_filter)
     )
     intent = result.scalar_one_or_none()
     if not intent:

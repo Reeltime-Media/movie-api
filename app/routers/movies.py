@@ -15,7 +15,7 @@
 
 import uuid
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from sqlalchemy import select
 
 from app.core.content_status import validate_content_status
@@ -32,8 +32,9 @@ from app.schemas.upload import (
     MultipartUploadAbort,
     PartUrlRead,
 )
+from app.core.guest import get_guest_id
 from app.services import free_today, r2_keys
-from app.services.content_access import user_can_access_content
+from app.services.content_access import can_access_content
 from app.services.content_delete import delete_content_dependencies
 from app.services.content_publish import ensure_movie_publishable
 from app.services.content_slug import unique_content_slug
@@ -232,7 +233,7 @@ async def get_related_movies(
 
 
 @router.get("/{slug}", response_model=ContentRead)
-async def get_movie(slug: str, db: DBSession, current_user: OptionalUser):
+async def get_movie(slug: str, db: DBSession, request: Request, current_user: OptionalUser):
     stmt = select(Content).where(Content.slug == slug, Content.type == "single")
     if not current_user or current_user.role != "admin":
         stmt = stmt.where(Content.is_published.is_(True))
@@ -242,7 +243,8 @@ async def get_movie(slug: str, db: DBSession, current_user: OptionalUser):
         raise NotFoundError("Movie not found")
     data = ContentRead.model_validate(movie)
     data.is_free_today = await free_today.is_free_today(db, movie.id)
-    if not (current_user and await user_can_access_content(db, current_user, movie)):
+    guest_id = None if current_user else get_guest_id(request)
+    if not await can_access_content(db, current_user, guest_id, movie):
         data.hls_master_key = None
     return data
 

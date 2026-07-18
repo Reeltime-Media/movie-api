@@ -139,7 +139,7 @@ class AdminMovieCreate(BaseModel):
 class AdminPaymentRead(BaseModel):
     intent_id: str
     order_id: str
-    user_id: uuid.UUID
+    user_id: uuid.UUID | None
     user_email: str
     user_full_name: str | None
     kind: str

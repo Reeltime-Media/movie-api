@@ -53,7 +53,19 @@ def _movie_is_free(content: Content) -> bool:
 
 
 async def user_can_access_content(db: AsyncSession, user: User, content: Content) -> bool:
-    if user.role == "admin":
+    return await can_access_content(db, user, None, content)
+
+
+async def can_access_content(
+    db: AsyncSession,
+    user: User | None,
+    guest_id: str | None,
+    content: Content,
+) -> bool:
+    """Same entitlement rules as `user_can_access_content`, plus an anonymous
+    `guest_id` fallback for single movies (guests never get series/episode
+    access — that requires a real subscription)."""
+    if user and user.role == "admin":
         return True
     if not content.is_published:
         return False
@@ -65,15 +77,25 @@ async def user_can_access_content(db: AsyncSession, user: User, content: Content
         # Admin-curated "Free movies today" picks are free while listed.
         if await free_today.is_free_today(db, content.id):
             return True
-        purchase = await db.execute(
-            select(Purchase).where(
-                Purchase.user_id == user.id,
-                Purchase.content_id == content.id,
+        if user:
+            purchase = await db.execute(
+                select(Purchase).where(
+                    Purchase.user_id == user.id,
+                    Purchase.content_id == content.id,
+                )
             )
-        )
-        return purchase.scalar_one_or_none() is not None
+            return purchase.scalar_one_or_none() is not None
+        if guest_id:
+            purchase = await db.execute(
+                select(Purchase).where(
+                    Purchase.guest_id == guest_id,
+                    Purchase.content_id == content.id,
+                )
+            )
+            return purchase.scalar_one_or_none() is not None
+        return False
     if content.type == "episode":
-        return await user_has_active_subscription(db, user.id)
+        return bool(user) and await user_has_active_subscription(db, user.id)
     return False
 
 

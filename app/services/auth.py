@@ -18,12 +18,15 @@ from app.models.password_reset_token import PasswordResetToken
 from app.models.user import User
 from app.schemas.user import UserCreate
 from app.services.email import send_password_reset_email
+from app.services.guest import claim_guest_purchases
 from app.services.session import create_session
 
 settings = get_settings()
 
 
-async def register_user(db: AsyncSession, data: UserCreate) -> User:
+async def register_user(
+    db: AsyncSession, data: UserCreate, guest_id: str | None = None
+) -> User:
     result = await db.execute(select(User).where(User.email == data.email.lower()))
     if result.scalar_one_or_none():
         raise ConflictError("Unable to create account with this email")
@@ -34,13 +37,19 @@ async def register_user(db: AsyncSession, data: UserCreate) -> User:
         full_name=data.full_name,
     )
     db.add(user)
+    await db.flush()
+    await claim_guest_purchases(db, user.id, guest_id)
     await db.commit()
     await db.refresh(user)
     return user
 
 
 async def authenticate_user(
-    db: AsyncSession, email: str, password: str, user_agent: str | None = None
+    db: AsyncSession,
+    email: str,
+    password: str,
+    user_agent: str | None = None,
+    guest_id: str | None = None,
 ) -> tuple[User, str]:
     result = await db.execute(select(User).where(User.email == email.lower()))
     user = result.scalar_one_or_none()
@@ -51,6 +60,7 @@ async def authenticate_user(
     if not user.is_active:
         raise UnauthorizedError("Account is disabled")
 
+    await claim_guest_purchases(db, user.id, guest_id)
     session = await create_session(db, user.id, user_agent)
     token = create_access_token(user.id, user.role, session.id)
     return user, token
@@ -70,7 +80,10 @@ def _verify_google_id_token(token: str) -> dict:
 
 
 async def authenticate_google(
-    db: AsyncSession, id_token: str, user_agent: str | None = None
+    db: AsyncSession,
+    id_token: str,
+    user_agent: str | None = None,
+    guest_id: str | None = None,
 ) -> tuple[User, str]:
     claims = _verify_google_id_token(id_token)
 
@@ -115,6 +128,8 @@ async def authenticate_google(
     if name and not user.full_name:
         user.full_name = name
 
+    await db.flush()
+    await claim_guest_purchases(db, user.id, guest_id)
     await db.commit()
     await db.refresh(user)
 

@@ -1,7 +1,8 @@
 """Token-gated HLS playback endpoints.
 
 Flow:
-  1. GET /playback/{content_id}/authorize  (requires login + entitlement)
+  1. GET /playback/{content_id}/authorize  (requires entitlement — a logged-in
+     user's purchase/subscription, or a guest's anonymous purchase)
        -> mints a short-lived playback token, returns the master playlist URL.
   2. GET /playback/{content_id}/master.m3u8?t=<token>
        -> rewritten master; rendition refs point at the variant endpoint.
@@ -16,18 +17,16 @@ Safari's native HLS, with no custom request headers anywhere in the chain.
 import re
 import uuid
 
-from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from sqlalchemy import select
 
 from app.config import get_settings
+from app.core.guest import get_guest_id
 from app.core.security import create_playback_token, verify_playback_token
-from app.dependencies import CurrentUser, DBSession
+from app.dependencies import DBSession, OptionalUser
 from app.models.content import Content
 from app.services import playback
-from app.services.content_access import (
-    get_published_content_or_404,
-    user_can_access_content,
-)
+from app.services.content_access import can_access_content, get_published_content_or_404
 
 router = APIRouter(prefix="/playback", tags=["playback"])
 settings = get_settings()
@@ -55,10 +54,14 @@ async def _content_or_404(db, content_id: uuid.UUID) -> Content:
 
 
 @router.get("/{content_id}/authorize")
-async def authorize_playback(content_id: uuid.UUID, db: DBSession, user: CurrentUser):
-    """Verify entitlement and hand back a tokenized master playlist URL."""
+async def authorize_playback(
+    content_id: uuid.UUID, db: DBSession, request: Request, user: OptionalUser
+):
+    """Verify entitlement (logged-in user or anonymous guest_id cookie) and
+    hand back a tokenized master playlist URL."""
     content = await get_published_content_or_404(db, content_id, user=user)
-    if not await user_can_access_content(db, user, content):
+    guest_id = None if user else get_guest_id(request)
+    if not await can_access_content(db, user, guest_id, content):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have access to this title",

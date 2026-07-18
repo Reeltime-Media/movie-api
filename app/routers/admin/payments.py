@@ -39,7 +39,7 @@ async def list_admin_payments(
             User.email,
             User.full_name,
         )
-        .join(User, User.id == PaymentIntent.user_id)
+        .outerjoin(User, User.id == PaymentIntent.user_id)
         .order_by(PaymentIntent.created_at.desc())
     )
 
@@ -80,7 +80,7 @@ async def list_admin_payments(
                 intent_id=intent.intent_id,
                 order_id=intent.order_id,
                 user_id=intent.user_id,
-                user_email=email,
+                user_email=email or "Guest (no account)",
                 user_full_name=full_name,
                 kind=intent.kind,
                 content_id=intent.content_id,

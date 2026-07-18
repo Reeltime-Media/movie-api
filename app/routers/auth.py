@@ -1,6 +1,7 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, Request, Response
+from app.core.guest import clear_guest_cookie, get_guest_id
 from app.dependencies import CurrentSessionId, CurrentUser, DBSession
 from app.rate_limit import limiter
 from app.schemas.user import (
@@ -26,8 +27,11 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/register", response_model=UserRead, status_code=201)
 @limiter.limit("10/hour")
-async def register(request: Request, data: UserCreate, db: DBSession):
-    user = await register_user(db, data)
+async def register(request: Request, response: Response, data: UserCreate, db: DBSession):
+    guest_id = get_guest_id(request)
+    user = await register_user(db, data, guest_id)
+    if guest_id:
+        clear_guest_cookie(response)
     return user_to_read(user)
 
 
@@ -35,20 +39,29 @@ async def register(request: Request, data: UserCreate, db: DBSession):
 @limiter.limit("20/minute")
 async def login(
     request: Request,
+    response: Response,
     db: DBSession,
     email: Annotated[str, Form()],
     password: Annotated[str, Form()],
 ):
-    _, token = await authenticate_user(db, email, password, request.headers.get("user-agent"))
+    guest_id = get_guest_id(request)
+    _, token = await authenticate_user(
+        db, email, password, request.headers.get("user-agent"), guest_id
+    )
+    if guest_id:
+        clear_guest_cookie(response)
     return TokenResponse(access_token=token)
 
 
 @router.post("/google", response_model=TokenResponse)
 @limiter.limit("20/minute")
-async def login_google(request: Request, data: GoogleAuthRequest, db: DBSession):
+async def login_google(request: Request, response: Response, data: GoogleAuthRequest, db: DBSession):
+    guest_id = get_guest_id(request)
     _, token = await authenticate_google(
-        db, data.id_token, request.headers.get("user-agent")
+        db, data.id_token, request.headers.get("user-agent"), guest_id
     )
+    if guest_id:
+        clear_guest_cookie(response)
     return TokenResponse(access_token=token)
 
 

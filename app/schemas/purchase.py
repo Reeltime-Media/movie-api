@@ -15,7 +15,7 @@ class PurchaseCreate(BaseModel):
 
 class PurchaseRead(BaseModel):
     id: UUID
-    user_id: UUID
+    user_id: UUID | None
     content_id: UUID
     intent_id: str
     order_id: str

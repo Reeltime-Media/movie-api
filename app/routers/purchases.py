@@ -1,10 +1,11 @@
 import uuid
 
-from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import select
+from fastapi import APIRouter, HTTPException, Request, status
+from sqlalchemy import false, select
 
 from app.core.exceptions import ConflictError, NotFoundError
-from app.dependencies import CurrentUser, DBSession
+from app.core.guest import get_guest_id
+from app.dependencies import CurrentUser, DBSession, OptionalUser
 from app.models.content import Content
 from app.models.payment_intent import PaymentIntent
 from app.models.purchase import Purchase
@@ -14,22 +15,30 @@ from app.schemas.purchase import PurchaseCreate, PurchaseRead
 router = APIRouter(prefix="/purchases", tags=["purchases"])
 
 
+def _identity_filter(user, guest_id: str | None):
+    if user:
+        return Purchase.user_id == user.id
+    if guest_id:
+        return Purchase.guest_id == guest_id
+    return false()
+
+
 @router.get("/", response_model=list[PurchaseRead])
-async def list_purchases(db: DBSession, current_user: CurrentUser):
+async def list_purchases(db: DBSession, request: Request, user: OptionalUser):
     result = await db.execute(
-        select(Purchase).where(Purchase.user_id == current_user.id)
+        select(Purchase).where(_identity_filter(user, get_guest_id(request)))
     )
     return result.scalars().all()
 
 
 @router.get("/movies", response_model=list[ContentListItemRead])
-async def list_purchased_movies(db: DBSession, current_user: CurrentUser):
+async def list_purchased_movies(db: DBSession, request: Request, user: OptionalUser):
     """Published movies the user has purchased (for My Library)."""
     result = await db.execute(
         select(Content)
         .join(Purchase, Purchase.content_id == Content.id)
         .where(
-            Purchase.user_id == current_user.id,
+            _identity_filter(user, get_guest_id(request)),
             Content.type == "single",
             Content.is_published.is_(True),
         )
@@ -39,11 +48,11 @@ async def list_purchased_movies(db: DBSession, current_user: CurrentUser):
 
 
 @router.get("/{purchase_id}", response_model=PurchaseRead)
-async def get_purchase(purchase_id: uuid.UUID, db: DBSession, current_user: CurrentUser):
+async def get_purchase(purchase_id: uuid.UUID, db: DBSession, request: Request, user: OptionalUser):
     result = await db.execute(
         select(Purchase).where(
             Purchase.id == purchase_id,
-            Purchase.user_id == current_user.id,
+            _identity_filter(user, get_guest_id(request)),
         )
     )
     purchase = result.scalar_one_or_none()
