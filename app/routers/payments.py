@@ -14,6 +14,7 @@ from app.models.content import Content
 from app.models.payment_intent import PaymentIntent
 from app.models.purchase import Purchase
 from app.models.series import Series
+from app.rate_limit import limiter
 from app.schemas.payment import BakongPaymentIntentRead, PaymentIntentCreate, PaymentIntentRead
 from app.services import bakong
 from app.services.bakong_settle import qr_is_stale, settle_bakong_intent_if_paid
@@ -188,6 +189,7 @@ async def create_movie_payment_intent(
     response_model=BakongPaymentIntentRead,
     status_code=201,
 )
+@limiter.limit("8/minute")
 async def create_movie_bakong_intent(
     content_id: uuid.UUID,
     db: DBSession,
@@ -226,16 +228,20 @@ async def create_movie_bakong_intent(
     )
     pending_intent = pending.scalars().first()
     if pending_intent:
+        # Fast path: reuse a fresh QR immediately. Settle checks happen on poll /
+        # sweeper — do not block QR display on a Bakong round-trip here.
+        if not qr_is_stale(pending_intent):
+            return _read_bakong_intent(pending_intent)
+
+        # Stale QR: one settle check, then regenerate if still unpaid.
         if await settle_bakong_intent_if_paid(db, pending_intent):
             await db.commit()
             await db.refresh(pending_intent)
             return _read_bakong_intent(pending_intent)
 
-        if qr_is_stale(pending_intent):
-            await _regenerate_bakong_qr(pending_intent)
-            await db.commit()
-            await db.refresh(pending_intent)
-
+        await _regenerate_bakong_qr(pending_intent)
+        await db.commit()
+        await db.refresh(pending_intent)
         return _read_bakong_intent(pending_intent)
 
     result = await db.execute(
