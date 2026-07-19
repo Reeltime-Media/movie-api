@@ -94,15 +94,22 @@ class Settings(BaseSettings):
     # Public URL of this API — must be reachable by Baray to deliver webhooks
     api_public_url: str = ""
 
-    # Bakong KHQR (National Bank of Cambodia) — inline QR checkout, no redirect.
-    # Register a developer token at api-bakong.nbc.gov.kh (requires Cambodia-hosted
-    # servers) or use an "rbk_"-prefixed relay token from bakongrelay.com otherwise.
+    # Bakong KHQR — prefer BAKONG_SERVICE_URL (Cambodia payment-bakong gateway).
+    # Local BAKONG_* credentials are only needed when the service URL is empty.
+    bakong_service_url: str = ""  # e.g. http://payment-bakong:8010 or https://pay.example.kh
+    bakong_service_api_key: str = ""  # shared X-API-Key with payment-bakong
     bakong_developer_token: str = ""
     bakong_account_id: str = ""  # format: username@bank
     bakong_merchant_name: str = ""
     bakong_merchant_city: str = "Phnom Penh"
     # Optional override (e.g. https://api.bakongrelay.com/v1). Empty = auto from token.
     bakong_api_base_url: str = ""
+    # App-level QR reuse window (bakong-khqr expiration is whole days, min 1).
+    bakong_qr_ttl_minutes: int = 10
+    # In-process settle sweeper (covers pay-then-close-tab).
+    bakong_sweeper_interval_seconds: int = 45
+    bakong_sweeper_window_minutes: int = 30
+    bakong_sweeper_batch_size: int = 20
 
     # Transcode worker (admin proxy only — never expose key to browsers)
     transcode_service_url: str = ""
@@ -152,12 +159,18 @@ class Settings(BaseSettings):
                 "TRANSCODE_API_KEY is required when TRANSCODE_SERVICE_URL is set (DEBUG is false)"
             )
 
-        if self.bakong_developer_token.strip() and (
+        if self.bakong_service_url.strip():
+            if not self.bakong_service_api_key.strip():
+                raise ValueError(
+                    "BAKONG_SERVICE_API_KEY is required when BAKONG_SERVICE_URL is set "
+                    "(DEBUG is false)"
+                )
+        elif self.bakong_developer_token.strip() and (
             not self.bakong_account_id.strip() or not self.bakong_merchant_name.strip()
         ):
             raise ValueError(
                 "BAKONG_ACCOUNT_ID and BAKONG_MERCHANT_NAME are required when "
-                "BAKONG_DEVELOPER_TOKEN is set (DEBUG is false)"
+                "BAKONG_DEVELOPER_TOKEN is set without BAKONG_SERVICE_URL (DEBUG is false)"
             )
 
         return self

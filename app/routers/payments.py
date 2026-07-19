@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
@@ -15,8 +16,8 @@ from app.models.purchase import Purchase
 from app.models.series import Series
 from app.schemas.payment import BakongPaymentIntentRead, PaymentIntentCreate, PaymentIntentRead
 from app.services import bakong
+from app.services.bakong_settle import qr_is_stale, settle_bakong_intent_if_paid
 from app.services.payment import checkout_url, create_intent
-from app.services.payment_fulfillment import fulfill_payment_intent
 from app.services.subscription_plans import resolve_active_plan
 
 router = APIRouter(prefix="/payments", tags=["payments"])
@@ -46,6 +47,26 @@ def _read_intent(intent: PaymentIntent) -> PaymentIntentRead:
     )
 
 
+def _bakong_merchant_name(intent: PaymentIntent) -> str:
+    return (
+        (intent.bakong_merchant_name or "").strip()
+        or get_settings().bakong_merchant_name.strip()
+        or "Reeltime Media"
+    )
+
+
+def _read_bakong_intent(intent: PaymentIntent) -> BakongPaymentIntentRead:
+    return BakongPaymentIntentRead(
+        intent_id=intent.intent_id,
+        order_id=intent.order_id,
+        qr_string=intent.bakong_qr or "",
+        amount_usd=intent.amount_usd,
+        status=intent.status,
+        created_at=intent.created_at,
+        merchant_name=_bakong_merchant_name(intent),
+    )
+
+
 def _validate_amount(amount: Decimal | None) -> Decimal:
     if amount is None or amount < _MIN_USD:
         raise HTTPException(
@@ -53,6 +74,19 @@ def _validate_amount(amount: Decimal | None) -> Decimal:
             detail="USD payments must be at least 0.03",
         )
     return amount
+
+
+async def _regenerate_bakong_qr(intent: PaymentIntent) -> None:
+    """Issue a fresh KHQR on the same intent; keep previous md5 for late settles."""
+    bill_number = uuid.uuid4().hex[:20]
+    qr_string, md5, merchant_name = await bakong.generate_khqr(
+        intent.amount_usd, bill_number
+    )
+    intent.bakong_prev_md5 = intent.bakong_md5
+    intent.bakong_md5 = md5
+    intent.bakong_qr = qr_string
+    intent.bakong_merchant_name = merchant_name or intent.bakong_merchant_name
+    intent.bakong_qr_created_at = datetime.now(timezone.utc)
 
 
 @router.post("/movies/{content_id}/intent", response_model=PaymentIntentRead, status_code=201)
@@ -64,6 +98,11 @@ async def create_movie_payment_intent(
     response: Response,
     user: OptionalUser,
 ):
+    # BARAY DISABLED — movie checkout uses Bakong (/bakong-intent). Keep body for later.
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Baray checkout is disabled",
+    )
     guest_id = None if user else get_or_create_guest_id(request, response)
     identity_filter = (
         (PaymentIntent.user_id == user.id) if user else (PaymentIntent.guest_id == guest_id)
@@ -157,7 +196,8 @@ async def create_movie_bakong_intent(
     user: OptionalUser,
 ):
     """Inline KHQR checkout — no redirect. The client polls GET
-    /payments/intents/{id}, which actively checks Bakong (no webhook exists)."""
+    /payments/intents/{id}, which actively checks Bakong (no webhook exists).
+    A background sweeper also settles paid intents if the tab is closed."""
     guest_id = None if user else get_or_create_guest_id(request, response)
     identity_filter = (
         (PaymentIntent.user_id == user.id) if user else (PaymentIntent.guest_id == guest_id)
@@ -186,15 +226,17 @@ async def create_movie_bakong_intent(
     )
     pending_intent = pending.scalars().first()
     if pending_intent:
-        return BakongPaymentIntentRead(
-            intent_id=pending_intent.intent_id,
-            order_id=pending_intent.order_id,
-            qr_string=pending_intent.bakong_qr,
-            amount_usd=pending_intent.amount_usd,
-            status=pending_intent.status,
-            created_at=pending_intent.created_at,
-            merchant_name=get_settings().bakong_merchant_name,
-        )
+        if await settle_bakong_intent_if_paid(db, pending_intent):
+            await db.commit()
+            await db.refresh(pending_intent)
+            return _read_bakong_intent(pending_intent)
+
+        if qr_is_stale(pending_intent):
+            await _regenerate_bakong_qr(pending_intent)
+            await db.commit()
+            await db.refresh(pending_intent)
+
+        return _read_bakong_intent(pending_intent)
 
     result = await db.execute(
         select(Content).where(
@@ -210,7 +252,8 @@ async def create_movie_bakong_intent(
     amount = _validate_amount(movie.price_usd)
     order_id = f"movie-{uuid.uuid4().hex}"
     bill_number = uuid.uuid4().hex[:20]
-    qr_string, md5 = bakong.generate_khqr(amount, bill_number)
+    qr_string, md5, merchant_name = await bakong.generate_khqr(amount, bill_number)
+    now = datetime.now(timezone.utc)
 
     intent = PaymentIntent(
         intent_id=f"bkg-{uuid.uuid4().hex}",
@@ -220,6 +263,8 @@ async def create_movie_bakong_intent(
         method="bakong",
         bakong_md5=md5,
         bakong_qr=qr_string,
+        bakong_merchant_name=merchant_name or get_settings().bakong_merchant_name or None,
+        bakong_qr_created_at=now,
         kind="single",
         content_id=movie.id,
         amount_usd=amount,
@@ -228,15 +273,7 @@ async def create_movie_bakong_intent(
     db.add(intent)
     await db.commit()
     await db.refresh(intent)
-    return BakongPaymentIntentRead(
-        intent_id=intent.intent_id,
-        order_id=intent.order_id,
-        qr_string=qr_string,
-        amount_usd=intent.amount_usd,
-        status=intent.status,
-        created_at=intent.created_at,
-        merchant_name=get_settings().bakong_merchant_name,
-    )
+    return _read_bakong_intent(intent)
 
 
 @router.post(
@@ -250,6 +287,11 @@ async def create_series_subscription_payment_intent(
     db: DBSession,
     current_user: CurrentUser,
 ):
+    # BARAY DISABLED — subscription checkout via Baray is paused. Keep body for later.
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Baray subscription checkout is disabled",
+    )
     result = await db.execute(
         select(Series).where(
             Series.id == series_id,
@@ -313,7 +355,7 @@ async def get_payment_intent(
     Poll payment status. Baray fulfillment is webhook-only — this endpoint
     never marks a Baray intent succeeded without gateway confirmation. Bakong
     has no webhook, so for a pending Bakong intent we actively check Bakong
-    ourselves right here before responding.
+    ourselves right here before responding (sweeper does the same in background).
     """
     if user:
         identity_filter = PaymentIntent.user_id == user.id
@@ -330,8 +372,7 @@ async def get_payment_intent(
         raise NotFoundError("Payment intent not found")
 
     if intent.method == "bakong" and intent.status == "pending" and intent.bakong_md5:
-        if await bakong.check_khqr_paid(intent.bakong_md5):
-            await fulfill_payment_intent(db, intent, bank="bakong")
+        if await settle_bakong_intent_if_paid(db, intent):
             await db.commit()
             await db.refresh(intent)
         elif intent.content_id is not None:
@@ -355,8 +396,7 @@ async def get_payment_intent(
                 )
             )
             for sibling in siblings.scalars().all():
-                if sibling.bakong_md5 and await bakong.check_khqr_paid(sibling.bakong_md5):
-                    await fulfill_payment_intent(db, sibling, bank="bakong")
+                if await settle_bakong_intent_if_paid(db, sibling):
                     intent.status = "succeeded"
                     intent.resolved_at = sibling.resolved_at
                     await db.commit()

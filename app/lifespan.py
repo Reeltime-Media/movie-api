@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def app_lifespan(app: FastAPI):
     from app.database import engine
+    from app.services.bakong_sweeper import start_bakong_sweeper, stop_bakong_sweeper
 
     settings = get_settings()
     db_url = settings.effective_database_url
@@ -33,7 +34,11 @@ async def app_lifespan(app: FastAPI):
             database_connection_label(db_url),
         )
 
+    start_bakong_sweeper()
+
     yield
+
+    await stop_bakong_sweeper()
 
     from app.services.bakong import close_http_client as close_bakong_http_client
     from app.services.email import close_http_client as close_email_http_client
@@ -41,6 +46,7 @@ async def app_lifespan(app: FastAPI):
     from app.services.storage import reset_client as reset_storage_client
     from app.services.transcode_client import close_http_client as close_transcode_http_client
 
+    # BARAY DISABLED — payment (Baray) HTTP client still cleaned up if used in future.
     await close_payment_http_client()
     await close_bakong_http_client()
     await close_transcode_http_client()

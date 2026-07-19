@@ -26,9 +26,17 @@ class PaymentIntent(Base):
     # md5 of the generated KHQR string — Bakong's own correlation key, only set
     # for method='bakong' (there's no webhook, so we poll Bakong with this).
     bakong_md5: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Previous md5 kept across QR regenerate so a late pay on the old QR still settles.
+    bakong_prev_md5: Mapped[str | None] = mapped_column(Text, nullable=True)
     # The KHQR string itself, persisted verbatim (it embeds a creation
     # timestamp, so it can't be deterministically regenerated later).
     bakong_qr: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Merchant name embedded in the QR (persist so reuse doesn't need local env).
+    bakong_merchant_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # When the current QR was issued — app-level TTL (library min expiry is 1 day).
+    bakong_qr_created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     kind: Mapped[str] = mapped_column(Text, nullable=False)  # 'single' | 'sub'
     content_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("content.id"), nullable=True

@@ -1,3 +1,8 @@
+"""Baray payment test page — BARAY DISABLED (router not mounted in main.py).
+
+Kept in the codebase for when Baray checkout is re-enabled.
+"""
+
 import uuid
 
 from fastapi import APIRouter, HTTPException, Request, status

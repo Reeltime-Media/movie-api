@@ -1,4 +1,8 @@
-"""Baray payment API helpers."""
+"""Baray payment API helpers.
+
+BARAY DISABLED — movie/subscription checkout no longer calls this module.
+Code is retained for when Baray is re-enabled.
+"""
 
 import base64
 import json

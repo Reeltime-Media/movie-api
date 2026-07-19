@@ -14,10 +14,17 @@ from app.services.payment_fulfillment import fulfill_payment_intent
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
+# BARAY DISABLED — router is not mounted in main.py. Handler kept for later.
+
 
 @router.post("/baray")
 @limiter.limit("120/minute")
 async def baray_webhook(request: Request, db: DBSession):
+    # BARAY DISABLED — reject if somehow mounted again before re-enable.
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Baray webhooks are disabled",
+    )
     body = await verify_baray_webhook(request)
 
     try:

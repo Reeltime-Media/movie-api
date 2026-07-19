@@ -36,7 +36,7 @@ from app.routers import (
     subscriptions,
     users,
     watch_progress,
-    webhooks,
+    # webhooks,  # BARAY DISABLED — not mounted
 )
 
 logger = logging.getLogger(__name__)
@@ -86,13 +86,14 @@ def create_app() -> FastAPI:
     app.include_router(favorites.router)
     app.include_router(genres.router)
     app.include_router(library.router)
-    app.include_router(webhooks.router)
+    # BARAY DISABLED — webhook + payment-test kept in codebase, not mounted.
+    # app.include_router(webhooks.router)
     app.include_router(admin.router)
 
-    if settings.debug:
-        from app.routers import payment_test
-
-        app.include_router(payment_test.router)
+    # if settings.debug:
+    #     from app.routers import payment_test
+    #
+    #     app.include_router(payment_test.router)
 
     register_health_routes(app)
     return app
