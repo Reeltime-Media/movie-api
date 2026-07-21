@@ -10,6 +10,7 @@ from app.models.purchase import Purchase
 from app.models.subscription import Subscription
 from app.models.subscription_payment import SubscriptionPayment
 from app.services.subscription_plans import get_subscription_plan_by_code, resolve_active_plan
+from app.services.telegram import notify_payment_succeeded
 
 
 async def fulfill_payment_intent(
@@ -43,9 +44,11 @@ async def fulfill_payment_intent(
                 amount_usd=intent.amount_usd,
             )
         )
+        await notify_payment_succeeded(db, intent, bank=bank)
         return
 
     if intent.kind != "sub":
+        await notify_payment_succeeded(db, intent, bank=bank)
         return
 
     existing_payment = await db.execute(
@@ -102,3 +105,4 @@ async def fulfill_payment_intent(
             period_extended_to=period_end,
         )
     )
+    await notify_payment_succeeded(db, intent, bank=bank)

@@ -44,6 +44,7 @@ async def app_lifespan(app: FastAPI):
     from app.services.email import close_http_client as close_email_http_client
     from app.services.payment import close_http_client as close_payment_http_client
     from app.services.storage import reset_client as reset_storage_client
+    from app.services.telegram import close_http_client as close_telegram_http_client
     from app.services.transcode_client import close_http_client as close_transcode_http_client
 
     # BARAY DISABLED — payment (Baray) HTTP client still cleaned up if used in future.
@@ -51,5 +52,6 @@ async def app_lifespan(app: FastAPI):
     await close_bakong_http_client()
     await close_transcode_http_client()
     await close_email_http_client()
+    await close_telegram_http_client()
     reset_storage_client()
     await engine.dispose()

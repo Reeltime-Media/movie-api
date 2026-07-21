@@ -107,7 +107,7 @@ class Settings(BaseSettings):
     # App-level QR reuse window (bakong-khqr expiration is whole days, min 1).
     bakong_qr_ttl_minutes: int = 10
     # In-process settle sweeper (covers pay-then-close-tab).
-    bakong_sweeper_interval_seconds: int = 45
+    bakong_sweeper_interval_seconds: int = 20
     bakong_sweeper_window_minutes: int = 30
     bakong_sweeper_batch_size: int = 20
 
@@ -119,6 +119,10 @@ class Settings(BaseSettings):
     resend_api_key: str = ""
     resend_from_email: str = "Reeltime <onboarding@resend.dev>"
     password_reset_token_expire_minutes: int = 30
+
+    # Telegram ops alerts (payment success, etc.) — leave empty to disable
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
 
     # Concurrent device sessions allowed per account before login is rejected
     max_active_sessions_per_user: int = 3

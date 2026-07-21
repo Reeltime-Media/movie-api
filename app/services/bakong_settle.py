@@ -27,9 +27,14 @@ def qr_is_stale(intent: PaymentIntent, *, now: datetime | None = None) -> bool:
 
 async def bakong_md5s_paid(intent: PaymentIntent) -> bool:
     """True if current or previous KHQR md5 is settled at Bakong."""
+    # Check current md5 first (happy path). Only hit prev when current is unpaid.
     if intent.bakong_md5 and await bakong.check_khqr_paid(intent.bakong_md5):
         return True
-    if intent.bakong_prev_md5 and await bakong.check_khqr_paid(intent.bakong_prev_md5):
+    if (
+        intent.bakong_prev_md5
+        and intent.bakong_prev_md5 != intent.bakong_md5
+        and await bakong.check_khqr_paid(intent.bakong_prev_md5)
+    ):
         return True
     return False
 
