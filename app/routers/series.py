@@ -11,8 +11,14 @@
 
   4. POST /series/{slug}/episodes/uploads/abort
        → 204           (frees partial uploads on cancel / error)
+
+Episode asset replace (existing episode — admin edit):
+
+  5. POST /series/{slug}/episodes/{episode_slug}/assets/start
+  6. POST /series/{slug}/episodes/{episode_slug}/assets/complete
 """
 
+import asyncio
 import uuid
 
 from fastapi import APIRouter, HTTPException, Query
@@ -28,6 +34,9 @@ from app.schemas.content import ContentRead, ContentUpdate, SeasonRead
 from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
 from app.schemas.series import (
     CreateSeriesBody,
+    EpisodeAssetUploadComplete,
+    EpisodeAssetUploadStart,
+    EpisodeAssetUploadStartRead,
     EpisodeUploadAbort,
     EpisodeUploadComplete,
     EpisodeUploadStart,
@@ -315,12 +324,7 @@ async def abort_episode_upload(slug: str, data: EpisodeUploadAbort, _: AdminUser
     await abort_multipart_upload(data.source_key, data.upload_id)
 
 
-@router.patch("/{slug}/episodes/{episode_slug}", response_model=ContentRead)
-async def update_episode(
-    slug: str, episode_slug: str, data: ContentUpdate, db: DBSession, _: AdminUser
-):
-    series = await get_series_or_404(db, slug)
-
+async def _get_episode_or_404(db, series: Series, episode_slug: str) -> Content:
     ep_result = await db.execute(
         select(Content).where(
             Content.slug == episode_slug,
@@ -331,6 +335,112 @@ async def update_episode(
     episode = ep_result.scalar_one_or_none()
     if not episode:
         raise NotFoundError("Episode not found")
+    return episode
+
+
+@router.post(
+    "/{slug}/episodes/{episode_slug}/assets/start",
+    response_model=EpisodeAssetUploadStartRead,
+)
+async def start_episode_asset_upload(
+    slug: str,
+    episode_slug: str,
+    data: EpisodeAssetUploadStart,
+    db: DBSession,
+    _: AdminUser,
+):
+    """Presign replace upload for an existing episode video and/or poster."""
+    series = await get_series_or_404(db, slug)
+    await _get_episode_or_404(db, series, episode_slug)
+
+    source_key: str | None = None
+    video_upload_url: str | None = None
+    poster_key: str | None = None
+    poster_upload_url: str | None = None
+
+    if data.video_content_type:
+        source_key = r2_keys.episode_source_key(slug, episode_slug)
+        video_upload_url = storage.generate_presigned_upload_url(
+            source_key,
+            data.video_content_type,
+        )
+
+    if data.poster_content_type:
+        poster_key = r2_keys.episode_poster_key(slug, episode_slug, data.poster_content_type)
+        poster_upload_url = storage.generate_presigned_upload_url(
+            poster_key,
+            data.poster_content_type,
+        )
+
+    if not source_key and not poster_key:
+        raise HTTPException(status_code=422, detail="Choose a video or poster file to replace")
+
+    return EpisodeAssetUploadStartRead(
+        source_key=source_key,
+        video_upload_url=video_upload_url,
+        poster_key=poster_key,
+        poster_upload_url=poster_upload_url,
+    )
+
+
+@router.post(
+    "/{slug}/episodes/{episode_slug}/assets/complete",
+    response_model=ContentRead,
+)
+async def complete_episode_asset_upload(
+    slug: str,
+    episode_slug: str,
+    data: EpisodeAssetUploadComplete,
+    db: DBSession,
+    _: AdminUser,
+):
+    """Finalize episode video/poster replace and queue re-transcode when video changed."""
+    series = await get_series_or_404(db, slug)
+    episode = await _get_episode_or_404(db, series, episode_slug)
+
+    if data.source_key:
+        if data.source_key != r2_keys.episode_source_key(slug, episode_slug):
+            raise HTTPException(status_code=422, detail="source_key does not match episode")
+        source_exists = await asyncio.get_event_loop().run_in_executor(
+            None,
+            storage.object_exists,
+            data.source_key,
+        )
+        if not source_exists:
+            raise HTTPException(status_code=409, detail="Video upload is not available in storage yet")
+
+        episode.transcode_status = "pending"
+        episode.hls_master_key = None
+        episode.duration_seconds = None
+        db.add(TranscodeJob(content_id=episode.id, source_key=data.source_key))
+
+    if data.poster_key:
+        if not r2_keys.is_episode_asset_key(slug, episode_slug, data.poster_key):
+            raise HTTPException(status_code=422, detail="poster_key does not match episode")
+        poster_exists = await asyncio.get_event_loop().run_in_executor(
+            None,
+            storage.object_exists,
+            data.poster_key,
+        )
+        if not poster_exists:
+            raise HTTPException(status_code=409, detail="Poster upload is not available in storage yet")
+
+        episode.poster_key = await optimize_r2_image(data.poster_key, kind="poster")
+
+    if not data.source_key and not data.poster_key:
+        raise HTTPException(status_code=422, detail="No uploaded assets provided")
+
+    await db.commit()
+    await db.refresh(episode)
+    return episode
+
+
+@router.patch("/{slug}/episodes/{episode_slug}", response_model=ContentRead)
+async def update_episode(
+    slug: str, episode_slug: str, data: ContentUpdate, db: DBSession, _: AdminUser
+):
+    series = await get_series_or_404(db, slug)
+    episode = await _get_episode_or_404(db, series, episode_slug)
 
     updates = data.model_dump(exclude_unset=True)
     if "status" in updates:
@@ -351,17 +461,7 @@ async def update_episode(
 @router.delete("/{slug}/episodes/{episode_slug}", status_code=204)
 async def delete_episode(slug: str, episode_slug: str, db: DBSession, _: AdminUser):
     series = await get_series_or_404(db, slug)
-
-    ep_result = await db.execute(
-        select(Content).where(
-            Content.slug == episode_slug,
-            Content.series_id == series.id,
-            Content.type == "episode",
-        )
-    )
-    episode = ep_result.scalar_one_or_none()
-    if not episode:
-        raise NotFoundError("Episode not found")
+    episode = await _get_episode_or_404(db, series, episode_slug)
 
     await delete_content_dependencies(db, episode.id)
     await db.delete(episode)

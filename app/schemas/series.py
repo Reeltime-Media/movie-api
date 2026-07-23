@@ -156,3 +156,22 @@ class EpisodeUploadComplete(BaseModel):
 
 class EpisodeUploadAbort(MultipartUploadAbort):
     pass
+
+
+class EpisodeAssetUploadStart(BaseModel):
+    """Replace video and/or poster on an existing episode (admin edit)."""
+
+    video_content_type: str | None = None
+    poster_content_type: str | None = None
+
+
+class EpisodeAssetUploadStartRead(BaseModel):
+    source_key: str | None = None
+    video_upload_url: str | None = None
+    poster_key: str | None = None
+    poster_upload_url: str | None = None
+
+
+class EpisodeAssetUploadComplete(BaseModel):
+    source_key: str | None = None
+    poster_key: str | None = None
