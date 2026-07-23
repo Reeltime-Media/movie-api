@@ -24,6 +24,10 @@ async def list_admin_payments(
         default=None,
         description="Filter by user full name or email (case-insensitive)",
     ),
+    status: str | None = Query(
+        default=None,
+        description="Filter by payment status (pending, succeeded, failed)",
+    ),
     date_from: str | None = Query(
         default=None,
         description="Include transactions on or after this date (YYYY-MM-DD)",
@@ -51,6 +55,15 @@ async def list_admin_payments(
                 User.email.ilike(pattern),
             )
         )
+
+    if status and (status_term := status.strip().lower()):
+        allowed = {"pending", "succeeded", "failed"}
+        if status_term not in allowed:
+            raise HTTPException(
+                status_code=422,
+                detail=f"status must be one of: {', '.join(sorted(allowed))}",
+            )
+        stmt = stmt.where(PaymentIntent.status == status_term)
 
     parsed_from: date | None = None
     parsed_to: date | None = None
