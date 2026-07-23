@@ -174,10 +174,22 @@ async def update_series(slug: str, data: SeriesUpdate, db: DBSession, _: AdminUs
     updates = data.model_dump(exclude_unset=True)
     if updates.get("monthly_price_usd") is None:
         updates.pop("monthly_price_usd", None)
-    if updates.get("poster_key"):
-        updates["poster_key"] = await optimize_r2_image(updates["poster_key"], kind="poster")
-    if updates.get("banner_key"):
-        updates["banner_key"] = await optimize_r2_image(updates["banner_key"], kind="banner")
+    if updates.get("poster_key") or updates.get("banner_key"):
+        poster_task = (
+            optimize_r2_image(updates["poster_key"], kind="poster")
+            if updates.get("poster_key")
+            else asyncio.sleep(0, result=None)
+        )
+        banner_task = (
+            optimize_r2_image(updates["banner_key"], kind="banner")
+            if updates.get("banner_key")
+            else asyncio.sleep(0, result=None)
+        )
+        poster_key, banner_key = await asyncio.gather(poster_task, banner_task)
+        if updates.get("poster_key"):
+            updates["poster_key"] = poster_key
+        if updates.get("banner_key"):
+            updates["banner_key"] = banner_key
     for field, value in updates.items():
         setattr(series, field, value)
     await db.commit()

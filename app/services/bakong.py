@@ -127,9 +127,19 @@ async def _remote_generate_khqr(amount_usd: Decimal, bill_number: str) -> tuple[
 
 async def check_khqr_paid(md5: str) -> bool:
     """True once Bakong reports the transaction for this md5 as settled."""
+    from app.services.bakong_check_cache import get_cached_md5_paid, set_cached_md5_paid
+
+    cached = get_cached_md5_paid(md5)
+    if cached is not None:
+        return cached
+
     if _uses_remote_service():
-        return await _remote_check_khqr_paid(md5)
-    return await _local_check_khqr_paid(md5)
+        paid = await _remote_check_khqr_paid(md5)
+    else:
+        paid = await _local_check_khqr_paid(md5)
+
+    set_cached_md5_paid(md5, paid)
+    return paid
 
 
 async def _remote_check_khqr_paid(md5: str) -> bool:

@@ -378,6 +378,8 @@ async def get_payment_intent(
         raise NotFoundError("Payment intent not found")
 
     if intent.method == "bakong" and intent.status == "pending" and intent.bakong_md5:
+        from app.services.bakong_check_cache import mark_intent_polled
+
         if await settle_bakong_intent_if_paid(db, intent):
             await db.commit()
             await db.refresh(intent)
@@ -408,5 +410,6 @@ async def get_payment_intent(
                     await db.commit()
                     await db.refresh(intent)
                     break
+        mark_intent_polled(intent.intent_id)
 
     return _read_intent(intent)

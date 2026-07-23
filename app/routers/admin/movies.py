@@ -242,8 +242,6 @@ async def complete_admin_movie_asset_upload(
         if not poster_exists:
             raise HTTPException(status_code=409, detail="Poster upload is not available in storage yet")
 
-        movie.poster_key = await optimize_r2_image(data.poster_key, kind="poster")
-
     if data.banner_key:
         if not r2_keys.is_movie_asset_key(movie.slug, data.banner_key):
             raise HTTPException(status_code=422, detail="banner_key does not match movie")
@@ -255,7 +253,22 @@ async def complete_admin_movie_asset_upload(
         if not banner_exists:
             raise HTTPException(status_code=409, detail="Banner upload is not available in storage yet")
 
-        movie.banner_key = await optimize_r2_image(data.banner_key, kind="banner")
+    if data.poster_key or data.banner_key:
+        poster_task = (
+            optimize_r2_image(data.poster_key, kind="poster")
+            if data.poster_key
+            else asyncio.sleep(0, result=None)
+        )
+        banner_task = (
+            optimize_r2_image(data.banner_key, kind="banner")
+            if data.banner_key
+            else asyncio.sleep(0, result=None)
+        )
+        poster_key, banner_key = await asyncio.gather(poster_task, banner_task)
+        if data.poster_key:
+            movie.poster_key = poster_key
+        if data.banner_key:
+            movie.banner_key = banner_key
 
     if not data.source_key and not data.poster_key and not data.banner_key:
         raise HTTPException(status_code=422, detail="No uploaded assets provided")

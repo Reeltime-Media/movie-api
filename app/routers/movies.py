@@ -13,6 +13,7 @@
        → 204           (frees partial uploads on cancel / error)
 """
 
+import asyncio
 import uuid
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -138,8 +139,10 @@ async def complete_movie_upload(data: MovieUploadComplete, db: DBSession, _: Adm
         missing_detail="Banner upload is not available in storage yet",
     )
 
-    poster_key = await optimize_r2_image(data.poster_key, kind="poster")
-    banner_key = await optimize_r2_image(data.banner_key, kind="banner")
+    poster_key, banner_key = await asyncio.gather(
+        optimize_r2_image(data.poster_key, kind="poster"),
+        optimize_r2_image(data.banner_key, kind="banner"),
+    )
 
     movie = Content(
         id=data.content_id,

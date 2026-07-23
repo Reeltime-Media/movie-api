@@ -39,3 +39,13 @@ def test_optimize_banner_downsizes_and_webps():
     with Image.open(BytesIO(optimized)) as img:
         assert img.format == "WEBP"
         assert img.size[0] <= 1920
+
+
+def test_poster_thumb_key_and_bytes():
+    from app.services.image_process import poster_thumb_bytes, poster_thumb_key_for
+
+    assert poster_thumb_key_for("movies/foo/poster.webp") == "movies/foo/poster-w400.webp"
+    thumb = poster_thumb_bytes(_solid_jpeg_bytes(800, 1200))
+    with Image.open(BytesIO(thumb)) as img:
+        assert img.format == "WEBP"
+        assert img.size[0] <= 400

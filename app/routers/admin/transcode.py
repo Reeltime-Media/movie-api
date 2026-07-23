@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.core.exceptions import NotFoundError
 from app.dependencies import AdminUser, DBSession
@@ -15,6 +15,27 @@ from app.services.admin.helpers import (
 from app.services.pagination import paginate_query
 
 router = APIRouter()
+
+
+@router.get("/transcode-jobs/counts")
+async def admin_transcode_job_counts(db: DBSession, _: AdminUser):
+    """Single query for admin filter badges — avoids 5 paginated list round-trips."""
+    result = await db.execute(
+        select(TranscodeJob.status, func.count())
+        .group_by(TranscodeJob.status)
+    )
+    by_status = {status: count for status, count in result.all()}
+    queued = int(by_status.get("queued", 0))
+    running = int(by_status.get("running", 0))
+    success = int(by_status.get("success", 0))
+    failed = int(by_status.get("failed", 0))
+    return {
+        "all": queued + running + success + failed,
+        "queued": queued,
+        "running": running,
+        "success": success,
+        "failed": failed,
+    }
 
 
 @router.get("/transcode-jobs", response_model=PaginatedResponse[TranscodeJobRead])
