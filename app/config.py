@@ -5,12 +5,15 @@ from urllib.parse import urlparse
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# movie-client (:3000) and movie-admin (:3001)
+# movie-client (:3000) and movie-admin (:3001); Next.js falls back to :3002
+# when 3000/3001 are already taken, so allow it too.
 LOCAL_DEV_CORS_ORIGINS: tuple[str, ...] = (
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://localhost:3001",
     "http://127.0.0.1:3001",
+    "http://localhost:3002",
+    "http://127.0.0.1:3002",
 )
 
 _SECRET_KEY_PLACEHOLDERS = frozenset(

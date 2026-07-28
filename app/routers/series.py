@@ -85,6 +85,10 @@ async def list_series(
         max_length=100,
         description="Filter by exact genre label (e.g. Drama)",
     ),
+    free: bool | None = Query(
+        default=None,
+        description="Only series with at least one free published episode when true",
+    ),
 ):
     from app.services.catalog_search import apply_catalog_genre, apply_catalog_search
 
@@ -95,6 +99,17 @@ async def list_series(
     )
     stmt = apply_catalog_search(stmt, Series, search=search)
     stmt = apply_catalog_genre(stmt, Series, genre=genre)
+    if free:
+        has_free_episode = (
+            select(Content.id)
+            .where(
+                Content.series_id == Series.id,
+                Content.is_free.is_(True),
+                Content.is_published.is_(True),
+            )
+            .exists()
+        )
+        stmt = stmt.where(has_free_episode)
     items, total = await paginate_query(
         db,
         stmt,

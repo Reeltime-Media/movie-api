@@ -194,6 +194,10 @@ async def list_movies(
         max_length=100,
         description="Filter by exact genre label (e.g. Action)",
     ),
+    free: bool | None = Query(
+        default=None,
+        description="Only free movies when true",
+    ),
 ):
     from app.services.catalog_search import apply_catalog_genre, apply_catalog_search
 
@@ -204,6 +208,8 @@ async def list_movies(
     )
     stmt = apply_catalog_search(stmt, Content, search=search)
     stmt = apply_catalog_genre(stmt, Content, genre=genre)
+    if free:
+        stmt = stmt.where(Content.is_free.is_(True))
     items, total = await paginate_query(
         db,
         stmt,

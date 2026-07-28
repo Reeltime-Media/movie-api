@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import TypeVar
 
-from sqlalchemy import func, or_
+from sqlalchemy import any_, func, literal, or_
 from sqlalchemy.sql import Select
 
 T = TypeVar("T")
@@ -57,4 +57,7 @@ def apply_catalog_search(stmt: Select[tuple[T]], model: type[T], *, search: str 
 def apply_catalog_genre(stmt: Select[tuple[T]], model: type[T], *, genre: str | None) -> Select[tuple[T]]:
     if not genre or not (label := genre.strip()):
         return stmt
-    return stmt.where(model.genres.contains([label]))
+    # Case-insensitive exact match against any array element ("khmer" matches
+    # "Khmer"). ILIKE wildcards in the user-supplied label are escaped.
+    escaped = label.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
+    return stmt.where(literal(escaped).ilike(any_(model.genres)))
