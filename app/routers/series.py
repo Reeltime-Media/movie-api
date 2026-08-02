@@ -71,6 +71,7 @@ from app.services.series import get_series_or_404
 router = APIRouter(prefix="/series", tags=["series"])
 
 
+@router.get("", response_model=PaginatedResponse[SeriesListItemRead])
 @router.get("/", response_model=PaginatedResponse[SeriesListItemRead])
 async def list_series(
     db: DBSession,

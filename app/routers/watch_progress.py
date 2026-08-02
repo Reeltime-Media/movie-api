@@ -12,6 +12,7 @@ from app.services.content_access import assert_can_track_watch_progress
 router = APIRouter(prefix="/watch-progress", tags=["watch-progress"])
 
 
+@router.get("", response_model=list[WatchProgressRead])
 @router.get("/", response_model=list[WatchProgressRead])
 async def list_watch_progress(db: DBSession, current_user: CurrentUser):
     result = await db.execute(

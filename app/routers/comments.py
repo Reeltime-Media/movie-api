@@ -27,6 +27,7 @@ from app.services.comments import (
 router = APIRouter(prefix="/comments", tags=["comments"])
 
 
+@router.get("", response_model=PaginatedResponse[CommentThreadRead])
 @router.get("/", response_model=PaginatedResponse[CommentThreadRead])
 async def list_comments(
     content_id: uuid.UUID,
@@ -50,6 +51,7 @@ async def list_comments(
     )
 
 
+@router.post("", response_model=CommentRead, status_code=201)
 @router.post("/", response_model=CommentRead, status_code=201)
 async def create_comment(
     data: CommentCreate,

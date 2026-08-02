@@ -9,6 +9,7 @@ from app.services.hero_featured import resolve_hero_slides
 router = APIRouter(prefix="/hero-featured", tags=["hero"])
 
 
+@router.get("", response_model=list[HeroFeaturedSlideRead])
 @router.get("/", response_model=list[HeroFeaturedSlideRead])
 async def list_hero_featured(
     db: DBSession,

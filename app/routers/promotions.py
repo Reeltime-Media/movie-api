@@ -9,6 +9,7 @@ from app.services.promotion_banners import list_active_promotion_banners
 router = APIRouter(prefix="/promotion-banners", tags=["promotions"])
 
 
+@router.get("", response_model=list[PromotionBannerRead])
 @router.get("/", response_model=list[PromotionBannerRead])
 async def list_promotion_banners(
     db: DBSession,

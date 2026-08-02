@@ -23,6 +23,7 @@ def _identity_filter(user, guest_id: str | None):
     return false()
 
 
+@router.get("", response_model=list[PurchaseRead])
 @router.get("/", response_model=list[PurchaseRead])
 async def list_purchases(db: DBSession, request: Request, user: OptionalUser):
     result = await db.execute(

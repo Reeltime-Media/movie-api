@@ -16,6 +16,14 @@ LOCAL_DEV_CORS_ORIGINS: tuple[str, ...] = (
     "http://127.0.0.1:3002",
 )
 
+# reeltime.fun is the production movie-client frontend — the browser origin
+# that calls this API (api.reeltime.fun) cross-subdomain. Always allowed
+# regardless of what CORS_ORIGINS is set to in the hosting environment.
+PRODUCTION_CORS_ORIGINS: tuple[str, ...] = (
+    "https://reeltime.fun",
+    "https://www.reeltime.fun",
+)
+
 _SECRET_KEY_PLACEHOLDERS = frozenset(
     {
         "change-me",
@@ -56,11 +64,12 @@ class Settings(BaseSettings):
 
     @property
     def cors_origin_list(self) -> list[str]:
-        """Parsed CORS_ORIGINS plus local dev frontends (3000 client, 3001 admin)."""
+        """Parsed CORS_ORIGINS plus local dev frontends (3000 client, 3001 admin)
+        and the production reeltime.fun frontend."""
         from_env = [o.strip() for o in self.cors_origins.split(",") if o.strip()]
         seen: set[str] = set()
         merged: list[str] = []
-        for origin in (*LOCAL_DEV_CORS_ORIGINS, *from_env):
+        for origin in (*LOCAL_DEV_CORS_ORIGINS, *PRODUCTION_CORS_ORIGINS, *from_env):
             if origin not in seen:
                 seen.add(origin)
                 merged.append(origin)

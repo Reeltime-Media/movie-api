@@ -180,6 +180,7 @@ async def abort_movie_upload(data: MultipartUploadAbort, _: AdminUser):
     await abort_multipart_upload(data.source_key, data.upload_id)
 
 
+@router.get("", response_model=PaginatedResponse[ContentListItemRead])
 @router.get("/", response_model=PaginatedResponse[ContentListItemRead])
 async def list_movies(
     db: DBSession,

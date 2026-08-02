@@ -10,6 +10,7 @@ from app.schemas.genre import GenreCreate, GenreRead
 router = APIRouter(prefix="/genres", tags=["genres"])
 
 
+@router.get("", response_model=list[GenreRead])
 @router.get("/", response_model=list[GenreRead])
 async def list_genres(db: DBSession):
     result = await db.execute(select(Genre).order_by(Genre.name))

@@ -20,6 +20,7 @@ async def _assert_favoritable_movie(db: DBSession, content_id: uuid.UUID) -> Con
     return content
 
 
+@router.get("", response_model=list[FavoriteRead])
 @router.get("/", response_model=list[FavoriteRead])
 async def list_favorites(db: DBSession, current_user: CurrentUser):
     result = await db.execute(

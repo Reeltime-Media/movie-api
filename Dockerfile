@@ -18,4 +18,4 @@ RUN chmod +x scripts/docker-entrypoint.sh
 
 ENTRYPOINT ["/app/scripts/docker-entrypoint.sh"]
 # --loop asyncio: uvloop + asyncpg SSL to Supabase pooler can raise ConnectionResetError
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--loop", "asyncio"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--loop", "asyncio", "--proxy-headers", "--forwarded-allow-ips", "*"]
