@@ -71,3 +71,22 @@ def verify_playback_token(token: str, content_id: UUID) -> None:
         raise UnauthorizedError("Invalid or expired playback token")
     if payload.get("scope") != "playback" or payload.get("sub") != str(content_id):
         raise ForbiddenError("Playback token does not grant access to this content")
+
+
+def create_channel_playback_token(channel_id: UUID, expires_in: int) -> str:
+    """Short-lived token scoped to a single TV channel id, minted only after an
+    entitlement check. Separate scope from `create_playback_token` so a VOD
+    token can never be replayed against a live channel or vice versa."""
+    expire = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+    payload = {"sub": str(channel_id), "scope": "tv_playback", "exp": expire}
+    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
+
+
+def verify_channel_playback_token(token: str, channel_id: UUID) -> None:
+    """Raise 401/403 unless `token` is a valid playback token for `channel_id`."""
+    try:
+        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
+    except PyJWTError:
+        raise UnauthorizedError("Invalid or expired playback token")
+    if payload.get("scope") != "tv_playback" or payload.get("sub") != str(channel_id):
+        raise ForbiddenError("Playback token does not grant access to this channel")

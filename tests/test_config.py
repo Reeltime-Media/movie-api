@@ -87,6 +87,18 @@ class TestProductionValidation:
         )
         assert settings.transcode_api_key == ""
 
+    def test_live_service_requires_api_key_when_service_url_set(self):
+        with pytest.raises(ValidationError, match="LIVE_SERVICE_API_KEY"):
+            make_settings(live_service_url="http://localhost:8002")
+
+    def test_live_service_allows_partial_config_in_debug(self):
+        settings = make_settings(
+            debug=True,
+            secret_key="change-me",
+            live_service_url="http://localhost:8002",
+        )
+        assert settings.live_service_api_key == ""
+
 
 class TestSettingsCache:
     def test_clear_settings_cache_is_safe_to_call(self):

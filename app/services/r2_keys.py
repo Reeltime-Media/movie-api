@@ -30,6 +30,7 @@ MOVIES_PREFIX: Final = "movies"
 SERIES_PREFIX: Final = "series"
 PROMOTIONS_PREFIX: Final = "promotions"
 HERO_PREFIX: Final = "hero"
+TV_PREFIX: Final = "tv"
 
 _POSTER_EXT = {
     "image/jpeg": "jpg",
@@ -166,3 +167,14 @@ def hero_banner_key(media_id: uuid.UUID, content_type: str) -> str:
 
 def hero_video_key(media_id: uuid.UUID, content_type: str) -> str:
     return f"{HERO_PREFIX}/videos/{media_id}.{_HERO_VIDEO_EXT.get(content_type, 'mp4')}"
+
+
+# ── TV channels ─────────────────────────────────────────────────────────────
+
+
+def tv_channel_logo_key(slug: str, content_type: str) -> str:
+    return f"{TV_PREFIX}/{slug}/logo.{poster_extension(content_type)}"
+
+
+def is_tv_channel_asset_key(slug: str, key: str) -> bool:
+    return key.startswith(f"{TV_PREFIX}/{slug}/")

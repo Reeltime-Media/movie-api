@@ -127,6 +127,17 @@ class Settings(BaseSettings):
     transcode_service_url: str = ""
     transcode_api_key: str = ""
 
+    # Live TV restream service — FFmpeg pulls the source .m3u8 and writes HLS
+    # directly to an origin server (fronted by a CDN). This API only
+    # orchestrates it (admin proxy) and gates playback; never expose the key
+    # to browsers.
+    live_service_url: str = ""
+    live_service_api_key: str = ""
+    # How long a channel playback token stays valid before the frontend must
+    # re-authorize. Short-lived since live channels are watched continuously
+    # and re-authorizing is cheap (unlike VOD's long runtime window).
+    tv_playback_token_expiry_seconds: int = 3600
+
     # Resend (transactional email — password reset, etc.)
     resend_api_key: str = ""
     resend_from_email: str = "Reeltime <onboarding@resend.dev>"
@@ -173,6 +184,11 @@ class Settings(BaseSettings):
         if self.transcode_service_url.strip() and not self.transcode_api_key.strip():
             raise ValueError(
                 "TRANSCODE_API_KEY is required when TRANSCODE_SERVICE_URL is set (DEBUG is false)"
+            )
+
+        if self.live_service_url.strip() and not self.live_service_api_key.strip():
+            raise ValueError(
+                "LIVE_SERVICE_API_KEY is required when LIVE_SERVICE_URL is set (DEBUG is false)"
             )
 
         if self.bakong_service_url.strip():

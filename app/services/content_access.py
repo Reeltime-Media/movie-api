@@ -11,6 +11,7 @@ from app.core.exceptions import ForbiddenError, NotFoundError
 from app.models.content import Content
 from app.models.purchase import Purchase
 from app.models.subscription import Subscription
+from app.models.tv_channel import TVChannel
 from app.models.user import User
 from app.services import free_today
 
@@ -97,6 +98,20 @@ async def can_access_content(
     if content.type == "episode":
         return bool(user) and await user_has_active_subscription(db, user.id)
     return False
+
+
+async def can_access_channel(
+    db: AsyncSession, user: User | None, channel: TVChannel
+) -> bool:
+    """Live TV channels are subscription-gated (no per-channel purchase, unlike
+    single movies) unless the channel is marked free."""
+    if user and user.role == "admin":
+        return True
+    if channel.is_free:
+        return True
+    if not user:
+        return False
+    return await user_has_active_subscription(db, user.id)
 
 
 async def assert_can_track_watch_progress(

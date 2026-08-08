@@ -34,6 +34,7 @@ from app.routers import (
     purchases,
     series,
     subscriptions,
+    tv,
     users,
     watch_progress,
     # webhooks,  # BARAY DISABLED — not mounted
@@ -86,6 +87,7 @@ def create_app() -> FastAPI:
     app.include_router(favorites.router)
     app.include_router(genres.router)
     app.include_router(library.router)
+    app.include_router(tv.router)
     # BARAY DISABLED — webhook + payment-test kept in codebase, not mounted.
     # app.include_router(webhooks.router)
     app.include_router(admin.router)

@@ -12,6 +12,7 @@ from app.routers.admin import (
     series,
     subscription_plans,
     transcode,
+    tv_channels,
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -19,6 +20,7 @@ router.include_router(dashboard.router)
 router.include_router(movies.router)
 router.include_router(playback.router)
 router.include_router(transcode.router)
+router.include_router(tv_channels.router)
 router.include_router(payments.router)
 router.include_router(subscription_plans.router)
 router.include_router(series.router)
