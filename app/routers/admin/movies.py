@@ -41,6 +41,7 @@ async def create_admin_movie_draft(data: AdminMovieCreate, db: DBSession, _: Adm
         title_km=data.title_km,
         description=data.description,
         genres=data.genres,
+        region=data.region,
         release_year=data.release_year,
         rating=data.rating,
         price_usd=data.price_usd,

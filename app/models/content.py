@@ -35,6 +35,7 @@ class Content(Base):
     title_km: Mapped[str | None] = mapped_column(Text, nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     genres: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list)
+    region: Mapped[str | None] = mapped_column(Text, nullable=True)
     release_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     rating: Mapped[Decimal | None] = mapped_column(Numeric(3, 1), nullable=True)
     runtime: Mapped[str | None] = mapped_column(Text, nullable=True)

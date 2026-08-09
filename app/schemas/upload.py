@@ -58,6 +58,7 @@ class MovieUploadComplete(BaseModel):
     price_usd: Decimal
     description: str | None = None
     genres: list[str] = []
+    region: str | None = None
     release_year: int | None = None
     rating: Decimal | None = None
     runtime_minutes: int | None = Field(default=None, gt=0)
@@ -69,6 +70,14 @@ class MovieUploadComplete(BaseModel):
     @field_validator("title_km")
     @classmethod
     def normalize_title_km(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+    @field_validator("region")
+    @classmethod
+    def normalize_region(cls, value: str | None) -> str | None:
         if value is None:
             return None
         stripped = value.strip()

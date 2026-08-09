@@ -19,6 +19,7 @@ class ContentUpdate(BaseModel):
     title_km: str | None = None
     description: str | None = None
     genres: list[str] | None = None
+    region: str | None = None
     release_year: int | None = None
     rating: Decimal | None = None
     runtime: str | None = None
@@ -34,6 +35,11 @@ class ContentUpdate(BaseModel):
     @field_validator("title_km")
     @classmethod
     def normalize_title_km(cls, value: str | None) -> str | None:
+        return _empty_to_none(value)
+
+    @field_validator("region")
+    @classmethod
+    def normalize_region(cls, value: str | None) -> str | None:
         return _empty_to_none(value)
 
     @field_validator("price_usd")
@@ -55,6 +61,7 @@ class ContentRead(BaseModel):
     season_number: int | None
     episode_number: int | None
     genres: list[str]
+    region: str | None = None
     release_year: int | None
     rating: Decimal | None
     runtime: str | None
@@ -84,6 +91,7 @@ class ContentListItemRead(BaseModel):
     title_km: str | None = None
     description: str | None
     genres: list[str]
+    region: str | None = None
     poster_key: str | None
     banner_key: str | None = None
     price_usd: Decimal | None

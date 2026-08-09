@@ -1,3 +1,4 @@
+import logging
 import uuid
 
 from fastapi import APIRouter, HTTPException
@@ -20,6 +21,7 @@ from app.services.content_slug import slugify
 from app.services.pagination import paginate_query
 
 router = APIRouter(prefix="/tv-channels")
+logger = logging.getLogger(__name__)
 
 
 async def _unique_channel_slug(base: str, db) -> str:
@@ -89,7 +91,17 @@ async def update_channel(
 async def delete_channel(channel_id: uuid.UUID, db: DBSession, _: AdminUser):
     channel = await _get_channel_or_404(db, channel_id)
     if channel.status in ("live", "starting"):
-        await live_client.stop_channel(str(channel.id))
+        try:
+            await live_client.stop_channel(str(channel.id))
+        except HTTPException as exc:
+            # An unreachable/stale live service shouldn't make a catalog row
+            # permanently undeletable — log and delete anyway. Worst case is
+            # an orphaned restream process the operator cleans up separately.
+            logger.warning(
+                "Failed to stop channel %s before delete (continuing): %s",
+                channel.id,
+                exc.detail,
+            )
     await db.delete(channel)
     await db.commit()
 
