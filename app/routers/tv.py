@@ -89,8 +89,17 @@ async def authorize_channel_playback(
     token = create_channel_playback_token(
         channel_id, settings.tv_playback_token_expiry_seconds
     )
+    # Prefer the origin HLS URL (absolute segment URIs via ffmpeg hls_base_url)
+    # so mobile/web players skip the API playlist-rewrite hop. Tokened rewrite
+    # path remains available at /tv/{id}/live.m3u8 for older clients.
+    origin = (channel.hls_playback_url or "").strip()
+    master = (
+        origin
+        if origin.startswith("http://") or origin.startswith("https://")
+        else f"/tv/{channel_id}/live.m3u8?t={token}"
+    )
     return {
-        "master_url": f"/tv/{channel_id}/live.m3u8?t={token}",
+        "master_url": master,
         "expires_in": settings.tv_playback_token_expiry_seconds,
     }
 
