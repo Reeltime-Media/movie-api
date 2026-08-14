@@ -34,7 +34,7 @@ from app.schemas.upload import (
     PartUrlRead,
 )
 from app.core.guest import get_guest_id
-from app.services import free_today, r2_keys
+from app.services import coming_soon, free_today, r2_keys
 from app.services.content_access import can_access_content
 from app.services.content_delete import delete_content_dependencies
 from app.services.content_publish import ensure_movie_publishable
@@ -247,12 +247,16 @@ async def get_related_movies(
 @router.get("/{slug}", response_model=ContentRead)
 async def get_movie(slug: str, db: DBSession, request: Request, current_user: OptionalUser):
     stmt = select(Content).where(Content.slug == slug, Content.type == "single")
-    if not current_user or current_user.role != "admin":
-        stmt = stmt.where(Content.is_published.is_(True))
     result = await db.execute(stmt)
     movie = result.scalar_one_or_none()
     if not movie:
         raise NotFoundError("Movie not found")
+
+    is_admin = bool(current_user and current_user.role == "admin")
+    if not movie.is_published and not is_admin:
+        if not await coming_soon.is_coming_soon(db, movie.id):
+            raise NotFoundError("Movie not found")
+
     data = ContentRead.model_validate(movie)
     data.is_free_today = await free_today.is_free_today(db, movie.id)
     guest_id = None if current_user else get_guest_id(request)

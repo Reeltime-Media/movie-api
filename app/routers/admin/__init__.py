@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.routers.admin import (
+    coming_soon,
     comments,
     dashboard,
     free_today,
@@ -28,3 +29,4 @@ router.include_router(comments.router)
 router.include_router(promotions.router)
 router.include_router(hero_featured.router)
 router.include_router(free_today.router)
+router.include_router(coming_soon.router)

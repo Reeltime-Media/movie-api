@@ -3,6 +3,7 @@ from app.models.comment_report import CommentReport
 from app.models.comment_vote import CommentVote
 from app.models.content import Content
 from app.models.favorite import Favorite
+from app.models.coming_soon_item import ComingSoonItem
 from app.models.free_today_item import FreeTodayItem
 from app.models.genre import Genre
 from app.models.payment_intent import PaymentIntent
@@ -37,6 +38,7 @@ __all__ = [
     "WatchProgress",
     "PaymentIntent",
     "HeroFeaturedItem",
+    "ComingSoonItem",
     "FreeTodayItem",
     "PasswordResetToken",
     "PromotionBanner",
