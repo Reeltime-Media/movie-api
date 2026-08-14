@@ -1,11 +1,12 @@
 """
 Seed unpublished Coming Soon movies from public web metadata (idempotent).
 
-Creates draft Content rows (poster + trailer, no video) and wires them into
-coming_soon_items. Safe to re-run — skips existing slugs / rail entries.
+Downloads posters from the public source URLs, uploads them to Cloudflare R2
+under movies/{slug}/poster.*, optimizes to WebP (+ rail thumb), then creates
+draft Content rows and coming_soon_items.
 
     cd movie-api
-    python seed/seed_coming_soon.py
+    PYTHONPATH=. python seed/seed_coming_soon.py
 
 Or:
 
@@ -15,7 +16,10 @@ Or:
 from __future__ import annotations
 
 import asyncio
+import mimetypes
 from decimal import Decimal
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -25,8 +29,10 @@ from app.db_connect import sqlalchemy_engine_kwargs
 from app.models.coming_soon_item import ComingSoonItem
 from app.models.content import Content
 from app.schemas.coming_soon import COMING_SOON_MAX
+from app.services import r2_keys, storage
+from app.services.image_process import optimize_r2_image
 
-# Real upcoming titles + public poster URLs (Wikipedia) + YouTube trailers.
+# Real upcoming titles + Wikipedia poster sources + YouTube trailers.
 SEED_COMING_SOON: list[dict] = [
     {
         "slug": "insidious-out-of-the-further-2026",
@@ -38,7 +44,10 @@ SEED_COMING_SOON: list[dict] = [
         "genres": ["Horror", "Thriller"],
         "release_year": 2026,
         "runtime": "1h 46m",
-        "poster_key": "https://upload.wikimedia.org/wikipedia/en/5/5c/Insidious-out-of-the-further-poster.png",
+        "poster_source_url": (
+            "https://upload.wikimedia.org/wikipedia/en/5/5c/"
+            "Insidious-out-of-the-further-poster.png"
+        ),
         "trailer_url": "https://www.youtube.com/watch?v=jxU8FU3o75A",
         "price_usd": Decimal("3.99"),
     },
@@ -52,7 +61,9 @@ SEED_COMING_SOON: list[dict] = [
         "genres": ["Action", "Thriller"],
         "release_year": 2026,
         "runtime": None,
-        "poster_key": "https://upload.wikimedia.org/wikipedia/en/d/d3/Mutiny_poster.jpeg",
+        "poster_source_url": (
+            "https://upload.wikimedia.org/wikipedia/en/d/d3/Mutiny_poster.jpeg"
+        ),
         "trailer_url": "https://www.youtube.com/watch?v=FKSdXH89jbo",
         "price_usd": Decimal("3.99"),
     },
@@ -66,7 +77,10 @@ SEED_COMING_SOON: list[dict] = [
         "genres": ["Horror", "Thriller"],
         "release_year": 2026,
         "runtime": None,
-        "poster_key": "https://upload.wikimedia.org/wikipedia/en/4/4f/Clayface_%28film%29_poster.jpg",
+        "poster_source_url": (
+            "https://upload.wikimedia.org/wikipedia/en/4/4f/"
+            "Clayface_%28film%29_poster.jpg"
+        ),
         "trailer_url": "https://www.youtube.com/watch?v=OGO4Mqvo3jI",
         "price_usd": Decimal("4.99"),
     },
@@ -80,7 +94,10 @@ SEED_COMING_SOON: list[dict] = [
         "genres": ["Action", "Comedy"],
         "release_year": 2026,
         "runtime": None,
-        "poster_key": "https://upload.wikimedia.org/wikipedia/en/d/d4/Street_Fighter_2026_film_poster.jpeg",
+        "poster_source_url": (
+            "https://upload.wikimedia.org/wikipedia/en/d/d4/"
+            "Street_Fighter_2026_film_poster.jpeg"
+        ),
         "trailer_url": "https://www.youtube.com/watch?v=Xt4X4FvXk2A",
         "price_usd": Decimal("3.99"),
     },
@@ -94,7 +111,10 @@ SEED_COMING_SOON: list[dict] = [
         "genres": ["Sci-Fi", "Drama"],
         "release_year": 2026,
         "runtime": None,
-        "poster_key": "https://upload.wikimedia.org/wikipedia/en/6/68/The_Dog_Stars_%28film%29_poster.jpg",
+        "poster_source_url": (
+            "https://upload.wikimedia.org/wikipedia/en/6/68/"
+            "The_Dog_Stars_%28film%29_poster.jpg"
+        ),
         "trailer_url": "https://www.youtube.com/watch?v=cmzVY1goqwQ",
         "price_usd": Decimal("3.99"),
     },
@@ -108,7 +128,10 @@ SEED_COMING_SOON: list[dict] = [
         "genres": ["Fantasy", "Romance"],
         "release_year": 2026,
         "runtime": None,
-        "poster_key": "https://upload.wikimedia.org/wikipedia/en/4/47/Practical_Magic_2_%28film_poster%29.png",
+        "poster_source_url": (
+            "https://upload.wikimedia.org/wikipedia/en/4/47/"
+            "Practical_Magic_2_%28film_poster%29.png"
+        ),
         "trailer_url": "https://www.youtube.com/watch?v=Ho10_4IX1jE",
         "price_usd": Decimal("2.99"),
     },
@@ -122,11 +145,81 @@ SEED_COMING_SOON: list[dict] = [
         "genres": ["Horror"],
         "release_year": 2026,
         "runtime": None,
-        "poster_key": "https://upload.wikimedia.org/wikipedia/en/d/dc/Lee_Cronin%27s_The_Mummy.jpg",
+        "poster_source_url": (
+            "https://upload.wikimedia.org/wikipedia/en/d/dc/"
+            "Lee_Cronin%27s_The_Mummy.jpg"
+        ),
         "trailer_url": "https://www.youtube.com/watch?v=XJ0uv-phsDk",
         "price_usd": Decimal("3.99"),
     },
 ]
+
+
+def _guess_content_type(url: str, header_type: str | None) -> str:
+    if header_type:
+        ctype = header_type.split(";")[0].strip().lower()
+        if ctype.startswith("image/"):
+            return "image/jpeg" if ctype in {"image/jpg", "image/pjpeg"} else ctype
+    guessed, _ = mimetypes.guess_type(url.split("?")[0])
+    if guessed and guessed.startswith("image/"):
+        return guessed
+    return "image/jpeg"
+
+
+def _download_poster(url: str) -> tuple[bytes, str]:
+    req = Request(
+        url,
+        headers={
+            "User-Agent": "ReeltimeComingSoonSeed/1.0 (poster ingest; contact=ops@reeltime.fun)",
+            "Accept": "image/*,*/*;q=0.8",
+        },
+    )
+    with urlopen(req, timeout=60) as resp:
+        data = resp.read()
+        ctype = _guess_content_type(url, resp.headers.get("Content-Type"))
+    if not data:
+        raise RuntimeError(f"empty poster download: {url}")
+    return data, ctype
+
+
+def _is_external_poster(key: str | None) -> bool:
+    if not key:
+        return True
+    return key.startswith("http://") or key.startswith("https://")
+
+
+async def upload_poster_to_r2(slug: str, source_url: str) -> str:
+    """Download source poster → R2 movies/{slug}/poster.* → optimize to webp."""
+    try:
+        data, content_type = await asyncio.to_thread(_download_poster, source_url)
+    except (HTTPError, URLError, TimeoutError, RuntimeError) as exc:
+        raise RuntimeError(f"download failed for {slug}: {exc}") from exc
+
+    raw_key = r2_keys.movie_poster_key(slug, content_type)
+
+    def _put() -> None:
+        storage.put_object_bytes(raw_key, data, content_type)
+
+    await asyncio.to_thread(_put)
+    optimized = await optimize_r2_image(raw_key, kind="poster")
+    return optimized or raw_key
+
+
+async def ensure_r2_poster(movie: Content, source_url: str) -> str | None:
+    """Upload to R2 when poster is missing or still an external URL."""
+    if movie.poster_key and not _is_external_poster(movie.poster_key):
+        # Already on R2 — still refresh if object is missing.
+        exists = await asyncio.to_thread(storage.object_exists, movie.poster_key)
+        if exists:
+            return movie.poster_key
+
+    if not source_url:
+        return movie.poster_key
+
+    key = await upload_poster_to_r2(movie.slug, source_url)
+    movie.poster_key = key
+    print(f"  ↑ r2 poster: {key}")
+    return key
 
 
 async def seed() -> None:
@@ -138,7 +231,6 @@ async def seed() -> None:
     session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async with session_factory() as db:
-        # Ensure table exists (migration 0038).
         exists = await db.scalar(text("SELECT to_regclass('public.coming_soon_items')"))
         if not exists:
             print("coming_soon_items table missing — run: alembic upgrade head")
@@ -150,22 +242,28 @@ async def seed() -> None:
 
         added_movies = 0
         added_rail = 0
+        uploaded = 0
         sort_base = await db.scalar(
             select(func.coalesce(func.max(ComingSoonItem.sort_order), -1))
         )
         next_sort = int(sort_base or -1) + 1
 
         for row in SEED_COMING_SOON:
+            source_url = row["poster_source_url"]
             existing = await db.scalar(select(Content).where(Content.slug == row["slug"]))
             if existing:
                 movie = existing
-                # Keep poster/trailer fresh if they were empty.
                 changed = False
-                if not movie.poster_key and row["poster_key"]:
-                    movie.poster_key = row["poster_key"]
-                    changed = True
                 if not movie.trailer_url and row["trailer_url"]:
                     movie.trailer_url = row["trailer_url"]
+                    changed = True
+                before = movie.poster_key
+                try:
+                    await ensure_r2_poster(movie, source_url)
+                except RuntimeError as exc:
+                    print(f"  ! poster upload failed ({row['slug']}): {exc}")
+                if movie.poster_key != before:
+                    uploaded += 1
                     changed = True
                 if changed:
                     await db.flush()
@@ -179,7 +277,7 @@ async def seed() -> None:
                     genres=row["genres"],
                     release_year=row["release_year"],
                     runtime=row["runtime"],
-                    poster_key=row["poster_key"],
+                    poster_key=None,
                     banner_key=None,
                     trailer_url=row["trailer_url"],
                     price_usd=row["price_usd"],
@@ -189,6 +287,12 @@ async def seed() -> None:
                     transcode_status="pending",
                 )
                 db.add(movie)
+                await db.flush()
+                try:
+                    await ensure_r2_poster(movie, source_url)
+                    uploaded += 1
+                except RuntimeError as exc:
+                    print(f"  ! poster upload failed ({row['slug']}): {exc}")
                 await db.flush()
                 added_movies += 1
                 print(f"  + movie: {row['title']}")
@@ -218,7 +322,10 @@ async def seed() -> None:
             print(f"  + coming soon: {row['title']}")
 
         await db.commit()
-        print(f"Done. movies={added_movies}, coming_soon={added_rail}")
+        print(
+            f"Done. movies={added_movies}, coming_soon={added_rail}, "
+            f"r2_posters={uploaded}"
+        )
 
     await engine.dispose()
 
