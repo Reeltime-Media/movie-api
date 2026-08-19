@@ -11,6 +11,7 @@ from app.models.hero_featured_item import HeroFeaturedItem
 from app.models.password_reset_token import PasswordResetToken
 from app.models.promotion_banner import PromotionBanner
 from app.models.purchase import Purchase
+from app.models.rating import Rating
 from app.models.session import Session
 from app.models.series import Series
 from app.models.subscription import Subscription
@@ -32,6 +33,7 @@ __all__ = [
     "Favorite",
     "Genre",
     "Purchase",
+    "Rating",
     "Subscription",
     "SubscriptionPayment",
     "SubscriptionPlan",
