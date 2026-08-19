@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, Field, field_validator
@@ -63,6 +64,7 @@ class MovieUploadComplete(BaseModel):
     rating: Decimal | None = None
     runtime_minutes: int | None = Field(default=None, gt=0)
     status: str = "draft"
+    release_at: datetime | None = None
     trailer_url: str | None = None
     poster_key: str | None = None
     banner_key: str | None = None

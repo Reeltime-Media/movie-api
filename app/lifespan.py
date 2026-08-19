@@ -13,6 +13,10 @@ logger = logging.getLogger(__name__)
 async def app_lifespan(app: FastAPI):
     from app.database import engine
     from app.services.bakong_sweeper import start_bakong_sweeper, stop_bakong_sweeper
+    from app.services.coming_soon_sweeper import (
+        start_coming_soon_sweeper,
+        stop_coming_soon_sweeper,
+    )
 
     settings = get_settings()
     db_url = settings.effective_database_url
@@ -35,10 +39,12 @@ async def app_lifespan(app: FastAPI):
         )
 
     start_bakong_sweeper()
+    start_coming_soon_sweeper()
 
     yield
 
     await stop_bakong_sweeper()
+    await stop_coming_soon_sweeper()
 
     from app.services.bakong import close_http_client as close_bakong_http_client
     from app.services.email import close_http_client as close_email_http_client

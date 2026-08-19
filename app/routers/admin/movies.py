@@ -1,7 +1,7 @@
 import asyncio
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select
 
 from app.core.content_status import validate_content_status
@@ -31,7 +31,7 @@ router = APIRouter()
 
 @router.post("/movies", response_model=ContentRead, status_code=201)
 async def create_admin_movie_draft(data: AdminMovieCreate, db: DBSession, _: AdminUser):
-    """Create a movie record without video (draft). Upload assets later from movie edit."""
+    """Create a movie record without video (draft or coming-soon). Upload assets later from movie edit."""
     slug = await unique_content_slug(data.title, db)
     movie = Content(
         id=uuid.uuid4(),
@@ -46,7 +46,8 @@ async def create_admin_movie_draft(data: AdminMovieCreate, db: DBSession, _: Adm
         rating=data.rating,
         price_usd=data.price_usd,
         trailer_url=data.trailer_url,
-        status="draft",
+        status=data.status,
+        release_at=data.release_at,
         is_published=False,
         transcode_status="pending",
     )
@@ -62,12 +63,12 @@ async def list_admin_movies(
     db: DBSession,
     _: AdminUser,
     pagination: PaginationDep,
+    status: str | None = Query(default=None, description="Filter by exact status (e.g. coming_soon)"),
 ):
-    stmt = (
-        select(Content)
-        .where(Content.type == "single")
-        .order_by(Content.created_at.desc())
-    )
+    stmt = select(Content).where(Content.type == "single")
+    if status:
+        stmt = stmt.where(Content.status == status)
+    stmt = stmt.order_by(Content.created_at.desc())
     items, total = await paginate_query(
         db, stmt, page=pagination.page, page_size=pagination.page_size
     )

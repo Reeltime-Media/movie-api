@@ -123,6 +123,12 @@ class AdminMovieCreate(BaseModel):
     runtime_minutes: int | None = Field(default=None, gt=0)
     price_usd: Decimal = Decimal("0")
     trailer_url: str | None = None
+    # Draft-only create endpoint — only these two pre-publish statuses are
+    # allowed here. Use PATCH /admin/movies/{id} (status="published") to
+    # publish once the movie is ready.
+    status: str = "draft"
+    # Announced release date/time; only meaningful when status="coming_soon".
+    release_at: datetime | None = None
 
     @field_validator("title")
     @classmethod
@@ -130,6 +136,13 @@ class AdminMovieCreate(BaseModel):
         value = value.strip()
         if not value:
             raise ValueError("title is required")
+        return value
+
+    @field_validator("status")
+    @classmethod
+    def check_status(cls, value: str) -> str:
+        if value not in {"draft", "coming_soon"}:
+            raise ValueError("status must be 'draft' or 'coming_soon'")
         return value
 
     @field_validator("title_km")

@@ -31,6 +31,7 @@ class ContentUpdate(BaseModel):
     price_usd: Decimal | None = None
     season_number: int | None = None
     episode_number: int | None = None
+    release_at: datetime | None = None
 
     @field_validator("title_km")
     @classmethod
@@ -72,6 +73,7 @@ class ContentRead(BaseModel):
     hls_master_key: str | None
     price_usd: Decimal | None
     status: str
+    release_at: datetime | None = None
     is_published: bool
     is_free: bool
     # True while the movie is in the admin-curated "Free movies today" list.
@@ -101,6 +103,18 @@ class ContentListItemRead(BaseModel):
     is_free: bool
     # Lets catalog cards offer a trailer preview without a detail fetch.
     trailer_url: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class ComingSoonItemRead(BaseModel):
+    id: UUID
+    slug: str
+    title: str
+    title_km: str | None = None
+    poster_key: str | None
+    banner_key: str | None
+    release_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 
