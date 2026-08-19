@@ -124,10 +124,6 @@ class Settings(BaseSettings):
     bakong_sweeper_window_minutes: int = 30
     bakong_sweeper_batch_size: int = 20
 
-    # In-process sweeper that auto-publishes a 'coming_soon' movie once its
-    # announced release_at has passed and its video is ready.
-    coming_soon_sweeper_interval_seconds: int = 60
-
     # Transcode worker (admin proxy only — never expose key to browsers)
     transcode_service_url: str = ""
     transcode_api_key: str = ""

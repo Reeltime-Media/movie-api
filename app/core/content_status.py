@@ -1,6 +1,4 @@
-VALID_CONTENT_STATUSES = frozenset(
-    {"draft", "review", "scheduled", "coming_soon", "published"}
-)
+VALID_CONTENT_STATUSES = frozenset({"draft", "review", "scheduled", "published"})
 
 
 def validate_content_status(status: str) -> None:

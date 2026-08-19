@@ -1,18 +1,22 @@
 """Add coming_soon_items for admin-curated upcoming movie rail
 
 Revision ID: 0038
-Revises: 0037
+Revises: 0036
 Create Date: 2026-08-14
 
 Curated home-page rail for titles that are not fully published yet
 (poster + metadata). Max 20 rows, enforced at the API layer.
+
+Originally revised "0037" (content_coming_soon), which was reverted as a
+duplicate, unused parallel implementation of this same feature. Re-pointed
+to "0036" to keep the migration chain unbroken.
 """
 from typing import Sequence, Union
 
 from alembic import op
 
 revision: str = "0038"
-down_revision: Union[str, None] = "0037"
+down_revision: Union[str, None] = "0036"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

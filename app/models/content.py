@@ -8,7 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
 
-_STATUS = {"draft", "review", "scheduled", "coming_soon", "published"}
+_STATUS = {"draft", "review", "scheduled", "published"}
 
 _SEARCH_VECTOR_SQL = (
     "to_tsvector('simple', coalesce(title, '') || ' ' || coalesce(title_km, '') || ' ' || "
@@ -45,12 +45,8 @@ class Content(Base):
     trailer_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     hls_master_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     price_usd: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
-    # 'draft' | 'review' | 'scheduled' | 'coming_soon' | 'published'
+    # 'draft' | 'review' | 'scheduled' | 'published'
     status: Mapped[str] = mapped_column(Text, nullable=False, default="draft")
-    # Announced release date/time for a 'coming_soon' movie. Null = no announced
-    # date (TBA). The coming-soon sweeper (app/services/coming_soon_sweeper.py)
-    # flips status to 'published' once this passes and the video is ready.
-    release_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_published: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_free: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     transcode_status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")

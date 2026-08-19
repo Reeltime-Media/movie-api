@@ -24,7 +24,7 @@ from app.core.exceptions import NotFoundError
 from app.dependencies import AdminUser, DBSession, OptionalUser
 from app.models.content import Content
 from app.models.transcode_job import TranscodeJob
-from app.schemas.content import ComingSoonItemRead, ContentListItemRead, ContentRead, ContentUpdate
+from app.schemas.content import ContentListItemRead, ContentRead, ContentUpdate
 from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
 from app.schemas.upload import (
     MovieUploadComplete,
@@ -160,7 +160,6 @@ async def complete_movie_upload(data: MovieUploadComplete, db: DBSession, _: Adm
         banner_key=banner_key,
         trailer_url=data.trailer_url,
         status=data.status,
-        release_at=data.release_at,
         is_published=(data.status == "published"),
         transcode_status="pending",
     )
@@ -225,18 +224,6 @@ async def list_movies(
         page=pagination.page,
         page_size=pagination.page_size,
     )
-
-
-@router.get("/coming-soon", response_model=list[ComingSoonItemRead])
-async def list_coming_soon_movies(db: DBSession):
-    """Public teaser list for the client's Coming Soon page. Soonest release first, TBA last."""
-    stmt = (
-        select(Content)
-        .where(Content.type == "single", Content.status == "coming_soon")
-        .order_by(Content.release_at.asc().nulls_last(), Content.created_at.desc())
-    )
-    result = await db.execute(stmt)
-    return [ComingSoonItemRead.model_validate(item) for item in result.scalars().all()]
 
 
 @router.get("/{slug}/related", response_model=list[ContentListItemRead])
