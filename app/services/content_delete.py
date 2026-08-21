@@ -54,11 +54,23 @@ async def delete_content_dependencies(
 async def delete_content_dependencies_for_series(
     db: AsyncSession, series_id: uuid.UUID
 ) -> None:
-    result = await db.execute(
-        select(Content.id).where(Content.series_id == series_id)
+    """Remove rows referencing any episode of this series — one bulk delete
+    per table instead of delete_content_dependencies() run once per episode,
+    so a series with many episodes doesn't cost 5x round trips per episode."""
+    episode_ids = select(Content.id).where(Content.series_id == series_id)
+    await db.execute(delete(Purchase).where(Purchase.content_id.in_(episode_ids)))
+    await db.execute(
+        delete(FreeTodayItem).where(FreeTodayItem.content_id.in_(episode_ids))
     )
-    for (content_id,) in result.all():
-        await delete_content_dependencies(db, content_id)
+    await db.execute(
+        delete(WatchProgress).where(WatchProgress.content_id.in_(episode_ids))
+    )
+    await db.execute(
+        update(PaymentIntent)
+        .where(PaymentIntent.content_id.in_(episode_ids))
+        .values(content_id=None)
+    )
+    await delete_transcode_jobs_for_series(db, series_id)
 
 
 async def delete_series_and_dependencies(

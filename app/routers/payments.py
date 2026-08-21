@@ -351,6 +351,7 @@ async def create_series_subscription_payment_intent(
 
 
 @router.get("/intents/{intent_id}", response_model=PaymentIntentRead)
+@limiter.limit("60/minute")
 async def get_payment_intent(
     intent_id: str,
     db: DBSession,

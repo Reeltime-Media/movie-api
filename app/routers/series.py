@@ -21,7 +21,7 @@ Episode asset replace (existing episode — admin edit):
 import asyncio
 import uuid
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from sqlalchemy import select
 
 from app.core.content_status import validate_content_status
@@ -30,6 +30,7 @@ from app.dependencies import AdminUser, DBSession, OptionalUser
 from app.models.content import Content
 from app.models.series import Series
 from app.models.transcode_job import TranscodeJob
+from app.rate_limit import limiter
 from app.schemas.content import ContentRead, ContentUpdate, SeasonRead
 from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
 from app.schemas.series import (
@@ -73,7 +74,9 @@ router = APIRouter(prefix="/series", tags=["series"])
 
 @router.get("", response_model=PaginatedResponse[SeriesListItemRead])
 @router.get("/", response_model=PaginatedResponse[SeriesListItemRead])
+@limiter.limit("120/minute")
 async def list_series(
+    request: Request,
     db: DBSession,
     pagination: PaginationDep,
     search: str | None = Query(

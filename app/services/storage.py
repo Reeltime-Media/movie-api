@@ -23,6 +23,13 @@ settings = get_settings()
 # Recommended chunk size for multipart uploads: 50 MB.
 # A 2h movie at 5 Mbps ≈ 4.5 GB → ~92 parts. Max R2 parts = 10,000.
 MULTIPART_PART_SIZE = 50 * 1024 * 1024  # 50 MB in bytes
+
+# Poster/banner/thumb keys are per-slug (movies/{slug}/poster.webp), not
+# content-addressed, so a re-upload overwrites the same URL — keep this in
+# step with the client's own disk-cache stalePeriod (21 days, TvImageCache)
+# rather than marking them immutable.
+IMAGE_CACHE_CONTROL = "public, max-age=1814400"
+
 _s3_client = None
 
 
@@ -92,12 +99,18 @@ def get_object_bytes(key: str) -> bytes:
     return obj["Body"].read()
 
 
-def put_object_bytes(key: str, data: bytes, content_type: str) -> None:
+def put_object_bytes(
+    key: str, data: bytes, content_type: str, cache_control: str | None = None
+) -> None:
+    extra: dict = {}
+    if cache_control:
+        extra["CacheControl"] = cache_control
     _client().put_object(
         Bucket=settings.r2_bucket_name,
         Key=key,
         Body=data,
         ContentType=content_type,
+        **extra,
     )
 
 

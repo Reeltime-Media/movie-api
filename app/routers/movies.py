@@ -24,6 +24,7 @@ from app.core.exceptions import NotFoundError
 from app.dependencies import AdminUser, DBSession, OptionalUser
 from app.models.content import Content
 from app.models.transcode_job import TranscodeJob
+from app.rate_limit import limiter
 from app.schemas.content import ContentListItemRead, ContentRead, ContentUpdate
 from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
 from app.schemas.upload import (
@@ -183,7 +184,9 @@ async def abort_movie_upload(data: MultipartUploadAbort, _: AdminUser):
 
 @router.get("", response_model=PaginatedResponse[ContentListItemRead])
 @router.get("/", response_model=PaginatedResponse[ContentListItemRead])
+@limiter.limit("120/minute")
 async def list_movies(
+    request: Request,
     db: DBSession,
     pagination: PaginationDep,
     search: str | None = Query(

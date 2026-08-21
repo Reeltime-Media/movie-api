@@ -85,6 +85,9 @@ def _optimize_r2_image_sync(key: str, *, kind: ImageKind) -> str:
         target_key = key
         # Still ensure a rail thumb exists for posters.
         source_for_thumb = original
+        # Original was PUT via a presigned URL with no Cache-Control — add
+        # one now so the edge/device caches know how long to hold it.
+        storage.put_object_bytes(key, original, "image/webp", storage.IMAGE_CACHE_CONTROL)
     else:
         optimized = optimize_image_bytes(original, kind=kind)
         target_key = webp_key_for(key)
@@ -92,8 +95,13 @@ def _optimize_r2_image_sync(key: str, *, kind: ImageKind) -> str:
         if target_key == key and len(optimized) >= len(original):
             target_key = key
             source_for_thumb = original
+            storage.put_object_bytes(
+                key, original, "image/webp", storage.IMAGE_CACHE_CONTROL
+            )
         else:
-            storage.put_object_bytes(target_key, optimized, "image/webp")
+            storage.put_object_bytes(
+                target_key, optimized, "image/webp", storage.IMAGE_CACHE_CONTROL
+            )
             if target_key != key:
                 storage.delete_object(key)
             source_for_thumb = optimized
@@ -110,7 +118,9 @@ def _optimize_r2_image_sync(key: str, *, kind: ImageKind) -> str:
         try:
             thumb_key = poster_thumb_key_for(target_key)
             thumb = poster_thumb_bytes(source_for_thumb)
-            storage.put_object_bytes(thumb_key, thumb, "image/webp")
+            storage.put_object_bytes(
+                thumb_key, thumb, "image/webp", storage.IMAGE_CACHE_CONTROL
+            )
             logger.info(
                 "Wrote poster thumb %s (%d KB)",
                 thumb_key,
