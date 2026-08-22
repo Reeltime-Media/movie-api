@@ -8,7 +8,7 @@ class TVChannelCreate(BaseModel):
     name: str
     description: str | None = None
     source_url: str = Field(..., description="Origin TV HLS (.m3u8) source URL")
-    is_free: bool = False
+    is_free: bool = True
 
 
 class TVChannelUpdate(BaseModel):

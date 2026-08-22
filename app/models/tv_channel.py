@@ -28,7 +28,7 @@ class TVChannel(Base):
     status: Mapped[str] = mapped_column(Text, nullable=False, default="offline")
     status_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_published: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    is_free: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_free: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
