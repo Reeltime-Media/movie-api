@@ -33,7 +33,7 @@ SEED_SERIES: list[dict] = [
         "poster_key": _POSTER,
         "banner_key": _BANNER,
         "trailer_url": _TRAILER,
-        "monthly_price_usd": Decimal("4.99"),
+        "monthly_price_usd": Decimal("2.50"),
         "is_published": True,
     },
     {
@@ -46,7 +46,7 @@ SEED_SERIES: list[dict] = [
         "poster_key": _POSTER,
         "banner_key": _BANNER,
         "trailer_url": _TRAILER,
-        "monthly_price_usd": Decimal("4.99"),
+        "monthly_price_usd": Decimal("2.50"),
         "is_published": True,
     },
     {
@@ -59,7 +59,7 @@ SEED_SERIES: list[dict] = [
         "poster_key": _POSTER,
         "banner_key": _BANNER,
         "trailer_url": _TRAILER,
-        "monthly_price_usd": Decimal("5.99"),
+        "monthly_price_usd": Decimal("2.50"),
         "is_published": True,
     },
     {
@@ -72,7 +72,7 @@ SEED_SERIES: list[dict] = [
         "poster_key": _POSTER,
         "banner_key": _BANNER,
         "trailer_url": _TRAILER,
-        "monthly_price_usd": Decimal("4.99"),
+        "monthly_price_usd": Decimal("2.50"),
         "is_published": True,
     },
     {
@@ -85,7 +85,7 @@ SEED_SERIES: list[dict] = [
         "poster_key": _POSTER,
         "banner_key": _BANNER,
         "trailer_url": _TRAILER,
-        "monthly_price_usd": Decimal("4.99"),
+        "monthly_price_usd": Decimal("2.50"),
         "is_published": True,
     },
     {
@@ -98,7 +98,7 @@ SEED_SERIES: list[dict] = [
         "poster_key": _POSTER,
         "banner_key": _BANNER,
         "trailer_url": _TRAILER,
-        "monthly_price_usd": Decimal("5.99"),
+        "monthly_price_usd": Decimal("2.50"),
         "is_published": True,
     },
     {
@@ -111,7 +111,7 @@ SEED_SERIES: list[dict] = [
         "poster_key": _POSTER,
         "banner_key": _BANNER,
         "trailer_url": _TRAILER,
-        "monthly_price_usd": Decimal("3.99"),
+        "monthly_price_usd": Decimal("2.50"),
         "is_published": True,
     },
     {
@@ -124,7 +124,7 @@ SEED_SERIES: list[dict] = [
         "poster_key": _POSTER,
         "banner_key": _BANNER,
         "trailer_url": _TRAILER,
-        "monthly_price_usd": Decimal("4.99"),
+        "monthly_price_usd": Decimal("2.50"),
         "is_published": True,
     },
     {
@@ -137,7 +137,7 @@ SEED_SERIES: list[dict] = [
         "poster_key": _POSTER,
         "banner_key": _BANNER,
         "trailer_url": _TRAILER,
-        "monthly_price_usd": Decimal("5.99"),
+        "monthly_price_usd": Decimal("2.50"),
         "is_published": True,
     },
     {
@@ -150,7 +150,7 @@ SEED_SERIES: list[dict] = [
         "poster_key": _POSTER,
         "banner_key": _BANNER,
         "trailer_url": _TRAILER,
-        "monthly_price_usd": Decimal("5.99"),
+        "monthly_price_usd": Decimal("2.50"),
         "is_published": True,
     },
     {
@@ -163,7 +163,7 @@ SEED_SERIES: list[dict] = [
         "poster_key": _POSTER,
         "banner_key": _BANNER,
         "trailer_url": _TRAILER,
-        "monthly_price_usd": Decimal("3.99"),
+        "monthly_price_usd": Decimal("2.50"),
         "is_published": True,
     },
     {
@@ -176,7 +176,7 @@ SEED_SERIES: list[dict] = [
         "poster_key": _POSTER,
         "banner_key": _BANNER,
         "trailer_url": _TRAILER,
-        "monthly_price_usd": Decimal("4.99"),
+        "monthly_price_usd": Decimal("2.50"),
         "is_published": True,
     },
     {
@@ -189,7 +189,7 @@ SEED_SERIES: list[dict] = [
         "poster_key": _POSTER,
         "banner_key": _BANNER,
         "trailer_url": _TRAILER,
-        "monthly_price_usd": Decimal("3.99"),
+        "monthly_price_usd": Decimal("2.50"),
         "is_published": True,
     },
     {
@@ -202,7 +202,7 @@ SEED_SERIES: list[dict] = [
         "poster_key": _POSTER,
         "banner_key": _BANNER,
         "trailer_url": _TRAILER,
-        "monthly_price_usd": Decimal("5.99"),
+        "monthly_price_usd": Decimal("2.50"),
         "is_published": True,
     },
     {
@@ -215,7 +215,7 @@ SEED_SERIES: list[dict] = [
         "poster_key": _POSTER,
         "banner_key": _BANNER,
         "trailer_url": _TRAILER,
-        "monthly_price_usd": Decimal("4.99"),
+        "monthly_price_usd": Decimal("2.50"),
         "is_published": True,
     },
 ]

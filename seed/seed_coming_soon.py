@@ -49,7 +49,7 @@ SEED_COMING_SOON: list[dict] = [
             "Insidious-out-of-the-further-poster.png"
         ),
         "trailer_url": "https://www.youtube.com/watch?v=jxU8FU3o75A",
-        "price_usd": Decimal("3.99"),
+        "price_usd": Decimal("0.50"),
     },
     {
         "slug": "mutiny-2026",
@@ -65,7 +65,7 @@ SEED_COMING_SOON: list[dict] = [
             "https://upload.wikimedia.org/wikipedia/en/d/d3/Mutiny_poster.jpeg"
         ),
         "trailer_url": "https://www.youtube.com/watch?v=FKSdXH89jbo",
-        "price_usd": Decimal("3.99"),
+        "price_usd": Decimal("0.50"),
     },
     {
         "slug": "clayface-2026",
@@ -82,7 +82,7 @@ SEED_COMING_SOON: list[dict] = [
             "Clayface_%28film%29_poster.jpg"
         ),
         "trailer_url": "https://www.youtube.com/watch?v=OGO4Mqvo3jI",
-        "price_usd": Decimal("4.99"),
+        "price_usd": Decimal("0.50"),
     },
     {
         "slug": "street-fighter-2026",
@@ -99,7 +99,7 @@ SEED_COMING_SOON: list[dict] = [
             "Street_Fighter_2026_film_poster.jpeg"
         ),
         "trailer_url": "https://www.youtube.com/watch?v=Xt4X4FvXk2A",
-        "price_usd": Decimal("3.99"),
+        "price_usd": Decimal("0.50"),
     },
     {
         "slug": "the-dog-stars-2026",
@@ -116,7 +116,7 @@ SEED_COMING_SOON: list[dict] = [
             "The_Dog_Stars_%28film%29_poster.jpg"
         ),
         "trailer_url": "https://www.youtube.com/watch?v=cmzVY1goqwQ",
-        "price_usd": Decimal("3.99"),
+        "price_usd": Decimal("0.50"),
     },
     {
         "slug": "practical-magic-2-2026",
@@ -133,7 +133,7 @@ SEED_COMING_SOON: list[dict] = [
             "Practical_Magic_2_%28film_poster%29.png"
         ),
         "trailer_url": "https://www.youtube.com/watch?v=Ho10_4IX1jE",
-        "price_usd": Decimal("2.99"),
+        "price_usd": Decimal("0.50"),
     },
     {
         "slug": "lee-cronins-the-mummy-2026",
@@ -150,7 +150,7 @@ SEED_COMING_SOON: list[dict] = [
             "Lee_Cronin%27s_The_Mummy.jpg"
         ),
         "trailer_url": "https://www.youtube.com/watch?v=XJ0uv-phsDk",
-        "price_usd": Decimal("3.99"),
+        "price_usd": Decimal("0.50"),
     },
 ]
 
