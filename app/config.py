@@ -149,7 +149,7 @@ class Settings(BaseSettings):
     telegram_chat_id: str = ""
 
     # Concurrent device sessions allowed per account before login is rejected
-    max_active_sessions_per_user: int = 3
+    max_active_sessions_per_user: int = 5
 
     @model_validator(mode="after")
     def validate_non_debug_settings(self) -> Self:
