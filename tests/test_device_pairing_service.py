@@ -80,3 +80,14 @@ def test_poll_unknown_code_raises_not_found():
 
     with pytest.raises(NotFoundError):
         asyncio.run(poll_pairing(db, "raw-code"))
+
+
+def test_poll_confirmed_code_cannot_be_replayed_after_first_consumption():
+    pairing = _pairing("confirmed", token="jwt-token-value")
+    db = FakeDb([FakeResult(scalar=pairing), FakeResult(scalar=pairing)])
+
+    first = asyncio.run(poll_pairing(db, "raw-code"))
+    assert first == {"status": "confirmed", "access_token": "jwt-token-value"}
+
+    with pytest.raises(NotFoundError):
+        asyncio.run(poll_pairing(db, "raw-code"))

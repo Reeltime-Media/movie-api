@@ -44,7 +44,11 @@ async def _find_pending_or_confirmed(
     )
     pairing = result.scalar_one_or_none()
     now = datetime.now(timezone.utc)
-    if not pairing or pairing.expires_at < now:
+    if (
+        not pairing
+        or pairing.expires_at < now
+        or pairing.status not in ("pending", "confirmed")
+    ):
         raise NotFoundError("This code has expired.")
     return pairing
 
@@ -75,5 +79,6 @@ async def poll_pairing(db: AsyncSession, raw_code: str) -> dict:
 
     token = pairing.token
     pairing.status = "expired"
+    pairing.token = None
     await db.commit()
     return {"status": "confirmed", "access_token": token}
