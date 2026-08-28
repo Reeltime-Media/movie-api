@@ -40,7 +40,9 @@ async def _find_pending_or_confirmed(
 ) -> DevicePairingCode:
     code_hash = hash_reset_token(raw_code)
     result = await db.execute(
-        select(DevicePairingCode).where(DevicePairingCode.code_hash == code_hash)
+        select(DevicePairingCode)
+        .where(DevicePairingCode.code_hash == code_hash)
+        .with_for_update()
     )
     pairing = result.scalar_one_or_none()
     now = datetime.now(timezone.utc)

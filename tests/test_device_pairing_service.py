@@ -25,8 +25,10 @@ class FakeDb:
     def __init__(self, results):
         self._results = list(results)
         self.committed = False
+        self.last_stmt = None
 
-    async def execute(self, _stmt):
+    async def execute(self, stmt):
+        self.last_stmt = stmt
         return self._results.pop(0)
 
     async def commit(self):
@@ -91,3 +93,17 @@ def test_poll_confirmed_code_cannot_be_replayed_after_first_consumption():
 
     with pytest.raises(NotFoundError):
         asyncio.run(poll_pairing(db, "raw-code"))
+
+
+def test_find_pending_or_confirmed_locks_the_row():
+    """Regression guard: confirm_pairing/poll_pairing's atomicity under
+    concurrent requests depends on this row lock — without it, two
+    overlapping requests for the same code can both pass their status
+    checks before either commits, silently corrupting the token/status."""
+    pairing = _pairing("pending")
+    db = FakeDb([FakeResult(scalar=pairing)])
+
+    asyncio.run(poll_pairing(db, "raw-code"))
+
+    compiled = str(db.last_stmt.compile(compile_kwargs={"literal_binds": True}))
+    assert "FOR UPDATE" in compiled.upper()
