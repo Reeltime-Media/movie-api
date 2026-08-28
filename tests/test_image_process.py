@@ -49,3 +49,13 @@ def test_poster_thumb_key_and_bytes():
     with Image.open(BytesIO(thumb)) as img:
         assert img.format == "WEBP"
         assert img.size[0] <= 400
+
+
+def test_banner_thumb_key_and_bytes():
+    from app.services.image_process import banner_thumb_bytes, banner_thumb_key_for
+
+    assert banner_thumb_key_for("movies/foo/banner.webp") == "movies/foo/banner-w480.webp"
+    thumb = banner_thumb_bytes(_solid_jpeg_bytes(3840, 2160))
+    with Image.open(BytesIO(thumb)) as img:
+        assert img.format == "WEBP"
+        assert img.size[0] <= 480

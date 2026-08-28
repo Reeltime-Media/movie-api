@@ -29,6 +29,21 @@ MULTIPART_PART_SIZE = 50 * 1024 * 1024  # 50 MB in bytes
 # step with the client's own disk-cache stalePeriod (21 days, TvImageCache)
 # rather than marking them immutable.
 IMAGE_CACHE_CONTROL = "public, max-age=1814400"
+# HLS: segments never change for a given filename; playlists rewrite on re-encode.
+HLS_SEGMENT_CACHE_CONTROL = "public, max-age=31536000, immutable"
+HLS_PLAYLIST_CACHE_CONTROL = "public, max-age=60"
+
+
+def cache_control_for_key(key: str) -> str | None:
+    """Best-effort Cache-Control for a public media key."""
+    lowered = key.lower()
+    if lowered.endswith((".ts", ".m4s")):
+        return HLS_SEGMENT_CACHE_CONTROL
+    if lowered.endswith(".m3u8"):
+        return HLS_PLAYLIST_CACHE_CONTROL
+    if lowered.endswith((".webp", ".jpg", ".jpeg", ".png")):
+        return IMAGE_CACHE_CONTROL
+    return None
 
 _s3_client = None
 
@@ -50,11 +65,15 @@ def _client():
 # ── Simple object operations ───────────────────────────────────────────────────
 
 def upload_fileobj(file_obj, key: str, content_type: str = "application/octet-stream") -> None:
+    extra: dict = {"ContentType": content_type}
+    cache_control = cache_control_for_key(key)
+    if cache_control:
+        extra["CacheControl"] = cache_control
     _client().upload_fileobj(
         file_obj,
         settings.r2_bucket_name,
         key,
-        ExtraArgs={"ContentType": content_type},
+        ExtraArgs=extra,
     )
 
 
@@ -103,8 +122,9 @@ def put_object_bytes(
     key: str, data: bytes, content_type: str, cache_control: str | None = None
 ) -> None:
     extra: dict = {}
-    if cache_control:
-        extra["CacheControl"] = cache_control
+    resolved = cache_control if cache_control is not None else cache_control_for_key(key)
+    if resolved:
+        extra["CacheControl"] = resolved
     _client().put_object(
         Bucket=settings.r2_bucket_name,
         Key=key,

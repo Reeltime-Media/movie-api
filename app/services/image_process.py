@@ -19,6 +19,9 @@ ImageKind = Literal["poster", "banner"]
 POSTER_MAX_WIDTH = 800
 BANNER_MAX_WIDTH = 1920
 POSTER_THUMB_WIDTH = 400
+# Landscape rail/card tiles render far smaller than the full hero banner —
+# a dedicated thumb avoids clients decoding the full 1920px asset for those.
+BANNER_THUMB_WIDTH = 480
 WEBP_QUALITY = 82
 # Already-small WebP files are left alone for the main asset.
 SKIP_IF_BYTES = 250_000
@@ -37,6 +40,11 @@ def poster_thumb_key_for(key: str, width: int = POSTER_THUMB_WIDTH) -> str:
     if base.endswith(f"-w{width}"):
         return key if ext.lower() == ".webp" else f"{base}.webp"
     return f"{base}-w{width}.webp"
+
+
+def banner_thumb_key_for(key: str, width: int = BANNER_THUMB_WIDTH) -> str:
+    """Derive rail thumb key: movies/x/banner.webp -> movies/x/banner-w480.webp."""
+    return poster_thumb_key_for(key, width=width)
 
 
 def is_image_object_key(key: str) -> bool:
@@ -77,13 +85,23 @@ def poster_thumb_bytes(data: bytes) -> bytes:
         return _encode_webp(img, max_width=POSTER_THUMB_WIDTH)
 
 
+def banner_thumb_bytes(data: bytes) -> bytes:
+    """Encode a smaller banner thumb for landscape rail/card tiles."""
+    with Image.open(io.BytesIO(data)) as img:
+        if img.mode in ("RGBA", "P", "LA"):
+            img = img.convert("RGB")
+        elif img.mode != "RGB":
+            img = img.convert("RGB")
+        return _encode_webp(img, max_width=BANNER_THUMB_WIDTH)
+
+
 def _optimize_r2_image_sync(key: str, *, kind: ImageKind) -> str:
     original = storage.get_object_bytes(key)
     skip_main = key.lower().endswith(".webp") and len(original) <= SKIP_IF_BYTES
 
     if skip_main:
         target_key = key
-        # Still ensure a rail thumb exists for posters.
+        # Still ensure a rail thumb exists.
         source_for_thumb = original
         # Original was PUT via a presigned URL with no Cache-Control — add
         # one now so the edge/device caches know how long to hold it.
@@ -115,19 +133,27 @@ def _optimize_r2_image_sync(key: str, *, kind: ImageKind) -> str:
             )
 
     if kind == "poster":
-        try:
-            thumb_key = poster_thumb_key_for(target_key)
-            thumb = poster_thumb_bytes(source_for_thumb)
-            storage.put_object_bytes(
-                thumb_key, thumb, "image/webp", storage.IMAGE_CACHE_CONTROL
-            )
-            logger.info(
-                "Wrote poster thumb %s (%d KB)",
-                thumb_key,
-                len(thumb) // 1024,
-            )
-        except Exception:
-            logger.exception("Failed to write poster thumb for %s", target_key)
+        thumb_key_fn, thumb_bytes_fn = poster_thumb_key_for, poster_thumb_bytes
+    else:
+        thumb_key_fn, thumb_bytes_fn = banner_thumb_key_for, banner_thumb_bytes
+
+    thumb_key = thumb_key_fn(target_key)
+    if storage.object_exists(thumb_key):
+        return target_key
+
+    try:
+        thumb = thumb_bytes_fn(source_for_thumb)
+        storage.put_object_bytes(
+            thumb_key, thumb, "image/webp", storage.IMAGE_CACHE_CONTROL
+        )
+        logger.info(
+            "Wrote %s thumb %s (%d KB)",
+            kind,
+            thumb_key,
+            len(thumb) // 1024,
+        )
+    except Exception:
+        logger.exception("Failed to write %s thumb for %s", kind, target_key)
 
     return target_key
 
