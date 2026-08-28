@@ -23,7 +23,7 @@ def upgrade() -> None:
         CREATE TABLE device_pairing_codes (
             id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             code_hash   TEXT NOT NULL UNIQUE,
-            status      TEXT NOT NULL DEFAULT 'pending',
+            status      TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'expired')),
             token       TEXT,
             user_id     UUID REFERENCES users(id) ON DELETE CASCADE,
             expires_at  TIMESTAMPTZ NOT NULL,
@@ -34,6 +34,13 @@ def upgrade() -> None:
     op.execute("ALTER TABLE device_pairing_codes ENABLE ROW LEVEL SECURITY")
     op.execute("REVOKE ALL ON device_pairing_codes FROM anon, authenticated")
     op.execute("GRANT ALL ON TABLE device_pairing_codes TO service_role")
+    op.execute(
+        """
+        DROP POLICY IF EXISTS no_direct_client_access ON public.device_pairing_codes;
+        CREATE POLICY no_direct_client_access ON public.device_pairing_codes
+          FOR ALL TO anon, authenticated USING (false) WITH CHECK (false);
+        """
+    )
 
 
 def downgrade() -> None:
