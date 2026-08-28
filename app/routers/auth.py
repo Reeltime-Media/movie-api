@@ -20,7 +20,13 @@ from app.services.auth import (
     request_password_reset,
     reset_password,
 )
+from app.services.device_pairing import confirm_pairing, poll_pairing, start_pairing
 from app.services.session import revoke_session
+from app.schemas.device_pairing import (
+    DevicePairingConfirmBody,
+    DevicePairingPollRead,
+    DevicePairingStartRead,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -80,3 +86,28 @@ async def forgot_password(request: Request, data: ForgotPasswordRequest, db: DBS
 @limiter.limit("10/hour")
 async def reset_password_endpoint(request: Request, data: ResetPasswordRequest, db: DBSession):
     await reset_password(db, data.token, data.password)
+
+
+@router.post("/device/start", response_model=DevicePairingStartRead)
+@limiter.limit("30/minute")
+async def start_device_pairing(request: Request, db: DBSession):
+    code, expires_in = await start_pairing(db)
+    return DevicePairingStartRead(code=code, expires_in=expires_in)
+
+
+@router.post("/device/confirm", status_code=204)
+@limiter.limit("30/minute")
+async def confirm_device_pairing(
+    request: Request,
+    db: DBSession,
+    current_user: CurrentUser,
+    data: DevicePairingConfirmBody,
+):
+    await confirm_pairing(db, data.code, current_user, request.headers.get("user-agent"))
+
+
+@router.get("/device/poll", response_model=DevicePairingPollRead)
+@limiter.limit("120/minute")
+async def poll_device_pairing(request: Request, db: DBSession, code: str):
+    result = await poll_pairing(db, code)
+    return DevicePairingPollRead(**result)
