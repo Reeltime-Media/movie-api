@@ -144,6 +144,9 @@ class Settings(BaseSettings):
     resend_from_email: str = "Reeltime <onboarding@resend.dev>"
     password_reset_token_expire_minutes: int = 30
 
+    # TV QR pairing code — short-lived on purpose, re-requested by the TV on expiry
+    device_pairing_code_expire_minutes: int = 10
+
     # Telegram ops alerts (payment success, etc.) — leave empty to disable
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
