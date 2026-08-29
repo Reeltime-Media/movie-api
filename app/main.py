@@ -2,6 +2,7 @@ import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -59,6 +60,9 @@ def create_app() -> FastAPI:
     app.add_exception_handler(TimeoutError, timeout_error_handler)
     app.add_exception_handler(SQLAlchemyError, sqlalchemy_error_handler)
     app.add_middleware(SlowAPIMiddleware)
+    # Catalog list responses (movies/series pages) are the main beneficiary —
+    # skip tiny bodies (health checks, 204s) where compression overhead isn't worth it.
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
 
     cors_kwargs: dict = {
         "allow_origins": settings.cors_origin_list,
