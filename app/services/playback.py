@@ -31,6 +31,13 @@ _PLAYLIST_CACHE_TTL = 60  # seconds
 _playlist_cache: dict[str, tuple[str, float]] = {}
 _cache_lock = threading.Lock()
 
+# TTL cache for fully rewritten (presigned) variant playlists. A full-length
+# movie has ~1200 segments, and presigning is done in a tight loop — without
+# this cache that loop reruns on every single playback request, on every hop
+# a viewer makes. Capped below expires_in so a cached playlist never outlives
+# the presigned segment URLs it contains.
+_variant_playlist_cache: dict[str, tuple[str, float]] = {}
+
 
 def _is_uri_line(line: str) -> bool:
     """A playlist line that references another resource (not a tag/comment/blank)."""
@@ -79,6 +86,19 @@ async def build_master_playlist(
     return "\n".join(out) + "\n"
 
 
+def _presign_variant_text(text: str, prefix: str, expires_in: int) -> str:
+    out: list[str] = []
+    for line in text.splitlines():
+        if _is_uri_line(line):
+            segment_key = f"{prefix}/{line.strip()}"
+            out.append(
+                storage.generate_presigned_download_url(segment_key, expires_in)
+            )
+        else:
+            out.append(line)
+    return "\n".join(out) + "\n"
+
+
 async def build_variant_playlist(
     hls_master_key: str, variant_name: str, expires_in: int
 ) -> str:
@@ -89,16 +109,21 @@ async def build_variant_playlist(
     """
     prefix = posixpath.dirname(hls_master_key)  # e.g. movies/<slug>/hls
     variant_key = f"{prefix}/{variant_name}"
-    text = await _get_object_text(variant_key)
 
-    out: list[str] = []
-    for line in text.splitlines():
-        if _is_uri_line(line):
-            segment_key = f"{prefix}/{line.strip()}"
-            # Presigning is a local crypto op (no network) — safe to call inline.
-            out.append(
-                storage.generate_presigned_download_url(segment_key, expires_in)
-            )
-        else:
-            out.append(line)
-    return "\n".join(out) + "\n"
+    now = time.monotonic()
+    with _cache_lock:
+        cached = _variant_playlist_cache.get(variant_key)
+        if cached and cached[1] > now:
+            return cached[0]
+
+    text = await _get_object_text(variant_key)
+    # A movie-length rendition has ~1200 segments; presigning each one is pure
+    # CPU-bound crypto with no network I/O, but done inline that still blocks
+    # the event loop for every other in-flight request — run it in a thread.
+    body = await asyncio.to_thread(_presign_variant_text, text, prefix, expires_in)
+
+    ttl = min(_PLAYLIST_CACHE_TTL, expires_in)
+    with _cache_lock:
+        _variant_playlist_cache[variant_key] = (body, now + ttl)
+
+    return body
