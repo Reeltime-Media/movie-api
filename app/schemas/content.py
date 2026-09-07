@@ -101,6 +101,8 @@ class ContentListItemRead(BaseModel):
     is_free: bool
     # Lets catalog cards offer a trailer preview without a detail fetch.
     trailer_url: str | None = None
+    # Lets catalog cards cache-bust poster/banner URLs after a re-upload.
+    updated_at: datetime
 
     model_config = {"from_attributes": True}
 
