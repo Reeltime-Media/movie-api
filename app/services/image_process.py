@@ -138,9 +138,6 @@ def _optimize_r2_image_sync(key: str, *, kind: ImageKind) -> str:
         thumb_key_fn, thumb_bytes_fn = banner_thumb_key_for, banner_thumb_bytes
 
     thumb_key = thumb_key_fn(target_key)
-    if storage.object_exists(thumb_key):
-        return target_key
-
     try:
         thumb = thumb_bytes_fn(source_for_thumb)
         storage.put_object_bytes(
