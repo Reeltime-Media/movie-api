@@ -22,7 +22,7 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.execute(
         """
-        CREATE TABLE ratings (
+        CREATE TABLE IF NOT EXISTS ratings (
             user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             content_id  UUID NOT NULL REFERENCES content(id) ON DELETE CASCADE,
             value       SMALLINT NOT NULL CHECK (value BETWEEN 1 AND 5),
@@ -30,7 +30,7 @@ def upgrade() -> None:
             updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
             PRIMARY KEY (user_id, content_id)
         );
-        CREATE INDEX idx_ratings_content_id ON ratings(content_id);
+        CREATE INDEX IF NOT EXISTS idx_ratings_content_id ON ratings(content_id);
         """
     )
     op.execute("ALTER TABLE ratings ENABLE ROW LEVEL SECURITY")

@@ -147,6 +147,7 @@ class HeroFeaturedSlideRead(BaseModel):
     id: UUID
     content_type: Literal["movie", "series", "custom"]
     title: str
+    title_km: str | None = None
     slug: str = ""
     description: str | None
     genres: list[str]

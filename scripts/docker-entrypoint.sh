@@ -39,6 +39,16 @@ PYEOF
     echo "genres table already exists — stamping 0015 and continuing..."
     alembic stamp 0015
     alembic upgrade head
+
+  elif grep -qE 'relation "ratings" already exists' /tmp/alembic-migrate.err; then
+    echo "ratings table already exists — stamping 0039 and continuing..."
+    alembic stamp 0039
+    alembic upgrade head
+
+  elif grep -qE 'relation "device_pairing_codes" already exists' /tmp/alembic-migrate.err; then
+    echo "device_pairing_codes table already exists — stamping 0041 and continuing..."
+    alembic stamp 0041
+    alembic upgrade head
   else
     cat /tmp/alembic-migrate.err >&2
     exit 1

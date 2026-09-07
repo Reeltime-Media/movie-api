@@ -129,6 +129,15 @@ def make_movie_item(movie_id, **overrides) -> HeroFeaturedItem:
     return HeroFeaturedItem(**defaults)
 
 
+def test_movie_slide_includes_khmer_title():
+    movie_id = uuid.uuid4()
+    movie = make_movie(movie_id, title_km="ភាពយន្តសាកល្បង")
+    item = make_movie_item(movie_id)
+    slide = _build_slide(item, {movie_id: movie}, {})
+    assert slide is not None
+    assert slide.title_km == "ភាពយន្តសាកល្បង"
+
+
 def test_movie_slide_falls_back_to_catalog_trailer():
     movie_id = uuid.uuid4()
     movie = make_movie(movie_id, trailer_url="https://youtu.be/trailer")

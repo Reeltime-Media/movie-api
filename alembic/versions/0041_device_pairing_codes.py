@@ -20,7 +20,7 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.execute(
         """
-        CREATE TABLE device_pairing_codes (
+        CREATE TABLE IF NOT EXISTS device_pairing_codes (
             id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             code_hash   TEXT NOT NULL UNIQUE,
             status      TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'expired')),

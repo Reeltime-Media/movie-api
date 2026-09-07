@@ -81,7 +81,7 @@ async def authorize_channel_playback(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have access to this channel",
         )
-    if channel.status != "live" or not channel.hls_playback_url:
+    if channel.status not in ("live", "starting") or not channel.hls_playback_url:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="This channel is not live right now",
