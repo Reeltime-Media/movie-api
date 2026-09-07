@@ -25,7 +25,7 @@ _live_playback_client: httpx.AsyncClient | None = None
 
 # Short TTL cache so concurrent viewers authorizing at once don't each hit
 # the origin server for the same channel's entry playlist.
-_PLAYLIST_CACHE_TTL = 5  # seconds — live playlists roll frequently
+_PLAYLIST_CACHE_TTL = 1  # seconds — live playlists roll off in ~10s
 _playlist_cache: dict[str, tuple[str, float]] = {}
 _cache_lock = threading.Lock()
 
