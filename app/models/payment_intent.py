@@ -37,9 +37,13 @@ class PaymentIntent(Base):
     bakong_qr_created_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    kind: Mapped[str] = mapped_column(Text, nullable=False)  # 'single' | 'sub'
+    kind: Mapped[str] = mapped_column(Text, nullable=False)  # 'single' | 'sub' | 'series'
     content_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("content.id"), nullable=True
+    )
+    # Set only for kind='series' (one-time per-series unlock).
+    series_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("series.id"), nullable=True
     )
     amount_usd: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")

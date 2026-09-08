@@ -9,8 +9,10 @@ from app.dependencies import CurrentUser, DBSession, OptionalUser
 from app.models.content import Content
 from app.models.payment_intent import PaymentIntent
 from app.models.purchase import Purchase
+from app.models.series_purchase import SeriesPurchase
 from app.schemas.content import ContentListItemRead
 from app.schemas.purchase import PurchaseCreate, PurchaseRead
+from app.schemas.series_purchase import SeriesPurchaseRead
 
 router = APIRouter(prefix="/purchases", tags=["purchases"])
 
@@ -46,6 +48,16 @@ async def list_purchased_movies(db: DBSession, request: Request, user: OptionalU
         .order_by(Purchase.purchased_at.desc())
     )
     return [ContentListItemRead.model_validate(row) for row in result.scalars().all()]
+
+
+@router.get("/series", response_model=list[SeriesPurchaseRead])
+async def list_purchased_series(db: DBSession, current_user: CurrentUser):
+    """Series the user has bought a one-time unlock for (no guest checkout for
+    this — see /payments/series/{slug}/unlock-bakong-intent)."""
+    result = await db.execute(
+        select(SeriesPurchase).where(SeriesPurchase.user_id == current_user.id)
+    )
+    return result.scalars().all()
 
 
 @router.get("/{purchase_id}", response_model=PurchaseRead)

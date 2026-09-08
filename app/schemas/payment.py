@@ -16,6 +16,7 @@ class PaymentIntentRead(BaseModel):
     method: str
     kind: str
     content_id: UUID | None
+    series_id: UUID | None = None
     amount_usd: Decimal
     status: str
     # Baray only — redirect target. Bakong intents poll in place, no redirect.

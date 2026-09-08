@@ -52,7 +52,7 @@ from app.schemas.series import (
 )
 from app.schemas.upload import PartUrlRead
 from app.services import r2_keys, storage
-from app.services.content_access import user_has_active_subscription
+from app.services.content_access import user_has_active_subscription, user_has_series_purchase
 from app.services.content_delete import (
     delete_content_dependencies,
     delete_series_and_dependencies,
@@ -248,14 +248,15 @@ async def list_episodes(slug: str, db: DBSession, current_user: OptionalUser):
     episodes = eps_result.scalars().all()
 
     is_admin = current_user is not None and current_user.role == "admin"
-    has_sub = current_user is not None and await user_has_active_subscription(
-        db, current_user.id
+    entitled = current_user is not None and (
+        await user_has_active_subscription(db, current_user.id)
+        or await user_has_series_purchase(db, current_user.id, series.id)
     )
 
     seasons: dict[int, list[ContentRead]] = {}
     for ep in episodes:
         data = ContentRead.model_validate(ep)
-        if not (is_admin or ep.is_free or has_sub):
+        if not (is_admin or ep.is_free or entitled):
             data.hls_master_key = None
         seasons.setdefault(ep.season_number or 1, []).append(data)
 

@@ -15,6 +15,7 @@ from app.models.purchase import Purchase
 from app.models.rating import Rating
 from app.models.session import Session
 from app.models.series import Series
+from app.models.series_purchase import SeriesPurchase
 from app.models.subscription import Subscription
 from app.models.subscription_payment import SubscriptionPayment
 from app.models.subscription_plan import SubscriptionPlan
@@ -34,6 +35,7 @@ __all__ = [
     "Favorite",
     "Genre",
     "Purchase",
+    "SeriesPurchase",
     "Rating",
     "Subscription",
     "SubscriptionPayment",

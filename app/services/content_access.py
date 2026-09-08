@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import ForbiddenError, NotFoundError
 from app.models.content import Content
 from app.models.purchase import Purchase
+from app.models.series_purchase import SeriesPurchase
 from app.models.subscription import Subscription
 from app.models.tv_channel import TVChannel
 from app.models.user import User
@@ -45,6 +46,19 @@ async def user_has_active_subscription(db: AsyncSession, user_id: UUID) -> bool:
     return result.scalar_one_or_none() is not None
 
 
+async def user_has_series_purchase(db: AsyncSession, user_id: UUID, series_id: UUID) -> bool:
+    """One-time "unlock this series" purchase — an alternative to a
+    subscription, scoped to a single series (see payments.py `/series/{slug}/
+    unlock-bakong-intent`). Guest checkout isn't supported for this."""
+    result = await db.execute(
+        select(SeriesPurchase).where(
+            SeriesPurchase.user_id == user_id,
+            SeriesPurchase.series_id == series_id,
+        )
+    )
+    return result.scalar_one_or_none() is not None
+
+
 def _movie_is_free(content: Content) -> bool:
     if content.is_free:
         return True
@@ -65,7 +79,8 @@ async def can_access_content(
 ) -> bool:
     """Same entitlement rules as `user_can_access_content`, plus an anonymous
     `guest_id` fallback for single movies (guests never get series/episode
-    access — that requires a real subscription)."""
+    access — that requires a real subscription or a per-series purchase, both
+    of which require a signed-in user)."""
     if user and user.role == "admin":
         return True
     if not content.is_published:
@@ -96,7 +111,13 @@ async def can_access_content(
             return purchase.scalar_one_or_none() is not None
         return False
     if content.type == "episode":
-        return bool(user) and await user_has_active_subscription(db, user.id)
+        if not user:
+            return False
+        if await user_has_active_subscription(db, user.id):
+            return True
+        if content.series_id:
+            return await user_has_series_purchase(db, user.id, content.series_id)
+        return False
     return False
 
 

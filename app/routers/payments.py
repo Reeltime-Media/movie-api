@@ -14,16 +14,24 @@ from app.models.content import Content
 from app.models.payment_intent import PaymentIntent
 from app.models.purchase import Purchase
 from app.models.series import Series
+from app.models.series_purchase import SeriesPurchase
 from app.rate_limit import limiter
 from app.schemas.payment import BakongPaymentIntentRead, PaymentIntentCreate, PaymentIntentRead
 from app.services import bakong
 from app.services.bakong_settle import qr_is_stale, settle_bakong_intent_if_paid
+from app.services.content_access import user_has_active_subscription
 from app.services.payment import checkout_url, create_intent
+from app.services.series import get_series_or_404
 from app.services.subscription_plans import resolve_active_plan
 
 router = APIRouter(prefix="/payments", tags=["payments"])
 
 _MIN_USD = Decimal("0.03")
+# Flat one-time price to unlock a single series — matches the "Mini" pricing
+# card (lib/pricing-tiers.ts on the client); series have no per-title unlock
+# price of their own (Series.monthly_price_usd is for the old subscription-only
+# design), so this is a constant rather than something resolved per series.
+_SERIES_UNLOCK_PRICE_USD = Decimal("2.50")
 
 
 def _read_intent(intent: PaymentIntent) -> PaymentIntentRead:
@@ -40,6 +48,7 @@ def _read_intent(intent: PaymentIntent) -> PaymentIntentRead:
         method=intent.method,
         kind=intent.kind,
         content_id=intent.content_id,
+        series_id=intent.series_id,
         amount_usd=intent.amount_usd,
         status=intent.status,
         checkout_url=url,
@@ -283,6 +292,90 @@ async def create_movie_bakong_intent(
 
 
 @router.post(
+    "/series/{slug}/unlock-bakong-intent",
+    response_model=BakongPaymentIntentRead,
+    status_code=201,
+)
+@limiter.limit("8/minute")
+async def create_series_unlock_bakong_intent(
+    slug: str,
+    db: DBSession,
+    request: Request,
+    current_user: CurrentUser,
+):
+    """Inline KHQR checkout for a one-time "unlock this series" purchase —
+    mirrors the movie Bakong flow. The client polls GET /payments/intents/{id}."""
+    series = await get_series_or_404(db, slug, published_only=True)
+
+    if await user_has_active_subscription(db, current_user.id):
+        raise ConflictError("You already have an active subscription")
+
+    existing_purchase = await db.execute(
+        select(SeriesPurchase).where(
+            SeriesPurchase.user_id == current_user.id,
+            SeriesPurchase.series_id == series.id,
+        )
+    )
+    if existing_purchase.scalar_one_or_none():
+        raise ConflictError("Series already unlocked")
+
+    pending = await db.execute(
+        select(PaymentIntent)
+        .where(
+            PaymentIntent.user_id == current_user.id,
+            PaymentIntent.method == "bakong",
+            PaymentIntent.kind == "series",
+            PaymentIntent.series_id == series.id,
+            PaymentIntent.status == "pending",
+        )
+        .order_by(PaymentIntent.created_at.asc())
+        .with_for_update()
+    )
+    pending_intent = pending.scalars().first()
+    if pending_intent:
+        # Fast path: reuse a fresh QR immediately. Settle checks happen on poll /
+        # sweeper — do not block QR display on a Bakong round-trip here.
+        if not qr_is_stale(pending_intent):
+            return _read_bakong_intent(pending_intent)
+
+        # Stale QR: one settle check, then regenerate if still unpaid.
+        if await settle_bakong_intent_if_paid(db, pending_intent):
+            await db.commit()
+            await db.refresh(pending_intent)
+            return _read_bakong_intent(pending_intent)
+
+        await _regenerate_bakong_qr(pending_intent)
+        await db.commit()
+        await db.refresh(pending_intent)
+        return _read_bakong_intent(pending_intent)
+
+    amount = _validate_amount(_SERIES_UNLOCK_PRICE_USD)
+    order_id = f"series-{uuid.uuid4().hex}"
+    bill_number = uuid.uuid4().hex[:20]
+    qr_string, md5, merchant_name = await bakong.generate_khqr(amount, bill_number)
+    now = datetime.now(timezone.utc)
+
+    intent = PaymentIntent(
+        intent_id=f"bkg-{uuid.uuid4().hex}",
+        order_id=order_id,
+        user_id=current_user.id,
+        method="bakong",
+        bakong_md5=md5,
+        bakong_qr=qr_string,
+        bakong_merchant_name=merchant_name or get_settings().bakong_merchant_name or None,
+        bakong_qr_created_at=now,
+        kind="series",
+        series_id=series.id,
+        amount_usd=amount,
+        status="pending",
+    )
+    db.add(intent)
+    await db.commit()
+    await db.refresh(intent)
+    return _read_bakong_intent(intent)
+
+
+@router.post(
     "/series/{series_id}/subscription-intent",
     response_model=PaymentIntentRead,
     status_code=201,
@@ -348,6 +441,83 @@ async def create_series_subscription_payment_intent(
     await db.commit()
     await db.refresh(intent)
     return _read_intent(intent)
+
+
+@router.post(
+    "/subscription-bakong-intent",
+    response_model=BakongPaymentIntentRead,
+    status_code=201,
+)
+@limiter.limit("8/minute")
+async def create_subscription_bakong_intent(
+    db: DBSession,
+    request: Request,
+    current_user: CurrentUser,
+    plan_code: str | None = None,
+):
+    """Inline KHQR checkout for a subscription plan — mirrors the movie
+    Bakong flow. The client polls GET /payments/intents/{id}.
+    Subscriptions aren't series-scoped (see fulfill_payment_intent), so
+    unlike movie checkout this isn't keyed to any particular content."""
+    plan = await resolve_active_plan(db, plan_code)
+    amount = _validate_amount(plan.price_usd)
+
+    # Pending-intent reuse is scoped to this plan's price — PaymentIntent has
+    # no plan_code column, so amount_usd is what stops a switch from Value to
+    # Premium (say) from silently reusing a cheaper still-pending QR.
+    pending = await db.execute(
+        select(PaymentIntent)
+        .where(
+            PaymentIntent.user_id == current_user.id,
+            PaymentIntent.method == "bakong",
+            PaymentIntent.kind == "sub",
+            PaymentIntent.status == "pending",
+            PaymentIntent.amount_usd == amount,
+        )
+        .order_by(PaymentIntent.created_at.asc())
+        .with_for_update()
+    )
+    pending_intent = pending.scalars().first()
+    if pending_intent:
+        # Fast path: reuse a fresh QR immediately. Settle checks happen on poll /
+        # sweeper — do not block QR display on a Bakong round-trip here.
+        if not qr_is_stale(pending_intent):
+            return _read_bakong_intent(pending_intent)
+
+        # Stale QR: one settle check, then regenerate if still unpaid.
+        if await settle_bakong_intent_if_paid(db, pending_intent):
+            await db.commit()
+            await db.refresh(pending_intent)
+            return _read_bakong_intent(pending_intent)
+
+        await _regenerate_bakong_qr(pending_intent)
+        await db.commit()
+        await db.refresh(pending_intent)
+        return _read_bakong_intent(pending_intent)
+
+    order_id = f"sub-{uuid.uuid4().hex}"
+    bill_number = uuid.uuid4().hex[:20]
+    qr_string, md5, merchant_name = await bakong.generate_khqr(amount, bill_number)
+    now = datetime.now(timezone.utc)
+
+    intent = PaymentIntent(
+        intent_id=f"bkg-{uuid.uuid4().hex}",
+        order_id=order_id,
+        user_id=current_user.id,
+        method="bakong",
+        bakong_md5=md5,
+        bakong_qr=qr_string,
+        bakong_merchant_name=merchant_name or get_settings().bakong_merchant_name or None,
+        bakong_qr_created_at=now,
+        kind="sub",
+        content_id=None,
+        amount_usd=amount,
+        status="pending",
+    )
+    db.add(intent)
+    await db.commit()
+    await db.refresh(intent)
+    return _read_bakong_intent(intent)
 
 
 @router.get("/intents/{intent_id}", response_model=PaymentIntentRead)

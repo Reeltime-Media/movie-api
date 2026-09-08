@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.payment_intent import PaymentIntent
 from app.models.purchase import Purchase
+from app.models.series_purchase import SeriesPurchase
 from app.models.subscription import Subscription
 from app.models.subscription_payment import SubscriptionPayment
 from app.services.subscription_plans import get_subscription_plan_by_code, resolve_active_plan
@@ -38,6 +39,26 @@ async def fulfill_payment_intent(
                 user_id=intent.user_id,
                 guest_id=intent.guest_id,
                 content_id=intent.content_id,
+                intent_id=intent.intent_id,
+                order_id=intent.order_id,
+                bank=bank,
+                amount_usd=intent.amount_usd,
+            )
+        )
+        await notify_payment_succeeded(db, intent, bank=bank)
+        return
+
+    if intent.kind == "series" and intent.series_id:
+        existing = await db.execute(
+            select(SeriesPurchase).where(SeriesPurchase.intent_id == intent.intent_id)
+        )
+        if existing.scalar_one_or_none():
+            return
+        db.add(
+            SeriesPurchase(
+                user_id=intent.user_id,
+                guest_id=intent.guest_id,
+                series_id=intent.series_id,
                 intent_id=intent.intent_id,
                 order_id=intent.order_id,
                 bank=bank,
