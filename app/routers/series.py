@@ -95,7 +95,8 @@ async def list_series(
     ),
     short: bool | None = Query(
         default=None,
-        description="Only series flagged as short movies when true",
+        description="Only series flagged as short movies when true, "
+        "excludes them when false, unfiltered when omitted",
     ),
 ):
     from app.services.catalog_search import apply_catalog_genre, apply_catalog_search
@@ -116,8 +117,8 @@ async def list_series(
     )
     stmt = apply_catalog_search(stmt, Series, search=search)
     stmt = apply_catalog_genre(stmt, Series, genre=genre)
-    if short:
-        stmt = stmt.where(Series.is_short_movie.is_(True))
+    if short is not None:
+        stmt = stmt.where(Series.is_short_movie.is_(short))
     if free:
         has_free_episode = (
             select(Content.id)
