@@ -32,6 +32,7 @@ class Series(Base):
     trailer_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     monthly_price_usd: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     is_published: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_short_movie: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     search_vector: Mapped[str | None] = mapped_column(
         TSVECTOR,
         Computed(_SEARCH_VECTOR_SQL, persisted=True),

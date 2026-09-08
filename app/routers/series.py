@@ -93,12 +93,16 @@ async def list_series(
         default=None,
         description="Only series with at least one free published episode when true",
     ),
+    short: bool | None = Query(
+        default=None,
+        description="Only series flagged as short movies when true",
+    ),
 ):
     from app.services.catalog_search import apply_catalog_genre, apply_catalog_search
     from app.services.response_cache import CATALOG_TTL_SECONDS, cache_get, cache_set
 
     cache_key = (
-        f"series:search={search}:genre={genre}:free={free}:"
+        f"series:search={search}:genre={genre}:free={free}:short={short}:"
         f"page={pagination.page}:page_size={pagination.page_size}"
     )
     cached = cache_get(cache_key)
@@ -112,6 +116,8 @@ async def list_series(
     )
     stmt = apply_catalog_search(stmt, Series, search=search)
     stmt = apply_catalog_genre(stmt, Series, genre=genre)
+    if short:
+        stmt = stmt.where(Series.is_short_movie.is_(True))
     if free:
         has_free_episode = (
             select(Content.id)

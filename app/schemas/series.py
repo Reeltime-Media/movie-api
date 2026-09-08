@@ -55,6 +55,7 @@ class SeriesRead(BaseModel):
     trailer_url: str | None
     monthly_price_usd: Decimal
     is_published: bool
+    is_short_movie: bool
     created_at: datetime
     updated_at: datetime
 
@@ -72,6 +73,7 @@ class SeriesListItemRead(BaseModel):
     poster_key: str | None
     banner_key: str | None
     monthly_price_usd: Decimal
+    is_short_movie: bool
     # Lets catalog cards cache-bust poster/banner URLs after a re-upload.
     updated_at: datetime
 
