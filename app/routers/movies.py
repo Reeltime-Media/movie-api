@@ -205,7 +205,7 @@ async def list_movies(
     ),
 ):
     from app.services.catalog_search import apply_catalog_genre, apply_catalog_search
-    from app.services.response_cache import cache_get, cache_set
+    from app.services.response_cache import CATALOG_TTL_SECONDS, cache_get, cache_set
 
     cache_key = (
         f"movies:search={search}:genre={genre}:free={free}:"
@@ -236,7 +236,7 @@ async def list_movies(
         page=pagination.page,
         page_size=pagination.page_size,
     )
-    cache_set(cache_key, response, ttl_seconds=30)
+    cache_set(cache_key, response, ttl_seconds=CATALOG_TTL_SECONDS)
     return response
 
 

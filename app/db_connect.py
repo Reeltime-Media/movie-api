@@ -20,8 +20,9 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 # Supabase session pooler has limited slots; keep the app pool small.
-DEFAULT_POOL_SIZE = 3
-DEFAULT_MAX_OVERFLOW = 2
+# Sized for 2 Uvicorn workers: 2+1 per process = 6 pooler slots total.
+DEFAULT_POOL_SIZE = 2
+DEFAULT_MAX_OVERFLOW = 1
 DEFAULT_POOL_TIMEOUT = 30
 DEFAULT_POOL_RECYCLE = 180
 DEFAULT_CONNECT_TIMEOUT = 30

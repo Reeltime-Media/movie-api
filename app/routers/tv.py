@@ -25,6 +25,7 @@ from app.models.tv_channel import TVChannel
 from app.schemas.channel import TVChannelAuthorizeRead, TVChannelPublicRead
 from app.services import live_playback
 from app.services.content_access import can_access_channel
+from app.services.response_cache import cache_get_or_set
 
 router = APIRouter(prefix="/tv", tags=["tv"])
 settings = get_settings()
@@ -51,24 +52,27 @@ async def _published_channel_or_404(db, channel_id: uuid.UUID) -> TVChannel:
 
 @router.get("/channels", response_model=list[TVChannelPublicRead])
 async def list_channels(db: DBSession):
-    result = await db.execute(
-        select(TVChannel)
-        .where(TVChannel.is_published.is_(True))
-        .order_by(TVChannel.sort_order, TVChannel.name)
-    )
-    channels = result.scalars().all()
-    return [
-        TVChannelPublicRead(
-            id=channel.id,
-            slug=channel.slug,
-            name=channel.name,
-            description=channel.description,
-            logo_key=channel.logo_key,
-            status=_public_status(channel.status),
-            is_free=channel.is_free,
+    async def _load():
+        result = await db.execute(
+            select(TVChannel)
+            .where(TVChannel.is_published.is_(True))
+            .order_by(TVChannel.sort_order, TVChannel.name)
         )
-        for channel in channels
-    ]
+        channels = result.scalars().all()
+        return [
+            TVChannelPublicRead(
+                id=channel.id,
+                slug=channel.slug,
+                name=channel.name,
+                description=channel.description,
+                logo_key=channel.logo_key,
+                status=_public_status(channel.status),
+                is_free=channel.is_free,
+            )
+            for channel in channels
+        ]
+
+    return await cache_get_or_set("tv:channels", _load)
 
 
 @router.get("/channels/{channel_id}/authorize", response_model=TVChannelAuthorizeRead)

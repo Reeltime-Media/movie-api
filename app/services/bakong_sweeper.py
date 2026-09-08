@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import logging
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from sqlalchemy import func, select
 
@@ -17,6 +19,8 @@ from app.services.bakong_settle import bakong_md5s_paid, settle_bakong_intent_if
 logger = logging.getLogger(__name__)
 
 _task: asyncio.Task | None = None
+_lock_file = None
+_SWEEP_LOCK_PATH = Path("/tmp/reeltime-bakong-sweeper.lock")
 # Cap concurrent NBC checks so a big batch cannot stampede the gateway.
 _SWEEP_CONCURRENCY = 5
 
@@ -110,14 +114,23 @@ async def _sweeper_loop() -> None:
 
 
 def start_bakong_sweeper() -> None:
-    global _task
+    """Start the sweeper in at most one Uvicorn worker (file lock)."""
+    global _task, _lock_file
     if _task is not None and not _task.done():
         return
+    lock_file = _SWEEP_LOCK_PATH.open("a+")
+    try:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        lock_file.close()
+        logger.info("Bakong sweeper already running in another worker")
+        return
+    _lock_file = lock_file
     _task = asyncio.create_task(_sweeper_loop(), name="bakong-settle-sweeper")
 
 
 async def stop_bakong_sweeper() -> None:
-    global _task
+    global _task, _lock_file
     if _task is None:
         return
     _task.cancel()
@@ -126,4 +139,10 @@ async def stop_bakong_sweeper() -> None:
     except asyncio.CancelledError:
         pass
     _task = None
+    if _lock_file is not None:
+        try:
+            _lock_file.close()
+        except OSError:
+            pass
+        _lock_file = None
     logger.info("Bakong settle sweeper stopped")

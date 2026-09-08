@@ -218,8 +218,8 @@ class TestConnectionArguments:
         """Should configure pool size for Supabase limits."""
         url = "postgresql+asyncpg://user:pass@localhost/db"
         kwargs = sqlalchemy_engine_kwargs(url)
-        assert kwargs["pool_size"] == 3
-        assert kwargs["max_overflow"] == 2
+        assert kwargs["pool_size"] == 2
+        assert kwargs["max_overflow"] == 1
 
     def test_sqlalchemy_engine_kwargs_includes_connect_args(self):
         """Should include asyncpg connect args."""

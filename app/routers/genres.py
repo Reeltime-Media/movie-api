@@ -6,6 +6,7 @@ from sqlalchemy import select
 from app.dependencies import AdminUser, DBSession
 from app.models.genre import Genre
 from app.schemas.genre import GenreCreate, GenreRead
+from app.services.response_cache import cache_get_or_set
 
 router = APIRouter(prefix="/genres", tags=["genres"])
 
@@ -13,8 +14,11 @@ router = APIRouter(prefix="/genres", tags=["genres"])
 @router.get("", response_model=list[GenreRead])
 @router.get("/", response_model=list[GenreRead])
 async def list_genres(db: DBSession):
-    result = await db.execute(select(Genre).order_by(Genre.name))
-    return result.scalars().all()
+    async def _load():
+        result = await db.execute(select(Genre).order_by(Genre.name))
+        return [GenreRead.model_validate(g) for g in result.scalars().all()]
+
+    return await cache_get_or_set("genres", _load)
 
 
 @router.post("/", response_model=GenreRead, status_code=201)

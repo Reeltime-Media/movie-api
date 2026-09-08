@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from app.dependencies import DBSession
 from app.schemas.content import ContentListItemRead
 from app.services.free_today import resolve_free_today_movies
+from app.services.response_cache import cache_get_or_set
 
 router = APIRouter(prefix="/free-today", tags=["free-today"])
 
@@ -12,5 +13,8 @@ router = APIRouter(prefix="/free-today", tags=["free-today"])
 @router.get("", response_model=list[ContentListItemRead])
 @router.get("/", response_model=list[ContentListItemRead])
 async def list_free_today(db: DBSession):
-    movies = await resolve_free_today_movies(db)
-    return [ContentListItemRead.model_validate(movie) for movie in movies]
+    async def _load():
+        movies = await resolve_free_today_movies(db)
+        return [ContentListItemRead.model_validate(movie) for movie in movies]
+
+    return await cache_get_or_set("free-today", _load)
