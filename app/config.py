@@ -135,6 +135,9 @@ class Settings(BaseSettings):
     # How far back GET /payments/bakong/pending looks (Cambodia watcher feed).
     bakong_pending_window_minutes: int = 45
     bakong_pending_limit: int = 20
+    # When false (default): KHQR is generate-only. Never call NBC
+    # check_transaction_by_md5. Settle via admin Mark paid / bakong webhook.
+    bakong_nbc_settle_enabled: bool = False
 
     # Transcode worker (admin proxy only — never expose key to browsers)
     transcode_service_url: str = ""

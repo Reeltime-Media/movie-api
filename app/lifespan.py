@@ -34,7 +34,10 @@ async def app_lifespan(app: FastAPI):
             database_connection_label(db_url),
         )
 
-    start_bakong_sweeper()
+    if get_settings().bakong_nbc_settle_enabled:
+        start_bakong_sweeper()
+    else:
+        logger.info("Bakong NBC settle disabled — sweeper not started (self-settle mode)")
 
     yield
 

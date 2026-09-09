@@ -242,9 +242,8 @@ async def create_movie_bakong_intent(
     response: Response,
     user: OptionalUser,
 ):
-    """Inline KHQR checkout — no redirect. The client polls GET
-    /payments/intents/{id}, which actively checks Bakong (no webhook exists).
-    A background sweeper also settles paid intents if the tab is closed."""
+    """Inline KHQR checkout — no redirect. Client polls DB status; settle is
+    admin Mark paid / bakong webhook (NBC check disabled by default)."""
     guest_id = None if user else get_or_create_guest_id(request, response)
     identity_filter = (
         (PaymentIntent.user_id == user.id) if user else (PaymentIntent.guest_id == guest_id)
@@ -577,10 +576,11 @@ async def get_payment_intent(
     user: OptionalUser,
 ):
     """
-    Poll payment status. Baray fulfillment is webhook-only — this endpoint
-    never marks a Baray intent succeeded without gateway confirmation. Bakong
-    has no webhook, so for a pending Bakong intent we actively check Bakong
-    ourselves right here before responding (sweeper does the same in background).
+    Poll payment status. Returns DB state only.
+
+    Bakong self-settle mode does not call NBC here — unlock happens via
+    admin Mark paid or POST /payments/bakong/webhook. Optional legacy NBC
+    settle remains behind bakong_nbc_settle_enabled.
     """
     if user:
         identity_filter = PaymentIntent.user_id == user.id
@@ -596,55 +596,52 @@ async def get_payment_intent(
     if not intent:
         raise NotFoundError("Payment intent not found")
 
-    if intent.method == "bakong" and intent.status == "pending" and intent.bakong_md5:
-        from app.services.bakong_check_cache import mark_intent_polled
-        from app.services.bakong_quota import bakong_checks_blocked
+    if intent.method == "bakong" and intent.status == "pending":
+        from app.services.bakong_settle import nbc_settle_enabled
 
         if await _mark_succeeded_if_already_purchased(db, intent):
             await db.commit()
             await db.refresh(intent)
-            mark_intent_polled(intent.intent_id)
             return _read_intent(intent)
 
-        # When NBC quota is exhausted, do not probe — return pending and let
-        # playback authorize / post-midnight sweeper settle the paid QR later.
-        if bakong_checks_blocked():
-            mark_intent_polled(intent.intent_id)
-            return _read_intent(intent)
+        if nbc_settle_enabled() and intent.bakong_md5:
+            from app.services.bakong_check_cache import mark_intent_polled
+            from app.services.bakong_quota import bakong_checks_blocked
 
-        if await settle_bakong_intent_if_paid(db, intent):
-            await db.commit()
-            await db.refresh(intent)
-        elif intent.content_id is not None:
-            # Recover from duplicate pending intents (race on create): if the
-            # user paid a sibling QR for the same title, fulfill that sibling
-            # and mark this poll target succeeded without a second purchase.
-            identity = (
-                (PaymentIntent.user_id == intent.user_id)
-                if intent.user_id is not None
-                else (PaymentIntent.guest_id == intent.guest_id)
-            )
-            siblings = await db.execute(
-                select(PaymentIntent)
-                .where(
-                    identity,
-                    PaymentIntent.method == "bakong",
-                    PaymentIntent.kind == "single",
-                    PaymentIntent.content_id == intent.content_id,
-                    PaymentIntent.status == "pending",
-                    PaymentIntent.intent_id != intent.intent_id,
-                    PaymentIntent.bakong_md5.is_not(None),
-                )
-                .order_by(PaymentIntent.created_at.desc())
-                .limit(1)
-            )
-            sibling = siblings.scalars().first()
-            if sibling and await settle_bakong_intent_if_paid(db, sibling):
-                intent.status = "succeeded"
-                intent.resolved_at = sibling.resolved_at
+            if bakong_checks_blocked():
+                mark_intent_polled(intent.intent_id)
+                return _read_intent(intent)
+
+            if await settle_bakong_intent_if_paid(db, intent):
                 await db.commit()
                 await db.refresh(intent)
-        mark_intent_polled(intent.intent_id)
+            elif intent.content_id is not None:
+                identity = (
+                    (PaymentIntent.user_id == intent.user_id)
+                    if intent.user_id is not None
+                    else (PaymentIntent.guest_id == intent.guest_id)
+                )
+                siblings = await db.execute(
+                    select(PaymentIntent)
+                    .where(
+                        identity,
+                        PaymentIntent.method == "bakong",
+                        PaymentIntent.kind == "single",
+                        PaymentIntent.content_id == intent.content_id,
+                        PaymentIntent.status == "pending",
+                        PaymentIntent.intent_id != intent.intent_id,
+                        PaymentIntent.bakong_md5.is_not(None),
+                    )
+                    .order_by(PaymentIntent.created_at.desc())
+                    .limit(1)
+                )
+                sibling = siblings.scalars().first()
+                if sibling and await settle_bakong_intent_if_paid(db, sibling):
+                    intent.status = "succeeded"
+                    intent.resolved_at = sibling.resolved_at
+                    await db.commit()
+                    await db.refresh(intent)
+            mark_intent_polled(intent.intent_id)
 
     return _read_intent(intent)
 
