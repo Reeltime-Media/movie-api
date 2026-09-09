@@ -130,16 +130,16 @@ class Settings(BaseSettings):
     bakong_sweeper_interval_seconds: int = 120
     bakong_sweeper_window_minutes: int = 30
     bakong_sweeper_batch_size: int = 2
-    # Shared secret for POST /payments/bakong/webhook (X-Bakong-Webhook-Secret).
+    # Shared secret for POST /payments/bakong/webhook (DISABLED — no bank credit).
     bakong_webhook_secret: str = ""
-    # How far back GET /payments/bakong/pending looks (Cambodia watcher feed).
+    # How far back GET /payments/bakong/pending looks (DISABLED — watcher unused).
     bakong_pending_window_minutes: int = 45
     bakong_pending_limit: int = 20
     # When true: active checkout polls call NBC check_transaction_by_md5
     # (only path Bakong gives for auto-detect paid QR). Admin Mark paid
     # remains the fallback when daily quota is exhausted.
     bakong_nbc_settle_enabled: bool = True
-    # Background sweeper (closed-tab). Keep false — watcher/client polls
+    # Background sweeper (closed-tab). Keep false — client polls
     # + Mark paid cover settle without burning abandoned QRs.
     bakong_sweeper_enabled: bool = False
 

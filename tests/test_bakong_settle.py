@@ -55,7 +55,7 @@ async def test_bakong_md5s_paid_checks_previous():
 
     intent = _intent(bakong_md5="new", bakong_prev_md5="old")
 
-    async def probe(md5: str) -> str:
+    async def probe(md5: str, **_kwargs) -> str:
         return STATUS_PAID if md5 == "old" else STATUS_UNPAID
 
     with (
@@ -169,7 +169,7 @@ async def test_bakong_qr_confirmed_unpaid_false_when_prev_paid():
 
     intent = _intent(bakong_md5="new", bakong_prev_md5="old")
 
-    async def probe(md5: str) -> str:
+    async def probe(md5: str, **_kwargs) -> str:
         return STATUS_PAID if md5 == "old" else STATUS_UNPAID
 
     with (

@@ -23,6 +23,7 @@ _CLIENT_TIMEOUT_SECONDS = 10
 _telegram_client: httpx.AsyncClient | None = None
 _ICT = timezone(timedelta(hours=7))
 _DAILY_LIMIT_ALERT_PATH = Path("/tmp/reeltime-bakong-daily-limit-alert")
+_CHECKS_UNAVAILABLE_ALERT_PATH = Path("/tmp/reeltime-bakong-checks-unavailable-alert")
 _BAKONG_DAILY_LIMIT_ERROR_CODE = 17
 
 
@@ -146,4 +147,46 @@ async def notify_bakong_daily_limit() -> None:
         "- NBC daily KHQR check limit reached (100/day)\n"
         "- Paid-checks are paused until tomorrow (ICT midnight)\n"
         "- QR generate still works — do not take real payments until reset"
+    )
+
+
+def claim_bakong_checks_unavailable_alert(
+    *,
+    day: str | None = None,
+    path: Path | None = None,
+) -> bool:
+    """True only for the first caller today (shared across API workers)."""
+    stamp = day or _ict_today()
+    state_path = path or _CHECKS_UNAVAILABLE_ALERT_PATH
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    with state_path.open("a+", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        handle.seek(0)
+        last = handle.read().strip()
+        if last == stamp:
+            return False
+        handle.seek(0)
+        handle.truncate()
+        handle.write(stamp)
+        handle.flush()
+        return True
+
+
+async def notify_bakong_checks_unavailable(
+    *,
+    tokens_paused: int | None = None,
+    token_count: int | None = None,
+) -> None:
+    """Gateway health says bakong_checks_available=false. Once per ICT day."""
+    if not claim_bakong_checks_unavailable_alert():
+        return
+    detail = ""
+    if tokens_paused is not None and token_count is not None:
+        detail = f"\n- Tokens paused: {tokens_paused}/{token_count}"
+    await send_telegram_message(
+        "Reeltime Bakong alert\n"
+        "- bakong_checks_available: false\n"
+        "- Auto unlock via NBC check is paused"
+        f"{detail}\n"
+        "- Use Admin → Mark paid until tokens reset (ICT midnight)"
     )

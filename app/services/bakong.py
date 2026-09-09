@@ -36,6 +36,26 @@ async def close_http_client() -> None:
         _http_client = None
 
 
+async def fetch_remote_health() -> dict | None:
+    """GET payment-bakong /health. None when remote unset or request fails."""
+    if not _uses_remote_service():
+        return None
+    url = f"{_service_base()}/health"
+    try:
+        response = await _get_http_client().get(url, timeout=10.0)
+    except httpx.HTTPError as exc:
+        logger.warning("payment-bakong /health failed: %s", exc)
+        return None
+    if response.status_code >= 400:
+        logger.warning("payment-bakong /health HTTP %s", response.status_code)
+        return None
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    return body if isinstance(body, dict) else None
+
+
 def _service_base() -> str:
     return (settings.bakong_service_url or "").strip().rstrip("/")
 
@@ -132,12 +152,13 @@ def nbc_reports_paid(body: dict | None) -> bool:
     return body.get("responseCode") in (0, "0", "00")
 
 
-async def probe_khqr_status(md5: str) -> str:
+async def probe_khqr_status(md5: str, *, intent_id: str | None = None) -> str:
     """paid, unpaid, or unknown (rate-limit / transport — do not treat as unpaid)."""
     from app.services.bakong_check_cache import (
         STATUS_PAID,
         STATUS_UNKNOWN,
         STATUS_UNPAID,
+        consume_intent_nbc_check,
         get_cached_md5_status,
         set_cached_md5_status,
     )
@@ -150,6 +171,14 @@ async def probe_khqr_status(md5: str) -> str:
         return cached
 
     if bakong_checks_blocked():
+        set_cached_md5_status(md5, STATUS_UNKNOWN)
+        return STATUS_UNKNOWN
+
+    if intent_id and not consume_intent_nbc_check(intent_id):
+        logger.warning(
+            "Bakong NBC check cap reached for intent=%s — skipping further checks",
+            intent_id[:16],
+        )
         set_cached_md5_status(md5, STATUS_UNKNOWN)
         return STATUS_UNKNOWN
 
@@ -172,11 +201,11 @@ async def probe_khqr_status(md5: str) -> str:
     return status
 
 
-async def check_khqr_paid(md5: str) -> bool:
+async def check_khqr_paid(md5: str, *, intent_id: str | None = None) -> bool:
     """True once Bakong reports the transaction for this md5 as settled."""
     from app.services.bakong_check_cache import STATUS_PAID
 
-    return await probe_khqr_status(md5) == STATUS_PAID
+    return await probe_khqr_status(md5, intent_id=intent_id) == STATUS_PAID
 
 
 async def _alert_if_daily_limit(error_code: object) -> bool:

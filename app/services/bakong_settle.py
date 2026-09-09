@@ -1,9 +1,10 @@
 """Bakong settle helpers.
 
-Default mode (``bakong_nbc_settle_enabled=false``): never call NBC. Paid
-detection is admin Mark paid + ``POST /payments/bakong/webhook`` only.
+Default mode enables ``check_transaction_by_md5`` settle while checkout is open
+(``bakong_nbc_settle_enabled=true``). Admin Mark paid remains the fallback when
+NBC quota is exhausted.
 
-Optional legacy mode enables ``check_transaction_by_md5`` settle.
+Bank-credit / external webhook settle is disabled (no bank hook available).
 """
 
 from datetime import datetime, timedelta, timezone
@@ -44,7 +45,8 @@ async def bakong_md5s_paid(intent: PaymentIntent) -> bool:
         return False
     if not intent.bakong_md5:
         return False
-    status = await bakong.probe_khqr_status(intent.bakong_md5)
+    intent_id = intent.intent_id
+    status = await bakong.probe_khqr_status(intent.bakong_md5, intent_id=intent_id)
     if status == STATUS_PAID:
         return True
     # Rate-limit / errors: do not burn a second NBC call on prev_md5.
@@ -53,7 +55,7 @@ async def bakong_md5s_paid(intent: PaymentIntent) -> bool:
     if (
         intent.bakong_prev_md5
         and intent.bakong_prev_md5 != intent.bakong_md5
-        and await bakong.check_khqr_paid(intent.bakong_prev_md5)
+        and await bakong.check_khqr_paid(intent.bakong_prev_md5, intent_id=intent_id)
     ):
         return True
     return False
@@ -62,7 +64,7 @@ async def bakong_md5s_paid(intent: PaymentIntent) -> bool:
 async def bakong_qr_confirmed_unpaid(intent: PaymentIntent) -> bool:
     """Whether it is safe to mint a replacement QR for a stale intent.
 
-    Without NBC: allow regen on TTL alone (prev md5 kept for late admin/webhook).
+    Without NBC: allow regen on TTL alone (prev md5 kept for late admin unlock).
     With NBC: only when checks confirm unpaid.
     """
     if not nbc_settle_enabled():
@@ -75,8 +77,9 @@ async def bakong_qr_confirmed_unpaid(intent: PaymentIntent) -> bool:
         md5s.append(intent.bakong_prev_md5)
     if not md5s:
         return True
+    intent_id = intent.intent_id
     for md5 in md5s:
-        status = await bakong.probe_khqr_status(md5)
+        status = await bakong.probe_khqr_status(md5, intent_id=intent_id)
         if status == STATUS_PAID:
             return False
         if status == STATUS_UNKNOWN:

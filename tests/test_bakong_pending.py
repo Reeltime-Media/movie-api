@@ -1,13 +1,12 @@
-"""Tests for Bakong pending feed + watcher helpers."""
+"""Tests for Bakong pending feed + watcher helpers (pending feed disabled)."""
 
-from datetime import datetime, timezone
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi import HTTPException
 
 from app.routers.payments import _require_bakong_service_api_key
-from app.schemas.payment import BakongPendingIntentRead, BakongPendingListRead
 
 
 def test_require_bakong_service_api_key_ok():
@@ -17,8 +16,6 @@ def test_require_bakong_service_api_key_ok():
 
 
 def test_require_bakong_service_api_key_rejects():
-    from fastapi import HTTPException
-
     with patch("app.routers.payments.get_settings") as gs:
         gs.return_value = SimpleNamespace(bakong_service_api_key="secret")
         with pytest.raises(HTTPException) as exc:
@@ -27,22 +24,11 @@ def test_require_bakong_service_api_key_rejects():
 
 
 @pytest.mark.asyncio
-async def test_list_pending_bakong_payments():
+async def test_list_pending_bakong_payments_disabled():
     from starlette.requests import Request
 
     from app.routers.payments import list_pending_bakong_payments
 
-    intent = SimpleNamespace(
-        intent_id="bkg-1",
-        bakong_md5="abc",
-        bakong_prev_md5=None,
-        created_at=datetime.now(timezone.utc),
-        bakong_qr_created_at=None,
-    )
-    result = MagicMock()
-    result.scalars.return_value.all.return_value = [intent]
-    db = AsyncMock()
-    db.execute.return_value = result
     scope = {
         "type": "http",
         "asgi": {"version": "3.0"},
@@ -57,26 +43,10 @@ async def test_list_pending_bakong_payments():
         "server": ("test", 80),
     }
     request = Request(scope)
-
-    with patch("app.routers.payments.get_settings") as gs:
-        gs.return_value = SimpleNamespace(
-            bakong_service_api_key="secret",
-            bakong_pending_window_minutes=45,
-            bakong_pending_limit=20,
-        )
-        out = await list_pending_bakong_payments(
+    with pytest.raises(HTTPException) as exc:
+        await list_pending_bakong_payments(
             request=request,
-            db=db,
+            db=AsyncMock(),
             x_api_key="secret",
         )
-
-    assert isinstance(out, BakongPendingListRead)
-    assert out.items == [
-        BakongPendingIntentRead(
-            intent_id="bkg-1",
-            md5="abc",
-            prev_md5=None,
-            created_at=intent.created_at,
-            qr_created_at=None,
-        )
-    ]
+    assert exc.value.status_code == 503

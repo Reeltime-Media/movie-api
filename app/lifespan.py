@@ -43,8 +43,16 @@ async def app_lifespan(app: FastAPI):
             get_settings().bakong_sweeper_enabled,
         )
 
+    from app.services.bakong_health_monitor import (
+        start_bakong_health_monitor,
+        stop_bakong_health_monitor,
+    )
+
+    start_bakong_health_monitor()
+
     yield
 
+    await stop_bakong_health_monitor()
     await stop_bakong_sweeper()
 
     from app.services.bakong import close_http_client as close_bakong_http_client

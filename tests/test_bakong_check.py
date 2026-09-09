@@ -17,6 +17,22 @@ def test_ttl_for_check_backs_off_rate_limits():
     assert ttl_for_check(paid=False, rate_limited=True) == 120.0
 
 
+def test_intent_nbc_check_cap():
+    from app.services.bakong_check_cache import (
+        clear_intent_nbc_checks,
+        consume_intent_nbc_check,
+        intent_nbc_check_count,
+    )
+
+    clear_intent_nbc_checks()
+    intent_id = "bkg-cap-test"
+    for _ in range(40):
+        assert consume_intent_nbc_check(intent_id, max_checks=40) is True
+    assert intent_nbc_check_count(intent_id) == 40
+    assert consume_intent_nbc_check(intent_id, max_checks=40) is False
+    clear_intent_nbc_checks()
+
+
 def test_unknown_status_is_not_treated_as_paid():
     from app.services.bakong_check_cache import (
         STATUS_UNKNOWN,

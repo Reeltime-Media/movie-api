@@ -41,7 +41,7 @@ class BakongPaymentIntentRead(BaseModel):
 
 
 class BakongWebhookPayload(BaseModel):
-    """External Bakong paid notification (self-hosted watcher / future bank hook)."""
+    """Former bank-credit / watcher settle payload (endpoint disabled)."""
 
     md5: str | None = None
     intent_id: str | None = None
@@ -50,7 +50,7 @@ class BakongWebhookPayload(BaseModel):
 
 
 class BakongPendingIntentRead(BaseModel):
-    """Open Bakong QR for the Cambodia watcher to check via NBC."""
+    """Former Cambodia watcher pending QR item (endpoint disabled)."""
 
     intent_id: str
     md5: str

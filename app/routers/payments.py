@@ -1,10 +1,10 @@
 import secrets
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Header, HTTPException, Request, Response, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import select
 
 from app.core.exceptions import ConflictError, NotFoundError
 from app.core.guest import get_guest_id, get_or_create_guest_id
@@ -19,7 +19,6 @@ from app.models.series_purchase import SeriesPurchase
 from app.rate_limit import limiter
 from app.schemas.payment import (
     BakongPaymentIntentRead,
-    BakongPendingIntentRead,
     BakongPendingListRead,
     BakongWebhookPayload,
     PaymentIntentCreate,
@@ -33,7 +32,6 @@ from app.services.bakong_settle import (
 )
 from app.services.content_access import user_has_active_subscription
 from app.services.payment import checkout_url, create_intent
-from app.services.payment_fulfillment import fulfill_payment_intent
 from app.services.series import get_series_or_404
 from app.services.subscription_plans import resolve_active_plan
 
@@ -578,9 +576,9 @@ async def get_payment_intent(
     """
     Poll payment status. Returns DB state only.
 
-    Bakong self-settle mode does not call NBC here — unlock happens via
-    admin Mark paid or POST /payments/bakong/webhook. Optional legacy NBC
-    settle remains behind bakong_nbc_settle_enabled.
+    When bakong_nbc_settle_enabled: open checkout may call NBC
+    check_transaction_by_md5 (cached / quota-capped). Unlock fallback is
+    admin Mark paid. Bank-credit webhook settle is disabled.
     """
     if user:
         identity_filter = PaymentIntent.user_id == user.id
@@ -676,40 +674,23 @@ async def list_pending_bakong_payments(
     db: DBSession,
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ):
-    """Recent unpaid Bakong QRs for the Cambodia watcher (no NBC call here)."""
-    _ = request
-    _require_bakong_service_api_key(x_api_key)
-    settings = get_settings()
-    window_minutes = min(120, max(5, settings.bakong_pending_window_minutes))
-    limit = min(50, max(1, settings.bakong_pending_limit))
-    window_start = datetime.now(timezone.utc) - timedelta(minutes=window_minutes)
-    qr_age = func.coalesce(PaymentIntent.bakong_qr_created_at, PaymentIntent.created_at)
+    """DISABLED — Cambodia watcher / bank-credit feed not in use.
 
-    result = await db.execute(
-        select(PaymentIntent)
-        .where(
-            PaymentIntent.method == "bakong",
-            PaymentIntent.status == "pending",
-            PaymentIntent.bakong_md5.is_not(None),
-            qr_age >= window_start,
-        )
-        .order_by(qr_age.desc())
-        .limit(limit)
+    Kept as a stub so old clients get a clear 503 instead of silent 404.
+    """
+    _ = (request, db, x_api_key)
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Bakong pending feed disabled (no bank-credit / watcher settle)",
     )
-    intents = result.scalars().all()
-    return BakongPendingListRead(
-        items=[
-            BakongPendingIntentRead(
-                intent_id=intent.intent_id,
-                md5=intent.bakong_md5 or "",
-                prev_md5=intent.bakong_prev_md5,
-                created_at=intent.created_at,
-                qr_created_at=intent.bakong_qr_created_at,
-            )
-            for intent in intents
-            if intent.bakong_md5
-        ]
-    )
+
+
+# --- Bank-credit / external watcher settle (DISABLED) -----------------------
+# No bank CASA webhook available. Auto unlock is NBC poll + Admin Mark paid.
+# Original handlers remain below for reference; routes above return 503.
+#
+# @router.get("/bakong/pending") — listed open QRs for Cambodia watcher
+# @router.post("/bakong/webhook") — fulfill from watcher / bank credit push
 
 
 @router.post("/bakong/webhook")
@@ -720,73 +701,12 @@ async def bakong_payment_webhook(
     payload: BakongWebhookPayload,
     x_bakong_webhook_secret: str | None = Header(default=None),
 ):
-    """Settle a Bakong intent from an external watcher (no NBC call).
+    """DISABLED — bank-credit / external watcher settle not available.
 
-    Auth: header ``X-Bakong-Webhook-Secret`` must match ``BAKONG_WEBHOOK_SECRET``.
-    Compatible with self-hosted KHQR watchers that POST ``{md5, status}``.
+    Use Admin → Mark paid, or NBC settle while checkout is open.
     """
-    _ = request
-    settings = get_settings()
-    expected = (settings.bakong_webhook_secret or "").strip()
-    if not expected:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Bakong webhook is not configured",
-        )
-    provided = (x_bakong_webhook_secret or "").strip()
-    if provided != expected:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid webhook secret",
-        )
-
-    if not _bakong_webhook_reports_paid(payload):
-        return {"status": "ignored", "reason": "not_paid"}
-
-    intent: PaymentIntent | None = None
-    if payload.intent_id:
-        result = await db.execute(
-            select(PaymentIntent).where(PaymentIntent.intent_id == payload.intent_id)
-        )
-        intent = result.scalar_one_or_none()
-    elif payload.md5:
-        md5 = payload.md5.strip()
-        result = await db.execute(
-            select(PaymentIntent)
-            .where(
-                PaymentIntent.method == "bakong",
-                or_(
-                    PaymentIntent.bakong_md5 == md5,
-                    PaymentIntent.bakong_prev_md5 == md5,
-                ),
-            )
-            .order_by(PaymentIntent.created_at.desc())
-            .limit(1)
-        )
-        intent = result.scalars().first()
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="md5 or intent_id is required",
-        )
-
-    if not intent:
-        # Acknowledge so watchers do not retry forever for unknown QRs.
-        return {"status": "ok", "matched": False}
-
-    if intent.status == "succeeded":
-        return {
-            "status": "ok",
-            "matched": True,
-            "intent_id": intent.intent_id,
-            "already_succeeded": True,
-        }
-
-    await fulfill_payment_intent(db, intent, bank="bakong_webhook")
-    await db.commit()
-    return {
-        "status": "ok",
-        "matched": True,
-        "intent_id": intent.intent_id,
-        "already_succeeded": False,
-    }
+    _ = (request, db, payload, x_bakong_webhook_secret)
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Bakong webhook settle disabled (no bank-credit integration)",
+    )

@@ -17,11 +17,15 @@ _RATE_LIMIT_TTL_SECONDS = 120.0
 _PAID_TTL_SECONDS = 60.0
 # Skip sweeper settle when a client poll checked this intent recently.
 _INTENT_POLL_TTL_SECONDS = 12.0
+# One stuck checkout tab must not burn a whole NBC token (~100/day).
+_MAX_NBC_CHECKS_PER_INTENT = 40
 
 _lock = Lock()
 # paid | unpaid | unknown
 _md5_cache: dict[str, tuple[str, float]] = {}
 _intent_polled_at: dict[str, float] = {}
+# intent_id -> count of NBC network checks reserved this process life
+_intent_nbc_checks: dict[str, int] = {}
 
 STATUS_PAID = "paid"
 STATUS_UNPAID = "unpaid"
@@ -118,3 +122,38 @@ def was_intent_recently_polled(intent_id: str) -> bool:
             del _intent_polled_at[intent_id]
             return False
         return True
+
+
+def intent_nbc_check_count(intent_id: str) -> int:
+    if not intent_id:
+        return 0
+    with _lock:
+        return int(_intent_nbc_checks.get(intent_id, 0))
+
+
+def consume_intent_nbc_check(
+    intent_id: str,
+    *,
+    max_checks: int = _MAX_NBC_CHECKS_PER_INTENT,
+) -> bool:
+    """Reserve one NBC network check for this intent. False when over cap."""
+    if not intent_id:
+        return True
+    limit = max(1, int(max_checks))
+    with _lock:
+        used = int(_intent_nbc_checks.get(intent_id, 0))
+        if used >= limit:
+            return False
+        _intent_nbc_checks[intent_id] = used + 1
+        # Soft prune if map grows (abandoned checkouts).
+        if len(_intent_nbc_checks) > 2000:
+            drop = list(_intent_nbc_checks.keys())[:500]
+            for key in drop:
+                del _intent_nbc_checks[key]
+        return True
+
+
+def clear_intent_nbc_checks() -> None:
+    """Test helper."""
+    with _lock:
+        _intent_nbc_checks.clear()
