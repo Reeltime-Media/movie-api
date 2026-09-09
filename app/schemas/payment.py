@@ -47,3 +47,17 @@ class BakongWebhookPayload(BaseModel):
     intent_id: str | None = None
     status: str | None = None
     paid: bool | None = None
+
+
+class BakongPendingIntentRead(BaseModel):
+    """Open Bakong QR for the Cambodia watcher to check via NBC."""
+
+    intent_id: str
+    md5: str
+    prev_md5: str | None = None
+    created_at: datetime
+    qr_created_at: datetime | None = None
+
+
+class BakongPendingListRead(BaseModel):
+    items: list[BakongPendingIntentRead]
