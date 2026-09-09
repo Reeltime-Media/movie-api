@@ -57,5 +57,8 @@ async def app_lifespan(app: FastAPI):
     await close_live_playback_http_client()
     await close_email_http_client()
     await close_telegram_http_client()
+    from app.services.shared_cache import close_shared_cache
+
+    await close_shared_cache()
     reset_storage_client()
     await engine.dispose()

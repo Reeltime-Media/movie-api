@@ -91,10 +91,16 @@ class Settings(BaseSettings):
     r2_bucket_name: str
     r2_public_url: str  # CDN / public bucket URL prefix
 
-    # How long an issued playback token (and its presigned segment URLs) stays
+    # How long an issued playback token (and its segment URLs) stays
     # valid. Must exceed the longest title's runtime so a stream doesn't expire
     # mid-watch. Default 6h.
     playback_token_expiry_seconds: int = 21600
+    # cdn = rewrite segments to R2_PUBLIC_URL (Cloudflare edge).
+    # presign = private S3-API URLs (bypasses CDN; keep as fallback).
+    playback_segment_mode: str = "cdn"
+
+    # Optional shared cache (Upstash / Redis). Empty = in-process only.
+    redis_url: str = ""
 
     # Baray Payment Gateway
     baray_api_key: str = ""

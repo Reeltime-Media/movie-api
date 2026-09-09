@@ -4,7 +4,8 @@ Flow:
   1. GET /tv/channels                          -> public channel list.
   2. GET /tv/channels/{channel_id}/authorize    (requires entitlement — an
      active subscription, or the channel is marked free)
-       -> mints a short-lived playback token, returns the entry playlist URL.
+       -> mints a short-lived playback token, returns the entry playlist URL
+          (/tv/{id}/live.m3u8?t=…). Never returns the bare origin URL.
   3. GET /tv/{channel_id}/live.m3u8?t=<token>
        -> proxies the channel's live playlist once, rewriting every URI to an
           absolute URL on the origin server. The player then talks to the
@@ -93,17 +94,11 @@ async def authorize_channel_playback(
     token = create_channel_playback_token(
         channel_id, settings.tv_playback_token_expiry_seconds
     )
-    # Prefer the origin HLS URL (absolute segment URIs via ffmpeg hls_base_url)
-    # so mobile/web players skip the API playlist-rewrite hop. Tokened rewrite
-    # path remains available at /tv/{id}/live.m3u8 for older clients.
-    origin = (channel.hls_playback_url or "").strip()
-    master = (
-        origin
-        if origin.startswith("http://") or origin.startswith("https://")
-        else f"/tv/{channel_id}/live.m3u8?t={token}"
-    )
+    # Always return the tokened API entry playlist. Returning the bare origin
+    # URL let anyone with a shared link watch without authorizing. Segments
+    # still load from the origin/CDN after this one gated hop.
     return {
-        "master_url": master,
+        "master_url": f"/tv/{channel_id}/live.m3u8?t={token}",
         "expires_in": settings.tv_playback_token_expiry_seconds,
     }
 

@@ -101,6 +101,21 @@ def generate_presigned_download_url(key: str, expires_in: int = 3600) -> str:
     )
 
 
+def generate_playback_segment_url(key: str, expires_in: int = 3600) -> str:
+    """URL the player should fetch for an HLS segment.
+
+    Prefer the public CDN host (cdn.reeltime.fun) — the movies bucket already
+    exposes objects there, and Cloudflare caches immutable .ts at the edge.
+    Presigned S3-API URLs bypass that CDN and burn Class B ops under load.
+    Set PLAYBACK_SEGMENT_MODE=presign to force the old private-bucket path.
+    """
+    cfg = get_settings()
+    mode = (cfg.playback_segment_mode or "cdn").strip().lower()
+    if mode == "presign" or not (cfg.r2_public_url or "").strip():
+        return generate_presigned_download_url(key, expires_in)
+    return public_url(key)
+
+
 def object_exists(key: str) -> bool:
     try:
         _client().head_object(Bucket=settings.r2_bucket_name, Key=key)

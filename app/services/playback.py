@@ -1,18 +1,20 @@
 """Token-gated HLS playback.
 
 The HLS objects (master playlist, per-rendition playlists, .ts segments) live in
-a private R2 prefix and are never served directly. Instead:
+R2. Playback stays gated at the playlist layer:
 
   * The master playlist is rewritten so each rendition reference points back at
     the variant endpoint, carrying the caller's playback token.
   * Each rendition playlist is rewritten so every segment reference becomes a
-    short-lived presigned R2 URL.
+    CDN URL on R2_PUBLIC_URL (or a short-lived presigned URL when
+    PLAYBACK_SEGMENT_MODE=presign).
 
-Segments are therefore fetched straight from R2 via expiring signatures (no app
-round-trip per segment), while the playlists stay gated behind the token.
+Segments are therefore fetched from Cloudflare's edge (no app round-trip per
+segment), while the playlists stay gated behind the token.
 
-Raw playlist text is cached in memory for up to 60 seconds so concurrent viewers
-of the same title don't each trigger an R2 GET.
+Raw / rewritten playlist text is cached (Redis when REDIS_URL is set, otherwise
+in-process) so concurrent viewers of the same title don't each hit R2 or rerun
+the rewrite loop.
 """
 
 import asyncio
@@ -22,6 +24,7 @@ import threading
 
 from app.config import get_settings
 from app.services import storage
+from app.services.shared_cache import cache_get_bytes, cache_set_bytes
 
 settings = get_settings()
 
@@ -31,11 +34,8 @@ _PLAYLIST_CACHE_TTL = 60  # seconds
 _playlist_cache: dict[str, tuple[str, float]] = {}
 _cache_lock = threading.Lock()
 
-# TTL cache for fully rewritten (presigned) variant playlists. A full-length
-# movie has ~1200 segments, and presigning is done in a tight loop — without
-# this cache that loop reruns on every single playback request, on every hop
-# a viewer makes. Capped below expires_in so a cached playlist never outlives
-# the presigned segment URLs it contains.
+# TTL cache for fully rewritten variant playlists. A full-length movie has
+# ~1200 segments; without this cache the rewrite reruns on every request.
 _variant_playlist_cache: dict[str, tuple[str, float]] = {}
 
 
@@ -46,12 +46,20 @@ def _is_uri_line(line: str) -> bool:
 
 
 async def _get_object_text(key: str) -> str:
-    # Check cache first.
+    # Check local cache first.
     now = time.monotonic()
     with _cache_lock:
         cached = _playlist_cache.get(key)
         if cached and cached[1] > now:
             return cached[0]
+
+    shared_key = f"hls:raw:{key}"
+    shared = await cache_get_bytes(shared_key)
+    if shared is not None:
+        text = shared.decode("utf-8")
+        with _cache_lock:
+            _playlist_cache[key] = (text, now + _PLAYLIST_CACHE_TTL)
+        return text
 
     def _fetch() -> str:
         obj = storage._client().get_object(
@@ -63,6 +71,7 @@ async def _get_object_text(key: str) -> str:
 
     with _cache_lock:
         _playlist_cache[key] = (text, now + _PLAYLIST_CACHE_TTL)
+    await cache_set_bytes(shared_key, text.encode("utf-8"), _PLAYLIST_CACHE_TTL)
 
     return text
 
@@ -86,14 +95,12 @@ async def build_master_playlist(
     return "\n".join(out) + "\n"
 
 
-def _presign_variant_text(text: str, prefix: str, expires_in: int) -> str:
+def _rewrite_variant_text(text: str, prefix: str, expires_in: int) -> str:
     out: list[str] = []
     for line in text.splitlines():
         if _is_uri_line(line):
             segment_key = f"{prefix}/{line.strip()}"
-            out.append(
-                storage.generate_presigned_download_url(segment_key, expires_in)
-            )
+            out.append(storage.generate_playback_segment_url(segment_key, expires_in))
         else:
             out.append(line)
     return "\n".join(out) + "\n"
@@ -102,13 +109,15 @@ def _presign_variant_text(text: str, prefix: str, expires_in: int) -> str:
 async def build_variant_playlist(
     hls_master_key: str, variant_name: str, expires_in: int
 ) -> str:
-    """Rewrite each segment reference in a rendition playlist to a presigned URL.
+    """Rewrite each segment reference in a rendition playlist to a CDN/presigned URL.
 
     `variant_name` is validated by the caller. Segment names come from our own
     transcoder output (trusted), but are still resolved within the HLS prefix.
     """
     prefix = posixpath.dirname(hls_master_key)  # e.g. movies/<slug>/hls
     variant_key = f"{prefix}/{variant_name}"
+    mode = (settings.playback_segment_mode or "cdn").strip().lower()
+    shared_key = f"hls:variant:{mode}:{variant_key}"
 
     now = time.monotonic()
     with _cache_lock:
@@ -116,14 +125,21 @@ async def build_variant_playlist(
         if cached and cached[1] > now:
             return cached[0]
 
+    shared = await cache_get_bytes(shared_key)
+    if shared is not None:
+        body = shared.decode("utf-8")
+        with _cache_lock:
+            _variant_playlist_cache[variant_key] = (body, now + _PLAYLIST_CACHE_TTL)
+        return body
+
     text = await _get_object_text(variant_key)
-    # A movie-length rendition has ~1200 segments; presigning each one is pure
-    # CPU-bound crypto with no network I/O, but done inline that still blocks
-    # the event loop for every other in-flight request — run it in a thread.
-    body = await asyncio.to_thread(_presign_variant_text, text, prefix, expires_in)
+    # CDN rewrite is cheap string work; presign is CPU-bound crypto — both run
+    # off the event loop so a cold miss cannot stall other requests.
+    body = await asyncio.to_thread(_rewrite_variant_text, text, prefix, expires_in)
 
     ttl = min(_PLAYLIST_CACHE_TTL, expires_in)
     with _cache_lock:
         _variant_playlist_cache[variant_key] = (body, now + ttl)
+    await cache_set_bytes(shared_key, body.encode("utf-8"), ttl)
 
     return body
