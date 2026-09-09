@@ -94,6 +94,10 @@ async def can_access_content(
         if await free_today.is_free_today(db, content.id):
             return True
         if user:
+            # Every subscription plan is marketed as "access to all movies",
+            # not just series — see lib/pricing-tiers.ts on the client.
+            if await user_has_active_subscription(db, user.id):
+                return True
             purchase = await db.execute(
                 select(Purchase).where(
                     Purchase.user_id == user.id,

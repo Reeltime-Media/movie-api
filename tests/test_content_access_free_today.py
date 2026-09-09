@@ -58,10 +58,28 @@ def test_unlisted_paid_movie_still_requires_purchase(monkeypatch):
         return False
 
     monkeypatch.setattr(free_today, "is_free_today", not_listed)
-    # One queued empty result: the purchase lookup that comes after the hook.
+    # Two queued empty results: the subscription check, then the purchase
+    # lookup, both come after the free-today hook.
     allowed = asyncio.run(
         content_access.user_can_access_content(
-            FakeDb([FakeResult(scalar=None)]), make_user(), make_paid_movie()
+            FakeDb([FakeResult(scalar=None), FakeResult(scalar=None)]),
+            make_user(),
+            make_paid_movie(),
         )
     )
     assert allowed is False
+
+
+def test_subscribed_user_can_access_paid_movie(monkeypatch):
+    async def not_listed(_db, _content_id):
+        return False
+
+    monkeypatch.setattr(free_today, "is_free_today", not_listed)
+    # One queued result: the subscription check finds an active subscription,
+    # so access is granted before any purchase lookup runs.
+    allowed = asyncio.run(
+        content_access.user_can_access_content(
+            FakeDb([FakeResult(scalar=object())]), make_user(), make_paid_movie()
+        )
+    )
+    assert allowed is True
