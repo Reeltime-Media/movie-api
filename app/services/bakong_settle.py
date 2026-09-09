@@ -1,7 +1,9 @@
 """Bakong settle helpers — check current/prev md5 and fulfill when paid."""
 
 from datetime import datetime, timedelta, timezone
+from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -28,9 +30,16 @@ def qr_is_stale(intent: PaymentIntent, *, now: datetime | None = None) -> bool:
 
 async def bakong_md5s_paid(intent: PaymentIntent) -> bool:
     """True if current or previous KHQR md5 is settled at Bakong."""
-    # Check current md5 first (happy path). Only hit prev when current is unpaid.
-    if intent.bakong_md5 and await bakong.check_khqr_paid(intent.bakong_md5):
+    from app.services.bakong_check_cache import STATUS_PAID, STATUS_UNKNOWN
+
+    if not intent.bakong_md5:
+        return False
+    status = await bakong.probe_khqr_status(intent.bakong_md5)
+    if status == STATUS_PAID:
         return True
+    # Rate-limit / errors: do not burn a second NBC call on prev_md5.
+    if status == STATUS_UNKNOWN:
+        return False
     if (
         intent.bakong_prev_md5
         and intent.bakong_prev_md5 != intent.bakong_md5
@@ -77,3 +86,49 @@ async def settle_bakong_intent_if_paid(
         return False
     await fulfill_payment_intent(db, intent, bank="bakong")
     return True
+
+
+async def settle_pending_movie_bakong_for_buyer(
+    db: AsyncSession,
+    *,
+    content_id: UUID,
+    user_id: UUID | None,
+    guest_id: str | None,
+) -> bool:
+    """Settle any pending Bakong movie QR for this buyer+title.
+
+    Safety net when the checkout tab closed or NBC checks were rate-limited
+    after the customer already paid — play/authorize and reopen-checkout call
+    this so a paid QR still unlocks the movie.
+    """
+    from app.services.bakong_quota import bakong_checks_blocked
+
+    if user_id is None and not guest_id:
+        return False
+    if bakong_checks_blocked():
+        return False
+
+    identity = (
+        (PaymentIntent.user_id == user_id)
+        if user_id is not None
+        else (PaymentIntent.guest_id == guest_id)
+    )
+    result = await db.execute(
+        select(PaymentIntent)
+        .where(
+            identity,
+            PaymentIntent.method == "bakong",
+            PaymentIntent.kind == "single",
+            PaymentIntent.content_id == content_id,
+            PaymentIntent.status == "pending",
+            PaymentIntent.bakong_md5.is_not(None),
+        )
+        .order_by(PaymentIntent.created_at.desc())
+        .limit(2)
+    )
+    settled_any = False
+    for intent in result.scalars().all():
+        if await settle_bakong_intent_if_paid(db, intent):
+            settled_any = True
+            break
+    return settled_any

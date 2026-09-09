@@ -161,8 +161,16 @@ class AdminPaymentRead(BaseModel):
     user_email: str
     user_full_name: str | None
     kind: str
+    method: str = "baray"
     content_id: uuid.UUID | None
     amount_usd: Decimal
     status: str
     created_at: datetime
+    resolved_at: datetime | None
+
+
+class AdminPaymentFulfillRead(BaseModel):
+    intent_id: str
+    order_id: str
+    status: str
     resolved_at: datetime | None

@@ -125,10 +125,13 @@ class Settings(BaseSettings):
     # App-level QR reuse window (bakong-khqr expiration is whole days, min 1).
     bakong_qr_ttl_minutes: int = 10
     # In-process settle sweeper (covers pay-then-close-tab).
-    # 45s keeps settle reliable while cutting Supabase pooler churn vs 20s.
-    bakong_sweeper_interval_seconds: int = 45
+    # Keep this SMALL — NBC ~100 checks/token/day. Long-tail unlock is via
+    # playback authorize + reopen checkout, not endless unpaid rechecks.
+    bakong_sweeper_interval_seconds: int = 120
     bakong_sweeper_window_minutes: int = 30
-    bakong_sweeper_batch_size: int = 20
+    bakong_sweeper_batch_size: int = 2
+    # Shared secret for POST /payments/bakong/webhook (X-Bakong-Webhook-Secret).
+    bakong_webhook_secret: str = ""
 
     # Transcode worker (admin proxy only — never expose key to browsers)
     transcode_service_url: str = ""
