@@ -77,6 +77,46 @@ async def test_settle_bakong_intent_if_paid_fulfills():
 
 
 @pytest.mark.asyncio
+async def test_bakong_qr_confirmed_unpaid_false_when_unknown():
+    from app.services.bakong_check_cache import STATUS_UNKNOWN
+    from app.services.bakong_settle import bakong_qr_confirmed_unpaid
+
+    intent = _intent()
+    with patch(
+        "app.services.bakong_settle.bakong.probe_khqr_status",
+        AsyncMock(return_value=STATUS_UNKNOWN),
+    ):
+        assert await bakong_qr_confirmed_unpaid(intent) is False
+
+
+@pytest.mark.asyncio
+async def test_bakong_qr_confirmed_unpaid_true_when_unpaid():
+    from app.services.bakong_check_cache import STATUS_UNPAID
+    from app.services.bakong_settle import bakong_qr_confirmed_unpaid
+
+    intent = _intent()
+    with patch(
+        "app.services.bakong_settle.bakong.probe_khqr_status",
+        AsyncMock(return_value=STATUS_UNPAID),
+    ):
+        assert await bakong_qr_confirmed_unpaid(intent) is True
+
+
+@pytest.mark.asyncio
+async def test_bakong_qr_confirmed_unpaid_false_when_prev_paid():
+    from app.services.bakong_check_cache import STATUS_PAID, STATUS_UNPAID
+    from app.services.bakong_settle import bakong_qr_confirmed_unpaid
+
+    intent = _intent(bakong_md5="new", bakong_prev_md5="old")
+
+    async def probe(md5: str) -> str:
+        return STATUS_PAID if md5 == "old" else STATUS_UNPAID
+
+    with patch("app.services.bakong_settle.bakong.probe_khqr_status", side_effect=probe):
+        assert await bakong_qr_confirmed_unpaid(intent) is False
+
+
+@pytest.mark.asyncio
 async def test_settle_skips_when_unpaid():
     intent = _intent()
     db = AsyncMock()

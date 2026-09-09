@@ -1,6 +1,11 @@
 """Ops alerts via Telegram Bot API (payment success, etc.)."""
 
+from __future__ import annotations
+
+import fcntl
 import logging
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import httpx
 from sqlalchemy import select
@@ -16,6 +21,9 @@ logger = logging.getLogger(__name__)
 
 _CLIENT_TIMEOUT_SECONDS = 10
 _telegram_client: httpx.AsyncClient | None = None
+_ICT = timezone(timedelta(hours=7))
+_DAILY_LIMIT_ALERT_PATH = Path("/tmp/reeltime-bakong-daily-limit-alert")
+_BAKONG_DAILY_LIMIT_ERROR_CODE = 17
 
 
 def _get_telegram_client() -> httpx.AsyncClient:
@@ -97,3 +105,45 @@ async def notify_payment_succeeded(
         f"- Intent: {intent.intent_id}"
     )
     await send_telegram_message(text)
+
+
+def _ict_today() -> str:
+    return datetime.now(_ICT).date().isoformat()
+
+
+def claim_bakong_daily_limit_alert(
+    *,
+    day: str | None = None,
+    path: Path | None = None,
+) -> bool:
+    """True only for the first caller today (shared across API workers)."""
+    stamp = day or _ict_today()
+    state_path = path or _DAILY_LIMIT_ALERT_PATH
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    with state_path.open("a+", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        handle.seek(0)
+        last = handle.read().strip()
+        if last == stamp:
+            return False
+        handle.seek(0)
+        handle.truncate()
+        handle.write(stamp)
+        handle.flush()
+        return True
+
+
+def is_bakong_daily_limit_error(error_code: object) -> bool:
+    return error_code in (_BAKONG_DAILY_LIMIT_ERROR_CODE, str(_BAKONG_DAILY_LIMIT_ERROR_CODE))
+
+
+async def notify_bakong_daily_limit() -> None:
+    """Same ops chat as payment success. At most one message per ICT day."""
+    if not claim_bakong_daily_limit_alert():
+        return
+    await send_telegram_message(
+        "Reeltime Bakong alert\n"
+        "- NBC daily KHQR check limit reached (100/day)\n"
+        "- Paid-checks are paused until tomorrow (ICT midnight)\n"
+        "- QR generate still works — do not take real payments until reset"
+    )

@@ -9,16 +9,22 @@ from __future__ import annotations
 import time
 from threading import Lock
 
-# Unpaid checks are noisy (poll every ~1.5–4s + sweeper). Cache negatives briefly.
-_UNPAID_TTL_SECONDS = 2.0
+# NBC daily check quota is ~100/token. Cache unpaid 20s so one QR cannot burn it.
+_UNPAID_TTL_SECONDS = 20.0
+_RATE_LIMIT_TTL_SECONDS = 60.0
 # Paid is terminal for that md5 — keep long enough to cover settle + sibling walks.
 _PAID_TTL_SECONDS = 60.0
 # Skip sweeper settle when a client poll checked this intent recently.
 _INTENT_POLL_TTL_SECONDS = 8.0
 
 _lock = Lock()
-_md5_cache: dict[str, tuple[bool, float]] = {}
+# paid | unpaid | unknown
+_md5_cache: dict[str, tuple[str, float]] = {}
 _intent_polled_at: dict[str, float] = {}
+
+STATUS_PAID = "paid"
+STATUS_UNPAID = "unpaid"
+STATUS_UNKNOWN = "unknown"
 
 
 def _prune(now: float) -> None:
@@ -30,8 +36,23 @@ def _prune(now: float) -> None:
         del _intent_polled_at[k]
 
 
-def get_cached_md5_paid(md5: str) -> bool | None:
-    """Return cached paid flag, or None on miss/expiry."""
+def ttl_for_check(*, paid: bool, rate_limited: bool = False) -> float:
+    if paid:
+        return _PAID_TTL_SECONDS
+    if rate_limited:
+        return _RATE_LIMIT_TTL_SECONDS
+    return _UNPAID_TTL_SECONDS
+
+
+def ttl_for_status(status: str) -> float:
+    if status == STATUS_PAID:
+        return _PAID_TTL_SECONDS
+    if status == STATUS_UNKNOWN:
+        return _RATE_LIMIT_TTL_SECONDS
+    return _UNPAID_TTL_SECONDS
+
+
+def get_cached_md5_status(md5: str) -> str | None:
     if not md5:
         return None
     now = time.monotonic()
@@ -39,21 +60,39 @@ def get_cached_md5_paid(md5: str) -> bool | None:
         hit = _md5_cache.get(md5)
         if not hit:
             return None
-        paid, exp = hit
+        status, exp = hit
         if exp <= now:
             del _md5_cache[md5]
             return None
-        return paid
+        return status
 
 
-def set_cached_md5_paid(md5: str, paid: bool) -> None:
+def get_cached_md5_paid(md5: str) -> bool | None:
+    """Return cached paid flag, or None on miss/expiry."""
+    status = get_cached_md5_status(md5)
+    if status is None:
+        return None
+    return status == STATUS_PAID
+
+
+def set_cached_md5_status(md5: str, status: str, *, ttl: float | None = None) -> None:
     if not md5:
         return
     now = time.monotonic()
-    ttl = _PAID_TTL_SECONDS if paid else _UNPAID_TTL_SECONDS
+    if ttl is None:
+        ttl = ttl_for_status(status)
     with _lock:
         _prune(now)
-        _md5_cache[md5] = (paid, now + ttl)
+        _md5_cache[md5] = (status, now + ttl)
+
+
+def set_cached_md5_paid(md5: str, paid: bool, *, ttl: float | None = None) -> None:
+    if not md5:
+        return
+    status = STATUS_PAID if paid else STATUS_UNPAID
+    if ttl is None:
+        ttl = _PAID_TTL_SECONDS if paid else _UNPAID_TTL_SECONDS
+    set_cached_md5_status(md5, status, ttl=ttl)
 
 
 def mark_intent_polled(intent_id: str) -> None:

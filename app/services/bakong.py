@@ -125,24 +125,61 @@ async def _remote_generate_khqr(amount_usd: Decimal, bill_number: str) -> tuple[
     return body["qr_string"], body["md5"], body.get("merchant_name") or settings.bakong_merchant_name
 
 
-async def check_khqr_paid(md5: str) -> bool:
-    """True once Bakong reports the transaction for this md5 as settled."""
-    from app.services.bakong_check_cache import get_cached_md5_paid, set_cached_md5_paid
+def nbc_reports_paid(body: dict | None) -> bool:
+    """NBC marks a KHQR paid when responseCode is 0 (int or string)."""
+    if not body:
+        return False
+    return body.get("responseCode") in (0, "0", "00")
 
-    cached = get_cached_md5_paid(md5)
+
+async def probe_khqr_status(md5: str) -> str:
+    """paid, unpaid, or unknown (rate-limit / transport — do not treat as unpaid)."""
+    from app.services.bakong_check_cache import (
+        STATUS_PAID,
+        STATUS_UNKNOWN,
+        STATUS_UNPAID,
+        get_cached_md5_status,
+        set_cached_md5_status,
+    )
+
+    if not md5:
+        return STATUS_UNPAID
+    cached = get_cached_md5_status(md5)
     if cached is not None:
         return cached
 
     if _uses_remote_service():
-        paid = await _remote_check_khqr_paid(md5)
+        paid, inconclusive = await _remote_check_khqr_paid(md5)
     else:
-        paid = await _local_check_khqr_paid(md5)
+        paid, inconclusive = await _local_check_khqr_paid(md5)
 
-    set_cached_md5_paid(md5, paid)
-    return paid
+    if paid:
+        status = STATUS_PAID
+    elif inconclusive:
+        status = STATUS_UNKNOWN
+    else:
+        status = STATUS_UNPAID
+    set_cached_md5_status(md5, status)
+    return status
 
 
-async def _remote_check_khqr_paid(md5: str) -> bool:
+async def check_khqr_paid(md5: str) -> bool:
+    """True once Bakong reports the transaction for this md5 as settled."""
+    from app.services.bakong_check_cache import STATUS_PAID
+
+    return await probe_khqr_status(md5) == STATUS_PAID
+
+
+async def _alert_if_daily_limit(error_code: object) -> bool:
+    from app.services.telegram import is_bakong_daily_limit_error, notify_bakong_daily_limit
+
+    if not is_bakong_daily_limit_error(error_code):
+        return False
+    await notify_bakong_daily_limit()
+    return True
+
+
+async def _remote_check_khqr_paid(md5: str) -> tuple[bool, bool]:
     url = f"{_service_base()}/v1/check"
     try:
         response = await _get_http_client().post(
@@ -152,7 +189,11 @@ async def _remote_check_khqr_paid(md5: str) -> bool:
         )
     except httpx.HTTPError as exc:
         logger.warning("payment-bakong /v1/check request failed: %s", exc)
-        return False
+        return False, True
+
+    if response.status_code == 429:
+        logger.warning("payment-bakong /v1/check HTTP 429 md5=%s", md5[:8])
+        return False, True
 
     if response.status_code >= 400:
         logger.warning(
@@ -160,18 +201,33 @@ async def _remote_check_khqr_paid(md5: str) -> bool:
             response.status_code,
             response.text[:200],
         )
-        return False
+        return False, True
 
     try:
-        return bool(response.json().get("paid"))
+        body = response.json()
     except ValueError:
         logger.warning("payment-bakong /v1/check non-JSON body")
-        return False
+        return False, False
+
+    paid = bool(body.get("paid")) or nbc_reports_paid(body)
+    rate_limited = bool(body.get("rate_limited"))
+    error_code = body.get("error_code")
+    logger.info(
+        "Bakong check md5=%s paid=%s rate_limited=%s response_code=%s error_code=%s",
+        md5[:8],
+        paid,
+        rate_limited,
+        body.get("response_code"),
+        error_code,
+    )
+    if await _alert_if_daily_limit(error_code):
+        return paid, True
+    return paid, rate_limited
 
 
-async def _local_check_khqr_paid(md5: str) -> bool:
+async def _local_check_khqr_paid(md5: str) -> tuple[bool, bool]:
     if not settings.bakong_developer_token:
-        return False
+        return False, False
 
     url = f"{_nbc_api_base()}/check_transaction_by_md5"
     try:
@@ -185,7 +241,11 @@ async def _local_check_khqr_paid(md5: str) -> bool:
         )
     except httpx.HTTPError as exc:
         logger.warning("Bakong check_transaction_by_md5 request failed: %s", exc)
-        return False
+        return False, True
+
+    if response.status_code == 429:
+        logger.warning("Bakong check rate-limited (HTTP 429) md5=%s", md5[:8])
+        return False, True
 
     content_type = (response.headers.get("content-type") or "").lower()
     if response.status_code == 403 or "text/html" in content_type:
@@ -195,7 +255,7 @@ async def _local_check_khqr_paid(md5: str) -> bool:
             response.status_code,
             url,
         )
-        return False
+        return False, True
 
     try:
         body = response.json()
@@ -205,14 +265,22 @@ async def _local_check_khqr_paid(md5: str) -> bool:
             response.status_code,
             exc,
         )
-        return False
+        return False, False
 
-    if body.get("responseCode") == 0:
-        return True
-
+    paid = nbc_reports_paid(body)
+    logger.info(
+        "Bakong check md5=%s http=%s responseCode=%s errorCode=%s paid=%s",
+        md5[:8],
+        response.status_code,
+        body.get("responseCode"),
+        body.get("errorCode"),
+        paid,
+    )
     if body.get("errorCode") == _UNAUTHORIZED_ERROR_CODE:
         logger.error(
             "Bakong rejected our developer token as unauthorized — "
             "check BAKONG_DEVELOPER_TOKEN configuration."
         )
-    return False
+    if await _alert_if_daily_limit(body.get("errorCode")):
+        return paid, True
+    return paid, False

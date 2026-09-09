@@ -18,7 +18,11 @@ from app.models.series_purchase import SeriesPurchase
 from app.rate_limit import limiter
 from app.schemas.payment import BakongPaymentIntentRead, PaymentIntentCreate, PaymentIntentRead
 from app.services import bakong
-from app.services.bakong_settle import qr_is_stale, settle_bakong_intent_if_paid
+from app.services.bakong_settle import (
+    bakong_qr_confirmed_unpaid,
+    qr_is_stale,
+    settle_bakong_intent_if_paid,
+)
 from app.services.content_access import user_has_active_subscription
 from app.services.payment import checkout_url, create_intent
 from app.services.series import get_series_or_404
@@ -97,6 +101,29 @@ async def _regenerate_bakong_qr(intent: PaymentIntent) -> None:
     intent.bakong_qr = qr_string
     intent.bakong_merchant_name = merchant_name or intent.bakong_merchant_name
     intent.bakong_qr_created_at = datetime.now(timezone.utc)
+
+
+async def _mark_succeeded_if_already_purchased(
+    db: DBSession,
+    intent: PaymentIntent,
+) -> bool:
+    """Unstick QR UI when the movie is already owned but this intent is still pending."""
+    if intent.content_id is None:
+        return False
+    if intent.user_id is not None:
+        owner = Purchase.user_id == intent.user_id
+    elif intent.guest_id:
+        owner = Purchase.guest_id == intent.guest_id
+    else:
+        return False
+    existing = await db.execute(
+        select(Purchase.id).where(Purchase.content_id == intent.content_id, owner).limit(1)
+    )
+    if existing.scalar_one_or_none() is None:
+        return False
+    intent.status = "succeeded"
+    intent.resolved_at = datetime.now(timezone.utc)
+    return True
 
 
 @router.post("/movies/{content_id}/intent", response_model=PaymentIntentRead, status_code=201)
@@ -242,15 +269,18 @@ async def create_movie_bakong_intent(
         if not qr_is_stale(pending_intent):
             return _read_bakong_intent(pending_intent)
 
-        # Stale QR: one settle check, then regenerate if still unpaid.
+        # Stale QR: settle if paid. Only mint a new QR when NBC confirmed unpaid.
+        # If the check is rate-limited / down, keep this QR — regenerating is how
+        # customers got charged twice for the same movie.
         if await settle_bakong_intent_if_paid(db, pending_intent):
             await db.commit()
             await db.refresh(pending_intent)
             return _read_bakong_intent(pending_intent)
 
-        await _regenerate_bakong_qr(pending_intent)
-        await db.commit()
-        await db.refresh(pending_intent)
+        if await bakong_qr_confirmed_unpaid(pending_intent):
+            await _regenerate_bakong_qr(pending_intent)
+            await db.commit()
+            await db.refresh(pending_intent)
         return _read_bakong_intent(pending_intent)
 
     result = await db.execute(
@@ -338,15 +368,16 @@ async def create_series_unlock_bakong_intent(
         if not qr_is_stale(pending_intent):
             return _read_bakong_intent(pending_intent)
 
-        # Stale QR: one settle check, then regenerate if still unpaid.
+        # Stale QR: settle if paid. Only mint a new QR when NBC confirmed unpaid.
         if await settle_bakong_intent_if_paid(db, pending_intent):
             await db.commit()
             await db.refresh(pending_intent)
             return _read_bakong_intent(pending_intent)
 
-        await _regenerate_bakong_qr(pending_intent)
-        await db.commit()
-        await db.refresh(pending_intent)
+        if await bakong_qr_confirmed_unpaid(pending_intent):
+            await _regenerate_bakong_qr(pending_intent)
+            await db.commit()
+            await db.refresh(pending_intent)
         return _read_bakong_intent(pending_intent)
 
     amount = _validate_amount(_SERIES_UNLOCK_PRICE_USD)
@@ -484,15 +515,16 @@ async def create_subscription_bakong_intent(
         if not qr_is_stale(pending_intent):
             return _read_bakong_intent(pending_intent)
 
-        # Stale QR: one settle check, then regenerate if still unpaid.
+        # Stale QR: settle if paid. Only mint a new QR when NBC confirmed unpaid.
         if await settle_bakong_intent_if_paid(db, pending_intent):
             await db.commit()
             await db.refresh(pending_intent)
             return _read_bakong_intent(pending_intent)
 
-        await _regenerate_bakong_qr(pending_intent)
-        await db.commit()
-        await db.refresh(pending_intent)
+        if await bakong_qr_confirmed_unpaid(pending_intent):
+            await _regenerate_bakong_qr(pending_intent)
+            await db.commit()
+            await db.refresh(pending_intent)
         return _read_bakong_intent(pending_intent)
 
     order_id = f"sub-{uuid.uuid4().hex}"
@@ -550,6 +582,12 @@ async def get_payment_intent(
 
     if intent.method == "bakong" and intent.status == "pending" and intent.bakong_md5:
         from app.services.bakong_check_cache import mark_intent_polled
+
+        if await _mark_succeeded_if_already_purchased(db, intent):
+            await db.commit()
+            await db.refresh(intent)
+            mark_intent_polled(intent.intent_id)
+            return _read_intent(intent)
 
         if await settle_bakong_intent_if_paid(db, intent):
             await db.commit()
