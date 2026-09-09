@@ -1,9 +1,10 @@
+import secrets
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Header, HTTPException, Request, Response, status
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 
 from app.core.exceptions import ConflictError, NotFoundError
 from app.core.guest import get_guest_id, get_or_create_guest_id
@@ -18,6 +19,8 @@ from app.models.series_purchase import SeriesPurchase
 from app.rate_limit import limiter
 from app.schemas.payment import (
     BakongPaymentIntentRead,
+    BakongPendingIntentRead,
+    BakongPendingListRead,
     BakongWebhookPayload,
     PaymentIntentCreate,
     PaymentIntentRead,
@@ -651,6 +654,65 @@ def _bakong_webhook_reports_paid(payload: BakongWebhookPayload) -> bool:
         return True
     status_raw = (payload.status or "").strip().lower()
     return status_raw in {"success", "succeeded", "paid", "completed"}
+
+
+def _require_bakong_service_api_key(x_api_key: str | None) -> None:
+    """Auth for Cambodia payment-bakong → movie-api calls (shared service key)."""
+    expected = (get_settings().bakong_service_api_key or "").strip()
+    if not expected:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="BAKONG_SERVICE_API_KEY is not configured",
+        )
+    provided = (x_api_key or "").strip()
+    if not provided or not secrets.compare_digest(provided, expected):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing X-API-Key",
+        )
+
+
+@router.get("/bakong/pending", response_model=BakongPendingListRead)
+@limiter.limit("60/minute")
+async def list_pending_bakong_payments(
+    request: Request,
+    db: DBSession,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
+    """Recent unpaid Bakong QRs for the Cambodia watcher (no NBC call here)."""
+    _ = request
+    _require_bakong_service_api_key(x_api_key)
+    settings = get_settings()
+    window_minutes = min(120, max(5, settings.bakong_pending_window_minutes))
+    limit = min(50, max(1, settings.bakong_pending_limit))
+    window_start = datetime.now(timezone.utc) - timedelta(minutes=window_minutes)
+    qr_age = func.coalesce(PaymentIntent.bakong_qr_created_at, PaymentIntent.created_at)
+
+    result = await db.execute(
+        select(PaymentIntent)
+        .where(
+            PaymentIntent.method == "bakong",
+            PaymentIntent.status == "pending",
+            PaymentIntent.bakong_md5.is_not(None),
+            qr_age >= window_start,
+        )
+        .order_by(qr_age.desc())
+        .limit(limit)
+    )
+    intents = result.scalars().all()
+    return BakongPendingListRead(
+        items=[
+            BakongPendingIntentRead(
+                intent_id=intent.intent_id,
+                md5=intent.bakong_md5 or "",
+                prev_md5=intent.bakong_prev_md5,
+                created_at=intent.created_at,
+                qr_created_at=intent.bakong_qr_created_at,
+            )
+            for intent in intents
+            if intent.bakong_md5
+        ]
+    )
 
 
 @router.post("/bakong/webhook")

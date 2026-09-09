@@ -132,6 +132,9 @@ class Settings(BaseSettings):
     bakong_sweeper_batch_size: int = 2
     # Shared secret for POST /payments/bakong/webhook (X-Bakong-Webhook-Secret).
     bakong_webhook_secret: str = ""
+    # How far back GET /payments/bakong/pending looks (Cambodia watcher feed).
+    bakong_pending_window_minutes: int = 45
+    bakong_pending_limit: int = 20
 
     # Transcode worker (admin proxy only — never expose key to browsers)
     transcode_service_url: str = ""
