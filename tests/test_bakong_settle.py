@@ -58,8 +58,19 @@ async def test_bakong_md5s_paid_checks_previous():
     async def probe(md5: str) -> str:
         return STATUS_PAID if md5 == "old" else STATUS_UNPAID
 
-    with patch("app.services.bakong_settle.bakong.probe_khqr_status", side_effect=probe):
+    with (
+        patch("app.services.bakong_settle.nbc_settle_enabled", return_value=True),
+        patch("app.services.bakong_settle.bakong.probe_khqr_status", side_effect=probe),
+        patch("app.services.bakong_settle.bakong.check_khqr_paid", AsyncMock(return_value=True)),
+    ):
         assert await bakong_md5s_paid(intent) is True
+
+
+@pytest.mark.asyncio
+async def test_bakong_md5s_paid_disabled_without_nbc():
+    intent = _intent()
+    with patch("app.services.bakong_settle.nbc_settle_enabled", return_value=False):
+        assert await bakong_md5s_paid(intent) is False
 
 
 @pytest.mark.asyncio
@@ -67,10 +78,13 @@ async def test_bakong_md5s_paid_skips_prev_when_unknown():
     from app.services.bakong_check_cache import STATUS_UNKNOWN
 
     intent = _intent(bakong_md5="new", bakong_prev_md5="old")
-    with patch(
-        "app.services.bakong_settle.bakong.probe_khqr_status",
-        AsyncMock(return_value=STATUS_UNKNOWN),
-    ) as probe:
+    with (
+        patch("app.services.bakong_settle.nbc_settle_enabled", return_value=True),
+        patch(
+            "app.services.bakong_settle.bakong.probe_khqr_status",
+            AsyncMock(return_value=STATUS_UNKNOWN),
+        ) as probe,
+    ):
         assert await bakong_md5s_paid(intent) is False
         assert probe.await_count == 1
 
@@ -81,6 +95,7 @@ async def test_settle_bakong_intent_if_paid_fulfills():
     db = AsyncMock()
 
     with (
+        patch("app.services.bakong_settle.nbc_settle_enabled", return_value=True),
         patch("app.services.bakong_settle.bakong_md5s_paid", AsyncMock(return_value=True)),
         patch(
             "app.services.bakong_settle.fulfill_payment_intent",
@@ -92,14 +107,32 @@ async def test_settle_bakong_intent_if_paid_fulfills():
 
 
 @pytest.mark.asyncio
+async def test_settle_noop_when_nbc_disabled():
+    intent = _intent()
+    db = AsyncMock()
+    with (
+        patch("app.services.bakong_settle.nbc_settle_enabled", return_value=False),
+        patch(
+            "app.services.bakong_settle.fulfill_payment_intent",
+            AsyncMock(),
+        ) as fulfill,
+    ):
+        assert await settle_bakong_intent_if_paid(db, intent) is False
+        fulfill.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_bakong_qr_confirmed_unpaid_false_when_unknown():
     from app.services.bakong_check_cache import STATUS_UNKNOWN
     from app.services.bakong_settle import bakong_qr_confirmed_unpaid
 
     intent = _intent()
-    with patch(
-        "app.services.bakong_settle.bakong.probe_khqr_status",
-        AsyncMock(return_value=STATUS_UNKNOWN),
+    with (
+        patch("app.services.bakong_settle.nbc_settle_enabled", return_value=True),
+        patch(
+            "app.services.bakong_settle.bakong.probe_khqr_status",
+            AsyncMock(return_value=STATUS_UNKNOWN),
+        ),
     ):
         assert await bakong_qr_confirmed_unpaid(intent) is False
 
@@ -110,10 +143,22 @@ async def test_bakong_qr_confirmed_unpaid_true_when_unpaid():
     from app.services.bakong_settle import bakong_qr_confirmed_unpaid
 
     intent = _intent()
-    with patch(
-        "app.services.bakong_settle.bakong.probe_khqr_status",
-        AsyncMock(return_value=STATUS_UNPAID),
+    with (
+        patch("app.services.bakong_settle.nbc_settle_enabled", return_value=True),
+        patch(
+            "app.services.bakong_settle.bakong.probe_khqr_status",
+            AsyncMock(return_value=STATUS_UNPAID),
+        ),
     ):
+        assert await bakong_qr_confirmed_unpaid(intent) is True
+
+
+@pytest.mark.asyncio
+async def test_bakong_qr_confirmed_unpaid_true_without_nbc():
+    from app.services.bakong_settle import bakong_qr_confirmed_unpaid
+
+    intent = _intent()
+    with patch("app.services.bakong_settle.nbc_settle_enabled", return_value=False):
         assert await bakong_qr_confirmed_unpaid(intent) is True
 
 
@@ -127,7 +172,10 @@ async def test_bakong_qr_confirmed_unpaid_false_when_prev_paid():
     async def probe(md5: str) -> str:
         return STATUS_PAID if md5 == "old" else STATUS_UNPAID
 
-    with patch("app.services.bakong_settle.bakong.probe_khqr_status", side_effect=probe):
+    with (
+        patch("app.services.bakong_settle.nbc_settle_enabled", return_value=True),
+        patch("app.services.bakong_settle.bakong.probe_khqr_status", side_effect=probe),
+    ):
         assert await bakong_qr_confirmed_unpaid(intent) is False
 
 
@@ -137,6 +185,7 @@ async def test_settle_skips_when_unpaid():
     db = AsyncMock()
 
     with (
+        patch("app.services.bakong_settle.nbc_settle_enabled", return_value=True),
         patch("app.services.bakong_settle.bakong_md5s_paid", AsyncMock(return_value=False)),
         patch(
             "app.services.bakong_settle.fulfill_payment_intent",
@@ -161,6 +210,7 @@ async def test_settle_pending_movie_bakong_for_buyer():
     db.execute = AsyncMock(return_value=result)
 
     with (
+        patch("app.services.bakong_settle.nbc_settle_enabled", return_value=True),
         patch("app.services.bakong_quota.bakong_checks_blocked", return_value=False),
         patch(
             "app.services.bakong_settle.settle_bakong_intent_if_paid",
@@ -174,3 +224,20 @@ async def test_settle_pending_movie_bakong_for_buyer():
             is True
         )
         settle.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_settle_pending_movie_skipped_without_nbc():
+    from uuid import uuid4
+
+    from app.services.bakong_settle import settle_pending_movie_bakong_for_buyer
+
+    db = AsyncMock()
+    with patch("app.services.bakong_settle.nbc_settle_enabled", return_value=False):
+        assert (
+            await settle_pending_movie_bakong_for_buyer(
+                db, content_id=uuid4(), user_id=uuid4(), guest_id=None
+            )
+            is False
+        )
+    db.execute.assert_not_awaited()

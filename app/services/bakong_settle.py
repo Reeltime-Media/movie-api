@@ -1,4 +1,10 @@
-"""Bakong settle helpers — check current/prev md5 and fulfill when paid."""
+"""Bakong settle helpers.
+
+Default mode (``bakong_nbc_settle_enabled=false``): never call NBC. Paid
+detection is admin Mark paid + ``POST /payments/bakong/webhook`` only.
+
+Optional legacy mode enables ``check_transaction_by_md5`` settle.
+"""
 
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
@@ -11,6 +17,10 @@ from app.models.payment_intent import PaymentIntent
 from app.services import bakong
 from app.services.bakong_check_cache import STATUS_PAID, STATUS_UNKNOWN, STATUS_UNPAID
 from app.services.payment_fulfillment import fulfill_payment_intent
+
+
+def nbc_settle_enabled() -> bool:
+    return bool(get_settings().bakong_nbc_settle_enabled)
 
 
 def qr_issued_at(intent: PaymentIntent) -> datetime | None:
@@ -29,9 +39,9 @@ def qr_is_stale(intent: PaymentIntent, *, now: datetime | None = None) -> bool:
 
 
 async def bakong_md5s_paid(intent: PaymentIntent) -> bool:
-    """True if current or previous KHQR md5 is settled at Bakong."""
-    from app.services.bakong_check_cache import STATUS_PAID, STATUS_UNKNOWN
-
+    """True if current or previous KHQR md5 is settled at Bakong (NBC mode only)."""
+    if not nbc_settle_enabled():
+        return False
     if not intent.bakong_md5:
         return False
     status = await bakong.probe_khqr_status(intent.bakong_md5)
@@ -50,11 +60,14 @@ async def bakong_md5s_paid(intent: PaymentIntent) -> bool:
 
 
 async def bakong_qr_confirmed_unpaid(intent: PaymentIntent) -> bool:
-    """True only when NBC confirmed current (and prev) KHQR are unpaid.
+    """Whether it is safe to mint a replacement QR for a stale intent.
 
-    Rate-limits / errors are inconclusive — keep the existing QR so we do not
-    issue a second bill for a payment we failed to see.
+    Without NBC: allow regen on TTL alone (prev md5 kept for late admin/webhook).
+    With NBC: only when checks confirm unpaid.
     """
+    if not nbc_settle_enabled():
+        return True
+
     md5s: list[str] = []
     if intent.bakong_md5:
         md5s.append(intent.bakong_md5)
@@ -77,10 +90,12 @@ async def settle_bakong_intent_if_paid(
     db: AsyncSession,
     intent: PaymentIntent,
 ) -> bool:
-    """Fulfill when Bakong reports paid. Returns True if intent is succeeded after."""
+    """Fulfill when Bakong NBC reports paid. No-op when NBC settle is disabled."""
     if intent.status == "succeeded":
         return True
     if intent.method != "bakong" or intent.status != "pending":
+        return False
+    if not nbc_settle_enabled():
         return False
     if not await bakong_md5s_paid(intent):
         return False
@@ -95,12 +110,9 @@ async def settle_pending_movie_bakong_for_buyer(
     user_id: UUID | None,
     guest_id: str | None,
 ) -> bool:
-    """Settle any pending Bakong movie QR for this buyer+title.
-
-    Safety net when the checkout tab closed or NBC checks were rate-limited
-    after the customer already paid — play/authorize and reopen-checkout call
-    this so a paid QR still unlocks the movie.
-    """
+    """Legacy NBC safety net on playback authorize. Disabled in self-settle mode."""
+    if not nbc_settle_enabled():
+        return False
     from app.services.bakong_quota import bakong_checks_blocked
 
     if user_id is None and not guest_id:
