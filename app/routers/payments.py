@@ -2,8 +2,8 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from fastapi import APIRouter, HTTPException, Request, Response, status
-from sqlalchemy import select
+from fastapi import APIRouter, Header, HTTPException, Request, Response, status
+from sqlalchemy import or_, select
 
 from app.core.exceptions import ConflictError, NotFoundError
 from app.core.guest import get_guest_id, get_or_create_guest_id
@@ -16,7 +16,12 @@ from app.models.purchase import Purchase
 from app.models.series import Series
 from app.models.series_purchase import SeriesPurchase
 from app.rate_limit import limiter
-from app.schemas.payment import BakongPaymentIntentRead, PaymentIntentCreate, PaymentIntentRead
+from app.schemas.payment import (
+    BakongPaymentIntentRead,
+    BakongWebhookPayload,
+    PaymentIntentCreate,
+    PaymentIntentRead,
+)
 from app.services import bakong
 from app.services.bakong_settle import (
     bakong_qr_confirmed_unpaid,
@@ -25,6 +30,7 @@ from app.services.bakong_settle import (
 )
 from app.services.content_access import user_has_active_subscription
 from app.services.payment import checkout_url, create_intent
+from app.services.payment_fulfillment import fulfill_payment_intent
 from app.services.series import get_series_or_404
 from app.services.subscription_plans import resolve_active_plan
 
@@ -264,15 +270,22 @@ async def create_movie_bakong_intent(
     )
     pending_intent = pending.scalars().first()
     if pending_intent:
-        # Fast path: reuse a fresh QR immediately. Settle checks happen on poll /
-        # sweeper — do not block QR display on a Bakong round-trip here.
+        # Fresh QR: reuse immediately. Do NOT NBC-check here — open checkout
+        # tabs + sweeper already poll; extra checks burn the daily quota.
         if not qr_is_stale(pending_intent):
+            if await _mark_succeeded_if_already_purchased(db, pending_intent):
+                await db.commit()
+                await db.refresh(pending_intent)
             return _read_bakong_intent(pending_intent)
 
         # Stale QR: settle if paid. Only mint a new QR when NBC confirmed unpaid.
         # If the check is rate-limited / down, keep this QR — regenerating is how
         # customers got charged twice for the same movie.
         if await settle_bakong_intent_if_paid(db, pending_intent):
+            await db.commit()
+            await db.refresh(pending_intent)
+            return _read_bakong_intent(pending_intent)
+        if await _mark_succeeded_if_already_purchased(db, pending_intent):
             await db.commit()
             await db.refresh(pending_intent)
             return _read_bakong_intent(pending_intent)
@@ -553,7 +566,7 @@ async def create_subscription_bakong_intent(
 
 
 @router.get("/intents/{intent_id}", response_model=PaymentIntentRead)
-@limiter.limit("60/minute")
+@limiter.limit("30/minute")
 async def get_payment_intent(
     intent_id: str,
     db: DBSession,
@@ -582,10 +595,17 @@ async def get_payment_intent(
 
     if intent.method == "bakong" and intent.status == "pending" and intent.bakong_md5:
         from app.services.bakong_check_cache import mark_intent_polled
+        from app.services.bakong_quota import bakong_checks_blocked
 
         if await _mark_succeeded_if_already_purchased(db, intent):
             await db.commit()
             await db.refresh(intent)
+            mark_intent_polled(intent.intent_id)
+            return _read_intent(intent)
+
+        # When NBC quota is exhausted, do not probe — return pending and let
+        # playback authorize / post-midnight sweeper settle the paid QR later.
+        if bakong_checks_blocked():
             mark_intent_polled(intent.intent_id)
             return _read_intent(intent)
 
@@ -602,7 +622,8 @@ async def get_payment_intent(
                 else (PaymentIntent.guest_id == intent.guest_id)
             )
             siblings = await db.execute(
-                select(PaymentIntent).where(
+                select(PaymentIntent)
+                .where(
                     identity,
                     PaymentIntent.method == "bakong",
                     PaymentIntent.kind == "single",
@@ -611,14 +632,102 @@ async def get_payment_intent(
                     PaymentIntent.intent_id != intent.intent_id,
                     PaymentIntent.bakong_md5.is_not(None),
                 )
+                .order_by(PaymentIntent.created_at.desc())
+                .limit(1)
             )
-            for sibling in siblings.scalars().all():
-                if await settle_bakong_intent_if_paid(db, sibling):
-                    intent.status = "succeeded"
-                    intent.resolved_at = sibling.resolved_at
-                    await db.commit()
-                    await db.refresh(intent)
-                    break
+            sibling = siblings.scalars().first()
+            if sibling and await settle_bakong_intent_if_paid(db, sibling):
+                intent.status = "succeeded"
+                intent.resolved_at = sibling.resolved_at
+                await db.commit()
+                await db.refresh(intent)
         mark_intent_polled(intent.intent_id)
 
     return _read_intent(intent)
+
+
+def _bakong_webhook_reports_paid(payload: BakongWebhookPayload) -> bool:
+    if payload.paid is True:
+        return True
+    status_raw = (payload.status or "").strip().lower()
+    return status_raw in {"success", "succeeded", "paid", "completed"}
+
+
+@router.post("/bakong/webhook")
+@limiter.limit("120/minute")
+async def bakong_payment_webhook(
+    request: Request,
+    db: DBSession,
+    payload: BakongWebhookPayload,
+    x_bakong_webhook_secret: str | None = Header(default=None),
+):
+    """Settle a Bakong intent from an external watcher (no NBC call).
+
+    Auth: header ``X-Bakong-Webhook-Secret`` must match ``BAKONG_WEBHOOK_SECRET``.
+    Compatible with self-hosted KHQR watchers that POST ``{md5, status}``.
+    """
+    _ = request
+    settings = get_settings()
+    expected = (settings.bakong_webhook_secret or "").strip()
+    if not expected:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Bakong webhook is not configured",
+        )
+    provided = (x_bakong_webhook_secret or "").strip()
+    if provided != expected:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid webhook secret",
+        )
+
+    if not _bakong_webhook_reports_paid(payload):
+        return {"status": "ignored", "reason": "not_paid"}
+
+    intent: PaymentIntent | None = None
+    if payload.intent_id:
+        result = await db.execute(
+            select(PaymentIntent).where(PaymentIntent.intent_id == payload.intent_id)
+        )
+        intent = result.scalar_one_or_none()
+    elif payload.md5:
+        md5 = payload.md5.strip()
+        result = await db.execute(
+            select(PaymentIntent)
+            .where(
+                PaymentIntent.method == "bakong",
+                or_(
+                    PaymentIntent.bakong_md5 == md5,
+                    PaymentIntent.bakong_prev_md5 == md5,
+                ),
+            )
+            .order_by(PaymentIntent.created_at.desc())
+            .limit(1)
+        )
+        intent = result.scalars().first()
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="md5 or intent_id is required",
+        )
+
+    if not intent:
+        # Acknowledge so watchers do not retry forever for unknown QRs.
+        return {"status": "ok", "matched": False}
+
+    if intent.status == "succeeded":
+        return {
+            "status": "ok",
+            "matched": True,
+            "intent_id": intent.intent_id,
+            "already_succeeded": True,
+        }
+
+    await fulfill_payment_intent(db, intent, bank="bakong_webhook")
+    await db.commit()
+    return {
+        "status": "ok",
+        "matched": True,
+        "intent_id": intent.intent_id,
+        "already_succeeded": False,
+    }

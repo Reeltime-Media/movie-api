@@ -1,16 +1,18 @@
 import uuid
 from datetime import date, datetime, time, timezone
 
-from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import func, or_, select
+from fastapi import APIRouter, HTTPException, Query, status
+from sqlalchemy import or_, select
 
+from app.core.exceptions import NotFoundError
 from app.dependencies import AdminUser, DBSession
 from app.models.payment_intent import PaymentIntent
 from app.models.user import User
-from app.schemas.admin import AdminPaymentRead
+from app.schemas.admin import AdminPaymentFulfillRead, AdminPaymentRead
 from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
 from app.services.admin.dates import parse_filter_date
 from app.services.pagination import paginate_query
+from app.services.payment_fulfillment import fulfill_payment_intent
 
 router = APIRouter()
 
@@ -96,6 +98,7 @@ async def list_admin_payments(
                 user_email=email or "Guest (no account)",
                 user_full_name=full_name,
                 kind=intent.kind,
+                method=intent.method,
                 content_id=intent.content_id,
                 amount_usd=intent.amount_usd,
                 status=intent.status,
@@ -107,4 +110,41 @@ async def list_admin_payments(
         total=total,
         page=pagination.page,
         page_size=pagination.page_size,
+    )
+
+
+@router.post(
+    "/payments/{intent_id}/fulfill",
+    response_model=AdminPaymentFulfillRead,
+)
+async def admin_fulfill_payment(
+    intent_id: str,
+    db: DBSession,
+    admin: AdminUser,
+):
+    """Mark a pending payment succeeded after ops verifies the bank/Bakong receipt.
+
+    Does not call NBC. Idempotent if already succeeded.
+    """
+    _ = admin
+    result = await db.execute(
+        select(PaymentIntent).where(PaymentIntent.intent_id == intent_id)
+    )
+    intent = result.scalar_one_or_none()
+    if not intent:
+        raise NotFoundError("Payment intent not found")
+    if intent.status not in ("pending", "succeeded"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot fulfill intent in status={intent.status}",
+        )
+
+    await fulfill_payment_intent(db, intent, bank="manual_bakong")
+    await db.commit()
+    await db.refresh(intent)
+    return AdminPaymentFulfillRead(
+        intent_id=intent.intent_id,
+        order_id=intent.order_id,
+        status=intent.status,
+        resolved_at=intent.resolved_at,
     )

@@ -141,12 +141,17 @@ async def probe_khqr_status(md5: str) -> str:
         get_cached_md5_status,
         set_cached_md5_status,
     )
+    from app.services.bakong_quota import bakong_checks_blocked, note_bakong_rate_limited
 
     if not md5:
         return STATUS_UNPAID
     cached = get_cached_md5_status(md5)
     if cached is not None:
         return cached
+
+    if bakong_checks_blocked():
+        set_cached_md5_status(md5, STATUS_UNKNOWN)
+        return STATUS_UNKNOWN
 
     if _uses_remote_service():
         paid, inconclusive = await _remote_check_khqr_paid(md5)
@@ -155,8 +160,12 @@ async def probe_khqr_status(md5: str) -> str:
 
     if paid:
         status = STATUS_PAID
+        from app.services.bakong_quota import clear_bakong_rate_limit
+
+        clear_bakong_rate_limit()
     elif inconclusive:
         status = STATUS_UNKNOWN
+        note_bakong_rate_limited()
     else:
         status = STATUS_UNPAID
     set_cached_md5_status(md5, status)

@@ -13,8 +13,8 @@ def test_nbc_reports_paid_accepts_int_and_string_zero():
 
 def test_ttl_for_check_backs_off_rate_limits():
     assert ttl_for_check(paid=True) == 60.0
-    assert ttl_for_check(paid=False) == 20.0
-    assert ttl_for_check(paid=False, rate_limited=True) == 60.0
+    assert ttl_for_check(paid=False) == 45.0
+    assert ttl_for_check(paid=False, rate_limited=True) == 120.0
 
 
 def test_unknown_status_is_not_treated_as_paid():

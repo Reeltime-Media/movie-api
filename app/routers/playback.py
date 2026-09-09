@@ -62,10 +62,23 @@ async def authorize_playback(
     content = await get_published_content_or_404(db, content_id, user=user)
     guest_id = None if user else get_guest_id(request)
     if not await can_access_content(db, user, guest_id, content):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have access to this title",
-        )
+        # Customer may have paid KHQR while NBC checks were down / tab closed.
+        # One settle attempt here unlocks the movie without a second charge.
+        if content.type == "single":
+            from app.services.bakong_settle import settle_pending_movie_bakong_for_buyer
+
+            if await settle_pending_movie_bakong_for_buyer(
+                db,
+                content_id=content.id,
+                user_id=user.id if user else None,
+                guest_id=guest_id,
+            ):
+                await db.commit()
+        if not await can_access_content(db, user, guest_id, content):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have access to this title",
+            )
     if not content.hls_master_key:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

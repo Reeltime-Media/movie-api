@@ -51,13 +51,28 @@ class TestQrIsStale:
 
 @pytest.mark.asyncio
 async def test_bakong_md5s_paid_checks_previous():
+    from app.services.bakong_check_cache import STATUS_PAID, STATUS_UNPAID
+
     intent = _intent(bakong_md5="new", bakong_prev_md5="old")
 
-    async def check(md5: str) -> bool:
-        return md5 == "old"
+    async def probe(md5: str) -> str:
+        return STATUS_PAID if md5 == "old" else STATUS_UNPAID
 
-    with patch("app.services.bakong_settle.bakong.check_khqr_paid", side_effect=check):
+    with patch("app.services.bakong_settle.bakong.probe_khqr_status", side_effect=probe):
         assert await bakong_md5s_paid(intent) is True
+
+
+@pytest.mark.asyncio
+async def test_bakong_md5s_paid_skips_prev_when_unknown():
+    from app.services.bakong_check_cache import STATUS_UNKNOWN
+
+    intent = _intent(bakong_md5="new", bakong_prev_md5="old")
+    with patch(
+        "app.services.bakong_settle.bakong.probe_khqr_status",
+        AsyncMock(return_value=STATUS_UNKNOWN),
+    ) as probe:
+        assert await bakong_md5s_paid(intent) is False
+        assert probe.await_count == 1
 
 
 @pytest.mark.asyncio
@@ -130,3 +145,32 @@ async def test_settle_skips_when_unpaid():
     ):
         assert await settle_bakong_intent_if_paid(db, intent) is False
         fulfill.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_settle_pending_movie_bakong_for_buyer():
+    from uuid import uuid4
+
+    from app.services.bakong_settle import settle_pending_movie_bakong_for_buyer
+
+    content_id = uuid4()
+    user_id = uuid4()
+    intent = _intent(content_id=content_id, user_id=user_id, guest_id=None)
+    result = SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [intent]))
+    db = AsyncMock()
+    db.execute = AsyncMock(return_value=result)
+
+    with (
+        patch("app.services.bakong_quota.bakong_checks_blocked", return_value=False),
+        patch(
+            "app.services.bakong_settle.settle_bakong_intent_if_paid",
+            AsyncMock(return_value=True),
+        ) as settle,
+    ):
+        assert (
+            await settle_pending_movie_bakong_for_buyer(
+                db, content_id=content_id, user_id=user_id, guest_id=None
+            )
+            is True
+        )
+        settle.assert_awaited_once()

@@ -38,3 +38,12 @@ class BakongPaymentIntentRead(BaseModel):
     merchant_name: str = ""
 
     model_config = {"from_attributes": True}
+
+
+class BakongWebhookPayload(BaseModel):
+    """External Bakong paid notification (self-hosted watcher / future bank hook)."""
+
+    md5: str | None = None
+    intent_id: str | None = None
+    status: str | None = None
+    paid: bool | None = None
