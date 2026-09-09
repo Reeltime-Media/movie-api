@@ -9,14 +9,14 @@ from __future__ import annotations
 import time
 from threading import Lock
 
-# NBC daily check quota is ~100/token. Cache unpaid long enough that one open
-# QR tab (~5s UI poll) cannot burn the day — poll hits cache most of the time.
-_UNPAID_TTL_SECONDS = 45.0
+# NBC daily check quota is ~100/token. Keep unpaid TTL short so active
+# checkout (~3s polls) can see a payment within a few seconds of pay.
+_UNPAID_TTL_SECONDS = 5.0
 _RATE_LIMIT_TTL_SECONDS = 120.0
 # Paid is terminal for that md5 — keep long enough to cover settle + sibling walks.
 _PAID_TTL_SECONDS = 60.0
 # Skip sweeper settle when a client poll checked this intent recently.
-_INTENT_POLL_TTL_SECONDS = 30.0
+_INTENT_POLL_TTL_SECONDS = 8.0
 
 _lock = Lock()
 # paid | unpaid | unknown
