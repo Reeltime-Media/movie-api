@@ -24,6 +24,7 @@ class SeriesUpdate(BaseModel):
     rating: Decimal | None = None
     monthly_price_usd: Decimal | None = None
     is_published: bool | None = None
+    is_short_movie: bool | None = None
     trailer_url: str | None = None
     poster_key: str | None = None  # set after uploading poster via /poster/start
     banner_key: str | None = None  # set after uploading banner via /banner/start
