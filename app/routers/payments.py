@@ -527,7 +527,7 @@ async def create_subscription_bakong_intent(
             await db.refresh(pending_intent)
         return _read_bakong_intent(pending_intent)
 
-    order_id = f"sub-{uuid.uuid4().hex}"
+    order_id = f"sub-{plan.code}-{uuid.uuid4().hex}"
     bill_number = uuid.uuid4().hex[:20]
     qr_string, md5, merchant_name = await bakong.generate_khqr(amount, bill_number)
     now = datetime.now(timezone.utc)

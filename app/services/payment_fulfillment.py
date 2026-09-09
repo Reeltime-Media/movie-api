@@ -10,8 +10,46 @@ from app.models.purchase import Purchase
 from app.models.series_purchase import SeriesPurchase
 from app.models.subscription import Subscription
 from app.models.subscription_payment import SubscriptionPayment
-from app.services.subscription_plans import get_subscription_plan_by_code, resolve_active_plan
+from app.services.subscription_plans import (
+    get_subscription_plan_by_code,
+    list_subscription_plans,
+    resolve_active_plan,
+)
 from app.services.telegram import notify_payment_succeeded
+
+
+def _plan_code_from_order_id(order_id: str | None) -> str | None:
+    """Parse plan code from order_id shaped like sub-{plan_code}-{hex}."""
+    if not order_id or not order_id.startswith("sub-"):
+        return None
+    rest = order_id[4:]
+    # Trailing token is uuid hex (no dashes). Plan codes use underscores.
+    if "-" not in rest:
+        return None
+    plan_code, _tail = rest.rsplit("-", 1)
+    return plan_code or None
+
+
+async def _resolve_plan_for_subscription_intent(
+    db: AsyncSession,
+    intent: PaymentIntent,
+):
+    """Prefer the plan the customer actually paid for (order_id / amount)."""
+    coded = _plan_code_from_order_id(intent.order_id)
+    if coded:
+        plan = await get_subscription_plan_by_code(db, coded)
+        if plan and plan.is_active:
+            return plan
+
+    plans = await list_subscription_plans(db, active_only=True)
+    amount_matches = [p for p in plans if p.price_usd == intent.amount_usd]
+    if len(amount_matches) == 1:
+        return amount_matches[0]
+    if amount_matches:
+        # Stable pick if two plans share a price — prefer longest duration.
+        return max(amount_matches, key=lambda p: p.billing_interval_days)
+
+    return await resolve_active_plan(db)
 
 
 async def fulfill_payment_intent(
@@ -80,18 +118,13 @@ async def fulfill_payment_intent(
     if existing_payment.scalar_one_or_none():
         return
 
-    default_plan = await resolve_active_plan(db)
+    plan = await _resolve_plan_for_subscription_intent(db, intent)
     sub_result = await db.execute(
         select(Subscription)
         .where(Subscription.user_id == intent.user_id)
         .order_by(Subscription.current_period_end.desc())
     )
     subscription = sub_result.scalars().first()
-    plan = default_plan
-    if subscription:
-        existing_plan = await get_subscription_plan_by_code(db, subscription.plan)
-        if existing_plan:
-            plan = existing_plan
 
     if subscription and subscription.current_period_end > now:
         period_start = subscription.current_period_end
@@ -112,6 +145,7 @@ async def fulfill_payment_intent(
         await db.flush()
     else:
         subscription.status = "active"
+        subscription.plan = plan.code
         if subscription.current_period_end <= now:
             subscription.current_period_start = now
         subscription.current_period_end = period_end
