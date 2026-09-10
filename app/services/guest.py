@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.payment_intent import PaymentIntent
 from app.models.purchase import Purchase
+from app.models.series_purchase import SeriesPurchase
 
 
 async def claim_guest_purchases(
@@ -20,6 +21,11 @@ async def claim_guest_purchases(
     await db.execute(
         update(Purchase)
         .where(Purchase.guest_id == guest_id)
+        .values(user_id=user_id, guest_id=None)
+    )
+    await db.execute(
+        update(SeriesPurchase)
+        .where(SeriesPurchase.guest_id == guest_id)
         .values(user_id=user_id, guest_id=None)
     )
     await db.execute(

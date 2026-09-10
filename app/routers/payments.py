@@ -30,7 +30,7 @@ from app.services.bakong_settle import (
     qr_is_stale,
     settle_bakong_intent_if_paid,
 )
-from app.services.content_access import user_has_active_subscription
+from app.services.content_access import has_series_purchase, user_has_active_subscription
 from app.services.payment import checkout_url, create_intent
 from app.services.series import get_series_or_404
 from app.services.subscription_plans import resolve_active_plan
@@ -114,17 +114,32 @@ async def _mark_succeeded_if_already_purchased(
     db: DBSession,
     intent: PaymentIntent,
 ) -> bool:
-    """Unstick QR UI when the movie is already owned but this intent is still pending."""
-    if intent.content_id is None:
-        return False
+    """Unstick QR UI when the title is already owned but this intent is still pending."""
     if intent.user_id is not None:
-        owner = Purchase.user_id == intent.user_id
+        movie_owner = Purchase.user_id == intent.user_id
+        series_owner = SeriesPurchase.user_id == intent.user_id
     elif intent.guest_id:
-        owner = Purchase.guest_id == intent.guest_id
+        movie_owner = Purchase.guest_id == intent.guest_id
+        series_owner = SeriesPurchase.guest_id == intent.guest_id
     else:
         return False
+
+    if intent.kind == "series" and intent.series_id is not None:
+        existing = await db.execute(
+            select(SeriesPurchase.id)
+            .where(SeriesPurchase.series_id == intent.series_id, series_owner)
+            .limit(1)
+        )
+        if existing.scalar_one_or_none() is None:
+            return False
+        intent.status = "succeeded"
+        intent.resolved_at = datetime.now(timezone.utc)
+        return True
+
+    if intent.content_id is None:
+        return False
     existing = await db.execute(
-        select(Purchase.id).where(Purchase.content_id == intent.content_id, owner).limit(1)
+        select(Purchase.id).where(Purchase.content_id == intent.content_id, movie_owner).limit(1)
     )
     if existing.scalar_one_or_none() is None:
         return False
@@ -344,28 +359,32 @@ async def create_series_unlock_bakong_intent(
     slug: str,
     db: DBSession,
     request: Request,
-    current_user: CurrentUser,
+    response: Response,
+    user: OptionalUser,
 ):
-    """Inline KHQR checkout for a one-time "unlock this series" purchase —
-    mirrors the movie Bakong flow. The client polls GET /payments/intents/{id}."""
+    """Inline KHQR checkout for a one-time series unlock — same guest/user
+    Bakong flow as a single movie. No subscription package required."""
     series = await get_series_or_404(db, slug, published_only=True)
+    guest_id = None if user else get_or_create_guest_id(request, response)
+    identity_filter = (
+        (PaymentIntent.user_id == user.id) if user else (PaymentIntent.guest_id == guest_id)
+    )
 
-    if await user_has_active_subscription(db, current_user.id):
+    if user and await user_has_active_subscription(db, user.id):
         raise ConflictError("You already have an active subscription")
 
-    existing_purchase = await db.execute(
-        select(SeriesPurchase).where(
-            SeriesPurchase.user_id == current_user.id,
-            SeriesPurchase.series_id == series.id,
-        )
-    )
-    if existing_purchase.scalar_one_or_none():
+    if await has_series_purchase(
+        db,
+        series.id,
+        user_id=user.id if user else None,
+        guest_id=guest_id,
+    ):
         raise ConflictError("Series already unlocked")
 
     pending = await db.execute(
         select(PaymentIntent)
         .where(
-            PaymentIntent.user_id == current_user.id,
+            identity_filter,
             PaymentIntent.method == "bakong",
             PaymentIntent.kind == "series",
             PaymentIntent.series_id == series.id,
@@ -376,13 +395,17 @@ async def create_series_unlock_bakong_intent(
     )
     pending_intent = pending.scalars().first()
     if pending_intent:
-        # Fast path: reuse a fresh QR immediately. Settle checks happen on poll /
-        # sweeper — do not block QR display on a Bakong round-trip here.
         if not qr_is_stale(pending_intent):
+            if await _mark_succeeded_if_already_purchased(db, pending_intent):
+                await db.commit()
+                await db.refresh(pending_intent)
             return _read_bakong_intent(pending_intent)
 
-        # Stale QR: settle if paid. Only mint a new QR when NBC confirmed unpaid.
         if await settle_bakong_intent_if_paid(db, pending_intent):
+            await db.commit()
+            await db.refresh(pending_intent)
+            return _read_bakong_intent(pending_intent)
+        if await _mark_succeeded_if_already_purchased(db, pending_intent):
             await db.commit()
             await db.refresh(pending_intent)
             return _read_bakong_intent(pending_intent)
@@ -402,7 +425,8 @@ async def create_series_unlock_bakong_intent(
     intent = PaymentIntent(
         intent_id=f"bkg-{uuid.uuid4().hex}",
         order_id=order_id,
-        user_id=current_user.id,
+        user_id=user.id if user else None,
+        guest_id=guest_id,
         method="bakong",
         bakong_md5=md5,
         bakong_qr=qr_string,

@@ -26,6 +26,7 @@ from sqlalchemy import select
 
 from app.core.content_status import validate_content_status
 from app.core.exceptions import NotFoundError
+from app.core.guest import get_guest_id
 from app.dependencies import AdminUser, DBSession, OptionalUser
 from app.models.content import Content
 from app.models.series import Series
@@ -52,7 +53,7 @@ from app.schemas.series import (
 )
 from app.schemas.upload import PartUrlRead
 from app.services import r2_keys, storage
-from app.services.content_access import user_has_active_subscription, user_has_series_purchase
+from app.services.content_access import has_series_purchase, user_has_active_subscription
 from app.services.content_delete import (
     delete_content_dependencies,
     delete_series_and_dependencies,
@@ -243,7 +244,9 @@ async def delete_series(slug: str, db: DBSession, _: AdminUser):
 
 
 @router.get("/{slug}/episodes", response_model=list[SeasonRead])
-async def list_episodes(slug: str, db: DBSession, current_user: OptionalUser):
+async def list_episodes(
+    slug: str, db: DBSession, request: Request, current_user: OptionalUser
+):
     """Published episodes for a series (public — used for free-episode discovery on the catalog)."""
     series = await get_series_or_404(db, slug, published_only=True)
 
@@ -255,10 +258,17 @@ async def list_episodes(slug: str, db: DBSession, current_user: OptionalUser):
     episodes = eps_result.scalars().all()
 
     is_admin = current_user is not None and current_user.role == "admin"
-    entitled = current_user is not None and (
-        await user_has_active_subscription(db, current_user.id)
-        or await user_has_series_purchase(db, current_user.id, series.id)
-    )
+    entitled = False
+    if current_user is not None:
+        entitled = await user_has_active_subscription(db, current_user.id) or (
+            await has_series_purchase(db, series.id, user_id=current_user.id)
+        )
+    else:
+        guest_id = get_guest_id(request)
+        if guest_id:
+            entitled = await has_series_purchase(
+                db, series.id, guest_id=guest_id
+            )
 
     seasons: dict[int, list[ContentRead]] = {}
     for ep in episodes:

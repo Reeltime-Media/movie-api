@@ -25,6 +25,14 @@ def _identity_filter(user, guest_id: str | None):
     return false()
 
 
+def _series_identity_filter(user, guest_id: str | None):
+    if user:
+        return SeriesPurchase.user_id == user.id
+    if guest_id:
+        return SeriesPurchase.guest_id == guest_id
+    return false()
+
+
 @router.get("", response_model=list[PurchaseRead])
 @router.get("/", response_model=list[PurchaseRead])
 async def list_purchases(db: DBSession, request: Request, user: OptionalUser):
@@ -51,11 +59,12 @@ async def list_purchased_movies(db: DBSession, request: Request, user: OptionalU
 
 
 @router.get("/series", response_model=list[SeriesPurchaseRead])
-async def list_purchased_series(db: DBSession, current_user: CurrentUser):
-    """Series the user has bought a one-time unlock for (no guest checkout for
-    this — see /payments/series/{slug}/unlock-bakong-intent)."""
+async def list_purchased_series(db: DBSession, request: Request, user: OptionalUser):
+    """Series unlocked with a one-time Bakong purchase (user or guest cookie)."""
     result = await db.execute(
-        select(SeriesPurchase).where(SeriesPurchase.user_id == current_user.id)
+        select(SeriesPurchase).where(
+            _series_identity_filter(user, get_guest_id(request))
+        )
     )
     return result.scalars().all()
 
