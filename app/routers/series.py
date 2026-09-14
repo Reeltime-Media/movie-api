@@ -68,7 +68,7 @@ from app.services.content_upload import (
 )
 from app.services.image_process import optimize_r2_image
 from app.services.pagination import paginate_query
-from app.services.series import get_series_or_404
+from app.services.series import free_episode_counts_by_series, get_series_or_404
 
 router = APIRouter(prefix="/series", tags=["series"])
 
@@ -137,8 +137,14 @@ async def list_series(
         page=pagination.page,
         page_size=pagination.page_size,
     )
+    counts = await free_episode_counts_by_series(db, [item.id for item in items])
     response = build_paginated_response(
-        [SeriesListItemRead.model_validate(item) for item in items],
+        [
+            SeriesListItemRead.model_validate(item).model_copy(
+                update={"free_episode_count": counts.get(item.id, 0)}
+            )
+            for item in items
+        ],
         total=total,
         page=pagination.page,
         page_size=pagination.page_size,
@@ -157,7 +163,13 @@ async def get_related_series(
 
     series = await get_series_or_404(db, slug, published_only=True)
     items = await related_series(db, series=series, limit=limit)
-    return [SeriesListItemRead.model_validate(item) for item in items]
+    counts = await free_episode_counts_by_series(db, [item.id for item in items])
+    return [
+        SeriesListItemRead.model_validate(item).model_copy(
+            update={"free_episode_count": counts.get(item.id, 0)}
+        )
+        for item in items
+    ]
 
 
 @router.get("/{slug}", response_model=SeriesRead)

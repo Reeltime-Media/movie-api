@@ -7,17 +7,24 @@ from app.core.exceptions import NotFoundError
 from app.dependencies import CurrentUser, DBSession
 from app.models.content import Content
 from app.models.favorite import Favorite
+from app.models.series import Series
 from app.schemas.favorite import FavoriteRead
 
 router = APIRouter(prefix="/favorites", tags=["favorites"])
 
 
-async def _assert_favoritable_movie(db: DBSession, content_id: uuid.UUID) -> Content:
-    result = await db.execute(select(Content).where(Content.id == content_id))
+async def _assert_favoritable(db: DBSession, target_id: uuid.UUID) -> None:
+    result = await db.execute(select(Content).where(Content.id == target_id))
     content = result.scalar_one_or_none()
-    if not content or content.type != "single" or not content.is_published:
-        raise NotFoundError("Movie not found")
-    return content
+    if content and content.type == "single" and content.is_published:
+        return
+
+    result = await db.execute(select(Series).where(Series.id == target_id))
+    series = result.scalar_one_or_none()
+    if series and series.is_published:
+        return
+
+    raise NotFoundError("Title not found")
 
 
 @router.get("", response_model=list[FavoriteRead])
@@ -33,7 +40,7 @@ async def list_favorites(db: DBSession, current_user: CurrentUser):
 
 @router.put("/{content_id}", response_model=FavoriteRead)
 async def add_favorite(content_id: uuid.UUID, db: DBSession, current_user: CurrentUser):
-    await _assert_favoritable_movie(db, content_id)
+    await _assert_favoritable(db, content_id)
 
     result = await db.execute(
         select(Favorite).where(

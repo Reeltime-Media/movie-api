@@ -13,6 +13,7 @@ from app.routers.admin import (
     series,
     subscription_plans,
     transcode,
+    tv_access_codes,
     tv_channels,
 )
 
@@ -22,6 +23,7 @@ router.include_router(movies.router)
 router.include_router(playback.router)
 router.include_router(transcode.router)
 router.include_router(tv_channels.router)
+router.include_router(tv_access_codes.router)
 router.include_router(payments.router)
 router.include_router(subscription_plans.router)
 router.include_router(series.router)

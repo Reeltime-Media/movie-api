@@ -20,6 +20,7 @@ from app.models.subscription import Subscription
 from app.models.subscription_payment import SubscriptionPayment
 from app.models.subscription_plan import SubscriptionPlan
 from app.models.transcode_job import TranscodeJob
+from app.models.tv_access_code import TvAccessCode
 from app.models.tv_channel import TVChannel
 from app.models.user import User
 from app.models.watch_progress import WatchProgress
@@ -51,5 +52,6 @@ __all__ = [
     "Session",
     "WebhookEvent",
     "TranscodeJob",
+    "TvAccessCode",
     "TVChannel",
 ]
