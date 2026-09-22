@@ -4,8 +4,8 @@ from fastapi import APIRouter
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
-from app.core.security import hash_password
+from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError, UnauthorizedError
+from app.core.security import hash_password, verify_password
 from app.dependencies import AdminUser, CurrentSessionId, CurrentUser, DBSession
 from app.models.user import User
 from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
@@ -27,6 +27,14 @@ async def update_me(data: UserUpdate, current_user: CurrentUser, db: DBSession):
     if data.full_name is not None:
         current_user.full_name = data.full_name
     if data.password is not None:
+        # A user who already has a password must prove they know it before
+        # setting a new one — a Google-only account (no password_hash yet)
+        # has nothing to prove and skips straight to setting its first one.
+        if current_user.password_hash is not None and (
+            not data.current_password
+            or not verify_password(data.current_password, current_user.password_hash)
+        ):
+            raise UnauthorizedError("Current password is incorrect")
         current_user.password_hash = hash_password(data.password)
     await db.commit()
     await db.refresh(current_user)

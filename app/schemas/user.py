@@ -36,6 +36,9 @@ class UserCreate(BaseModel):
 class UserUpdate(BaseModel):
     full_name: str | None = None
     password: str | None = Field(default=None, min_length=8, max_length=128)
+    # Required (and verified) whenever the account already has a password —
+    # see update_me. Not required for a Google-only account's first password.
+    current_password: str | None = None
 
     @field_validator("password")
     @classmethod
