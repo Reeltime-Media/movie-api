@@ -19,7 +19,13 @@ def test_catalog_prices():
 
 def test_seed_plans_match_card():
     by_code = {p["code"]: p for p in SEED_PLANS}
-    assert list(by_code) == ["basic_2w", "value_1m", "best_value_3m", "premium_5m"]
+    assert list(by_code) == [
+        "basic_2w",
+        "value_1m",
+        "best_value_3m",
+        "premium_5m",
+        "testing_1m",
+    ]
     assert by_code["basic_2w"]["price_usd"] == Decimal("3.49")
     assert by_code["basic_2w"]["billing_interval_days"] == 14
     assert by_code["value_1m"]["price_usd"] == Decimal("4.99")
@@ -28,6 +34,9 @@ def test_seed_plans_match_card():
     assert by_code["best_value_3m"]["billing_interval_days"] == 90
     assert by_code["premium_5m"]["price_usd"] == Decimal("10.99")
     assert by_code["premium_5m"]["billing_interval_days"] == 150
+    assert by_code["testing_1m"]["price_usd"] == Decimal("0.03")
+    assert by_code["testing_1m"]["billing_interval_days"] == 30
+    assert by_code["testing_1m"]["name"] == "Testing"
     for plan in SEED_PLANS:
         assert plan["is_active"] is True
         assert PLAN_ACCESS_DESCRIPTION in plan["description"]
@@ -37,7 +46,13 @@ def test_legacy_codes_are_distinct():
     seed_codes = seed_plan_codes()
     assert set(LEGACY_PLAN_CODES).isdisjoint(seed_codes)
     assert "series_monthly" in LEGACY_PLAN_CODES
-    assert seed_codes == {"basic_2w", "value_1m", "best_value_3m", "premium_5m"}
+    assert seed_codes == {
+        "basic_2w",
+        "value_1m",
+        "best_value_3m",
+        "premium_5m",
+        "testing_1m",
+    }
 
 
 def test_free_movies_are_not_overwritten():

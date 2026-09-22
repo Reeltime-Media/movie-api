@@ -51,6 +51,15 @@ SEED_PLANS: list[dict] = [
         "is_active": True,
         "sort_order": 3,
     },
+    {
+        "code": "testing_1m",
+        "name": "Testing",
+        "description": f"Testing only — 1 month. {PLAN_ACCESS_DESCRIPTION}",
+        "price_usd": Decimal("0.03"),
+        "billing_interval_days": 30,
+        "is_active": True,
+        "sort_order": 4,
+    },
 ]
 
 _PLAN_FIELDS = (

@@ -7,7 +7,7 @@ Safe to run in Docker:
 
     docker compose exec -e PYTHONPATH=/app api python seed/seed_subscription_plans.py
 
-Creates or updates the four current plans. Deactivates legacy plan codes.
+Creates or updates the current plans (incl. Testing). Deactivates legacy plan codes.
 Re-running is safe.
 """
 
