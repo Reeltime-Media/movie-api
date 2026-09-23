@@ -19,6 +19,7 @@ the rewrite loop.
 
 import asyncio
 import posixpath
+import re
 import time
 import threading
 
@@ -76,6 +77,53 @@ async def _get_object_text(key: str) -> str:
     return text
 
 
+_BANDWIDTH_RE = re.compile(r"BANDWIDTH=(\d+)")
+
+
+def _stream_inf_bandwidth(inf_line: str) -> int:
+    match = _BANDWIDTH_RE.search(inf_line)
+    if not match:
+        return 0
+    return int(match.group(1))
+
+
+def order_master_playlist_for_startup(text: str) -> str:
+    """List the cheapest STREAM-INF first.
+
+    Native HLS (iOS AVPlayer, Android ExoPlayer) starts on the first variant
+    in the master. Our transcoder used to write 4K/1080p first, so phones
+    buffered a huge first segment before painting a frame.
+    """
+    lines = text.splitlines()
+    header: list[str] = []
+    variants: list[tuple[int, str, str]] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.startswith("#EXT-X-STREAM-INF"):
+            inf = line
+            i += 1
+            uri = ""
+            while i < len(lines):
+                candidate = lines[i]
+                i += 1
+                if _is_uri_line(candidate):
+                    uri = candidate.strip()
+                    break
+            if uri:
+                variants.append((_stream_inf_bandwidth(inf), inf, uri))
+            continue
+        header.append(line)
+        i += 1
+
+    variants.sort(key=lambda item: item[0])
+    out = list(header)
+    for _, inf, uri in variants:
+        out.append(inf)
+        out.append(uri)
+    return "\n".join(out) + "\n"
+
+
 async def build_master_playlist(
     hls_master_key: str, content_id, playback_token: str
 ) -> str:
@@ -92,7 +140,7 @@ async def build_master_playlist(
             out.append(f"v/{name}?t={playback_token}")
         else:
             out.append(line)
-    return "\n".join(out) + "\n"
+    return order_master_playlist_for_startup("\n".join(out) + "\n")
 
 
 def _rewrite_variant_text(text: str, prefix: str, expires_in: int) -> str:

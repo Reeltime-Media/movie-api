@@ -4,6 +4,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.content import Content
+from app.models.favorite import Favorite
 from app.models.free_today_item import FreeTodayItem
 from app.models.hero_featured_item import HeroFeaturedItem
 from app.models.payment_intent import PaymentIntent
@@ -37,6 +38,7 @@ async def delete_content_dependencies(
 ) -> None:
     """Remove rows that reference content before deleting the content record."""
     await db.execute(delete(Purchase).where(Purchase.content_id == content_id))
+    await db.execute(delete(Favorite).where(Favorite.content_id == content_id))
     await db.execute(
         delete(FreeTodayItem).where(FreeTodayItem.content_id == content_id)
     )
@@ -78,6 +80,7 @@ async def delete_series_and_dependencies(
 ) -> None:
     """Remove episode dependencies, hero picks, and episode rows before deleting the series."""
     await delete_content_dependencies_for_series(db, series_id)
+    await db.execute(delete(Favorite).where(Favorite.content_id == series_id))
     await db.execute(
         delete(HeroFeaturedItem).where(
             HeroFeaturedItem.content_id == series_id,
