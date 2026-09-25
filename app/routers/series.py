@@ -22,7 +22,7 @@ import asyncio
 import uuid
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.core.content_status import validate_content_status
 from app.core.exceptions import NotFoundError
@@ -242,6 +242,11 @@ async def update_series(slug: str, data: SeriesUpdate, db: DBSession, _: AdminUs
             updates["banner_key"] = banner_key
     for field, value in updates.items():
         setattr(series, field, value)
+    if updates.get("poster_key") or updates.get("banner_key"):
+        # Re-uploads normalize to the same poster.webp/banner.webp key, so the
+        # setattr above is a same-value no-op SQLAlchemy won't flush on its
+        # own — force updated_at so the client's cache-busting URL changes.
+        series.updated_at = func.now()
     await db.commit()
     await db.refresh(series)
     return series
@@ -498,6 +503,10 @@ async def complete_episode_asset_upload(
             raise HTTPException(status_code=409, detail="Poster upload is not available in storage yet")
 
         episode.poster_key = await optimize_r2_image(data.poster_key, kind="poster")
+        # Re-uploads normalize to the same poster.webp key, so the assignment
+        # above is a same-value no-op SQLAlchemy won't flush on its own —
+        # force updated_at so the client's cache-busting URL changes.
+        episode.updated_at = func.now()
 
     if not data.source_key and not data.poster_key:
         raise HTTPException(status_code=422, detail="No uploaded assets provided")
