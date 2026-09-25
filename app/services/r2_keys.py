@@ -2,16 +2,19 @@
 
 Movies:
   movies/{slug}/source.mp4
-  movies/{slug}/poster.{ext}
-  movies/{slug}/banner.{ext}
+  movies/{slug}/poster-{token}.{ext}
+  movies/{slug}/banner-{token}.{ext}
   movies/{slug}/hls/master.m3u8 (+ segments)
 
 Series:
-  series/{series_slug}/poster.{ext}
-  series/{series_slug}/banner.{ext}
+  series/{series_slug}/poster-{token}.{ext}
+  series/{series_slug}/banner-{token}.{ext}
   series/{series_slug}/episodes/{episode_slug}/source.mp4
-  series/{series_slug}/episodes/{episode_slug}/poster.{ext}
+  series/{series_slug}/episodes/{episode_slug}/poster-{token}.{ext}
   series/{series_slug}/episodes/{episode_slug}/hls/master.m3u8
+
+Images get a fresh {token} per upload. Older rows may still point at the
+un-tokened names (poster.webp etc.) from before this — those keep working.
 
 Hero slides:
   hero/banners/{uuid}.{ext}
@@ -44,6 +47,12 @@ def poster_extension(content_type: str) -> str:
     return _POSTER_EXT.get(content_type, "jpg")
 
 
+def _image_filename(stem: str, content_type: str) -> str:
+    # Fresh name per upload: overwriting a fixed name kept the stored key and
+    # URL identical, so URL-keyed caches (CDN, TV app disk cache) never refetched.
+    return f"{stem}-{uuid.uuid4().hex[:12]}.{poster_extension(content_type)}"
+
+
 # ── Movies ────────────────────────────────────────────────────────────────────
 
 
@@ -56,11 +65,11 @@ def movie_source_key(slug: str) -> str:
 
 
 def movie_poster_key(slug: str, content_type: str) -> str:
-    return f"{movie_dir(slug)}/poster.{poster_extension(content_type)}"
+    return f"{movie_dir(slug)}/{_image_filename('poster', content_type)}"
 
 
 def movie_banner_key(slug: str, content_type: str) -> str:
-    return f"{movie_dir(slug)}/banner.{poster_extension(content_type)}"
+    return f"{movie_dir(slug)}/{_image_filename('banner', content_type)}"
 
 
 def movie_hls_prefix(slug: str) -> str:
@@ -83,11 +92,11 @@ def series_dir(series_slug: str) -> str:
 
 
 def series_poster_key(series_slug: str, content_type: str) -> str:
-    return f"{series_dir(series_slug)}/poster.{poster_extension(content_type)}"
+    return f"{series_dir(series_slug)}/{_image_filename('poster', content_type)}"
 
 
 def series_banner_key(series_slug: str, content_type: str) -> str:
-    return f"{series_dir(series_slug)}/banner.{poster_extension(content_type)}"
+    return f"{series_dir(series_slug)}/{_image_filename('banner', content_type)}"
 
 
 def is_series_asset_key(series_slug: str, key: str) -> bool:
@@ -103,7 +112,7 @@ def episode_source_key(series_slug: str, episode_slug: str) -> str:
 
 
 def episode_poster_key(series_slug: str, episode_slug: str, content_type: str) -> str:
-    return f"{episode_dir(series_slug, episode_slug)}/poster.{poster_extension(content_type)}"
+    return f"{episode_dir(series_slug, episode_slug)}/{_image_filename('poster', content_type)}"
 
 
 def episode_hls_prefix(series_slug: str, episode_slug: str) -> str:
@@ -145,7 +154,7 @@ def hls_master_key_for_source_key(source_key: str, content_id: uuid.UUID) -> str
 
 
 def promotion_banner_image_key(banner_id: uuid.UUID, content_type: str) -> str:
-    return f"{PROMOTIONS_PREFIX}/{banner_id}/image.{poster_extension(content_type)}"
+    return f"{PROMOTIONS_PREFIX}/{banner_id}/{_image_filename('image', content_type)}"
 
 
 def is_promotion_banner_image_key(banner_id: uuid.UUID, key: str) -> bool:

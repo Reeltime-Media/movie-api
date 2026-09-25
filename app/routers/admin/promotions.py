@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from app.core.exceptions import NotFoundError
 from app.dependencies import AdminUser, DBSession
@@ -74,11 +74,6 @@ async def update_admin_promotion_banner(
         updates["image_key"] = await optimize_r2_image(updates["image_key"], kind="banner")
     for field, value in updates.items():
         setattr(banner, field, value)
-    if updates.get("image_key"):
-        # Re-uploads normalize to the same image.webp key, so the setattr
-        # above is a same-value no-op SQLAlchemy won't flush on its own —
-        # force updated_at so the client's cache-busting URL changes.
-        banner.updated_at = func.now()
 
     await db.commit()
     await db.refresh(banner)

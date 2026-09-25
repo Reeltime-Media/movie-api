@@ -24,10 +24,10 @@ settings = get_settings()
 # A 2h movie at 5 Mbps ≈ 4.5 GB → ~92 parts. Max R2 parts = 10,000.
 MULTIPART_PART_SIZE = 50 * 1024 * 1024  # 50 MB in bytes
 
-# Poster/banner/thumb keys are per-slug (movies/{slug}/poster.webp), not
-# content-addressed, so a re-upload overwrites the same URL — keep this in
-# step with the client's own disk-cache stalePeriod (21 days, TvImageCache)
-# rather than marking them immutable.
+# New uploads get a fresh key per upload (see r2_keys._image_filename), but
+# older rows still point at fixed names (movies/{slug}/poster.webp) that were
+# overwritten in place — keep this in step with the client's own disk-cache
+# stalePeriod (21 days, TvImageCache) rather than marking them immutable.
 IMAGE_CACHE_CONTROL = "public, max-age=1814400"
 # HLS: segments never change for a given filename; playlists rewrite on re-encode.
 HLS_SEGMENT_CACHE_CONTROL = "public, max-age=31536000, immutable"

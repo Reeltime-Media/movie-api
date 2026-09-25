@@ -2,7 +2,7 @@ import asyncio
 import uuid
 
 from fastapi import APIRouter, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from app.core.content_status import validate_content_status
 from app.core.exceptions import NotFoundError
@@ -270,12 +270,6 @@ async def complete_admin_movie_asset_upload(
             movie.poster_key = poster_key
         if data.banner_key:
             movie.banner_key = banner_key
-        # The optimized key is often byte-identical to what's already stored
-        # (re-uploads always normalize to the same poster.webp path), so plain
-        # assignment above leaves SQLAlchemy with nothing to flush and
-        # `updated_at` never bumps — silently stranding the client-side
-        # cache-busting query param on the old timestamp forever.
-        movie.updated_at = func.now()
 
     if not data.source_key and not data.poster_key and not data.banner_key:
         raise HTTPException(status_code=422, detail="No uploaded assets provided")
