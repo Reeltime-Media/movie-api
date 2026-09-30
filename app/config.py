@@ -1,4 +1,6 @@
 from functools import lru_cache
+from os import access, R_OK
+from pathlib import Path
 from typing import Self
 from urllib.parse import urlparse
 
@@ -37,7 +39,13 @@ def default_cors_origins() -> str:
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    # Only read .env when the process can open it (bind-mounted 0600 files break
+    # non-root containers). Compose env_file / process env still apply either way.
+    model_config = SettingsConfigDict(
+        env_file=".env" if access(Path(".env"), R_OK) else None,
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     # App
     app_name: str = "Movies API"

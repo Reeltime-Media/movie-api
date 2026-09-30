@@ -8,9 +8,9 @@ services:
     # Prefer pooler URL — direct db.* host often times out from Docker (IPv6 / routing).
     environment:
       - POOLER_DATABASE_URL=${POOLER_DATABASE_URL:-}
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --loop asyncio
-    volumes:
-      - .:/app
+    # Do not bind-mount the repo: the image runs as uid 10001 and cannot read a
+    # host .env mounted at 0600. Compose still injects env_file into the process.
+    # Entrypoint/CMD come from the Dockerfile (migrations + uvicorn workers).
 
   transcode:
     build:
