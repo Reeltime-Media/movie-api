@@ -10,13 +10,13 @@ from app.routers.payments import _require_bakong_service_api_key
 
 
 def test_require_bakong_service_api_key_ok():
-    with patch("app.routers.payments.get_settings") as gs:
+    with patch("app.billing.router.get_settings") as gs:
         gs.return_value = SimpleNamespace(bakong_service_api_key="secret")
         _require_bakong_service_api_key("secret")
 
 
 def test_require_bakong_service_api_key_rejects():
-    with patch("app.routers.payments.get_settings") as gs:
+    with patch("app.billing.router.get_settings") as gs:
         gs.return_value = SimpleNamespace(bakong_service_api_key="secret")
         with pytest.raises(HTTPException) as exc:
             _require_bakong_service_api_key("wrong")

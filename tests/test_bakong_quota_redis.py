@@ -3,7 +3,7 @@
 import time
 from unittest.mock import MagicMock
 
-from app.services import bakong_quota
+from app.billing import bakong_quota
 
 
 def test_note_and_blocked_work_in_process_without_redis(monkeypatch):

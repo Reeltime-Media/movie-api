@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.services.payment_fulfillment import (
+from app.billing.fulfillment import (
     _plan_code_from_order_id,
     fulfill_payment_intent,
 )
@@ -33,7 +33,7 @@ async def test_resolve_plan_prefers_intent_plan_code(monkeypatch):
         return premium
 
     monkeypatch.setattr(
-        "app.services.payment_fulfillment.get_subscription_plan_by_code",
+        "app.billing.fulfillment.get_subscription_plan_by_code",
         by_code,
     )
 
@@ -42,7 +42,7 @@ async def test_resolve_plan_prefers_intent_plan_code(monkeypatch):
         order_id="sub-value_1m-deadbeef",
         amount_usd=Decimal("3.49"),
     )
-    from app.services.payment_fulfillment import _resolve_plan_for_subscription_intent
+    from app.billing.fulfillment import _resolve_plan_for_subscription_intent
 
     plan = await _resolve_plan_for_subscription_intent(None, intent)
     assert plan.code == "premium_5m"
@@ -106,7 +106,7 @@ async def test_fulfill_sub_uses_paid_plan_not_default(monkeypatch):
         return premium
 
     monkeypatch.setattr(
-        "app.services.payment_fulfillment._resolve_plan_for_subscription_intent",
+        "app.billing.fulfillment._resolve_plan_for_subscription_intent",
         fake_resolve_plan,
     )
     notified = {}
@@ -115,7 +115,7 @@ async def test_fulfill_sub_uses_paid_plan_not_default(monkeypatch):
         notified["ok"] = True
 
     monkeypatch.setattr(
-        "app.services.payment_fulfillment.notify_payment_succeeded",
+        "app.billing.fulfillment.notify_payment_succeeded",
         fake_notify,
     )
 
