@@ -2,7 +2,7 @@
 
 import asyncio
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -41,7 +41,7 @@ def _pairing(status: str, **overrides) -> DevicePairingCode:
         code_hash="irrelevant-in-these-tests",
         status=status,
         token=None,
-        expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        expires_at=datetime.now(UTC) + timedelta(minutes=5),
     )
     defaults.update(overrides)
     return DevicePairingCode(**defaults)
@@ -70,7 +70,7 @@ def test_poll_confirmed_code_returns_token_and_consumes_it():
 
 
 def test_poll_past_expiry_raises_not_found_even_if_still_pending():
-    pairing = _pairing("pending", expires_at=datetime.now(timezone.utc) - timedelta(minutes=1))
+    pairing = _pairing("pending", expires_at=datetime.now(UTC) - timedelta(minutes=1))
     db = FakeDb([FakeResult(scalar=pairing)])
 
     with pytest.raises(NotFoundError):

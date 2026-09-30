@@ -75,9 +75,7 @@ async def get_channel(channel_id: uuid.UUID, db: DBSession, _: AdminUser):
 
 
 @router.patch("/{channel_id}", response_model=TVChannelRead)
-async def update_channel(
-    channel_id: uuid.UUID, data: TVChannelUpdate, db: DBSession, _: AdminUser
-):
+async def update_channel(channel_id: uuid.UUID, data: TVChannelUpdate, db: DBSession, _: AdminUser):
     channel = await _get_channel_or_404(db, channel_id)
     updates = data.model_dump(exclude_unset=True)
     for field, value in updates.items():

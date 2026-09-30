@@ -13,8 +13,8 @@ Only the entry fetch is gated by the channel playback token; everything the
 rewritten playlist points at is a plain HTTPS URL on the origin/CDN.
 """
 
-import time
 import threading
+import time
 from urllib.parse import urljoin
 
 import httpx
@@ -49,6 +49,17 @@ def _is_uri_line(line: str) -> bool:
     return bool(stripped) and not stripped.startswith("#")
 
 
+def _secure_media_url(url: str, *, allow_insecure: bool) -> str:
+    if url.startswith("https://"):
+        return url
+    if allow_insecure and url.startswith("http://"):
+        return url
+    raise HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail="Live channel media must use HTTPS",
+    )
+
+
 async def _fetch_playlist_text(hls_url: str) -> str:
     now = time.monotonic()
     with _cache_lock:
@@ -73,15 +84,17 @@ async def _fetch_playlist_text(hls_url: str) -> str:
     return text
 
 
-async def build_channel_playlist(hls_url: str) -> str:
+async def build_channel_playlist(hls_url: str, *, allow_insecure: bool = False) -> str:
     """Fetch the channel's playlist and rewrite every URI line to an absolute
     URL against `hls_url`, so the player can resolve everything downstream
     (nested playlists, segments) directly from the origin server."""
+    hls_url = _secure_media_url(hls_url, allow_insecure=allow_insecure)
     text = await _fetch_playlist_text(hls_url)
     out: list[str] = []
     for line in text.splitlines():
         if _is_uri_line(line):
-            out.append(urljoin(hls_url, line.strip()))
+            resolved = urljoin(hls_url, line.strip())
+            out.append(_secure_media_url(resolved, allow_insecure=allow_insecure))
         else:
             out.append(line)
     return "\n".join(out) + "\n"

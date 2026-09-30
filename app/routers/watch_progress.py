@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
@@ -32,7 +32,9 @@ async def list_watch_progress(db: DBSession, current_user: CurrentUser):
     return [_history_row(progress, content, series) for progress, content, series in result.all()]
 
 
-def _history_row(progress: WatchProgress, content: Content, series: Series | None) -> WatchProgressRead:
+def _history_row(
+    progress: WatchProgress, content: Content, series: Series | None
+) -> WatchProgressRead:
     """Include public navigation metadata, never stream keys or entitlement grants."""
     row = WatchProgressRead.model_validate(progress)
     if not content.is_published:
@@ -84,14 +86,14 @@ async def upsert_watch_progress(
     if progress:
         progress.position_seconds = data.position_seconds
         progress.completed = data.completed
-        progress.last_watched_at = datetime.now(timezone.utc)
+        progress.last_watched_at = datetime.now(UTC)
     else:
         progress = WatchProgress(
             user_id=current_user.id,
             content_id=content_id,
             position_seconds=data.position_seconds,
             completed=data.completed,
-            last_watched_at=datetime.now(timezone.utc),
+            last_watched_at=datetime.now(UTC),
         )
         db.add(progress)
 

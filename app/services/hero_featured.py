@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import or_, select
@@ -11,7 +11,7 @@ from app.schemas.hero_featured import HeroFeaturedItemRead, HeroFeaturedSlideRea
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 async def list_active_hero_items(
@@ -51,8 +51,12 @@ async def resolve_hero_slides(
     series_by_id: dict[UUID, Series] = {}
 
     if movie_ids:
+        from app.services.catalog_columns import content_list_load_options
+
         result = await db.execute(
-            select(Content).where(
+            select(Content)
+            .options(content_list_load_options())
+            .where(
                 Content.id.in_(movie_ids),
                 Content.type == "single",
                 Content.is_published.is_(True),
@@ -61,8 +65,12 @@ async def resolve_hero_slides(
         movies_by_id = {row.id: row for row in result.scalars().all()}
 
     if series_ids:
+        from app.services.catalog_columns import series_hero_load_options
+
         result = await db.execute(
-            select(Series).where(
+            select(Series)
+            .options(series_hero_load_options())
+            .where(
                 Series.id.in_(series_ids),
                 Series.is_published.is_(True),
             )
@@ -218,9 +226,7 @@ async def validate_hero_content(
         if content_id is not None:
             raise ValueError("custom slides must not reference catalog content")
         if not (video_key or youtube_url):
-            raise ValueError(
-                "custom slides require an uploaded video or a YouTube URL"
-            )
+            raise ValueError("custom slides require an uploaded video or a YouTube URL")
         return
 
     if content_id is None:

@@ -17,18 +17,30 @@ def test_movie_poster_key_is_unique_per_upload():
 def test_every_image_key_generator_is_unique_and_passes_its_validator():
     banner_id = uuid.uuid4()
     cases = [
-        (lambda: r2_keys.movie_poster_key("m", "image/png"),
-         lambda k: r2_keys.is_movie_asset_key("m", k)),
-        (lambda: r2_keys.movie_banner_key("m", "image/png"),
-         lambda k: r2_keys.is_movie_asset_key("m", k)),
-        (lambda: r2_keys.series_poster_key("s", "image/webp"),
-         lambda k: r2_keys.is_series_asset_key("s", k)),
-        (lambda: r2_keys.series_banner_key("s", "image/webp"),
-         lambda k: r2_keys.is_series_asset_key("s", k)),
-        (lambda: r2_keys.episode_poster_key("s", "s-s01e01", "image/jpeg"),
-         lambda k: r2_keys.is_episode_asset_key("s", "s-s01e01", k)),
-        (lambda: r2_keys.promotion_banner_image_key(banner_id, "image/jpeg"),
-         lambda k: r2_keys.is_promotion_banner_image_key(banner_id, k)),
+        (
+            lambda: r2_keys.movie_poster_key("m", "image/png"),
+            lambda k: r2_keys.is_movie_asset_key("m", k),
+        ),
+        (
+            lambda: r2_keys.movie_banner_key("m", "image/png"),
+            lambda k: r2_keys.is_movie_asset_key("m", k),
+        ),
+        (
+            lambda: r2_keys.series_poster_key("s", "image/webp"),
+            lambda k: r2_keys.is_series_asset_key("s", k),
+        ),
+        (
+            lambda: r2_keys.series_banner_key("s", "image/webp"),
+            lambda k: r2_keys.is_series_asset_key("s", k),
+        ),
+        (
+            lambda: r2_keys.episode_poster_key("s", "s-s01e01", "image/jpeg"),
+            lambda k: r2_keys.is_episode_asset_key("s", "s-s01e01", k),
+        ),
+        (
+            lambda: r2_keys.promotion_banner_image_key(banner_id, "image/jpeg"),
+            lambda k: r2_keys.is_promotion_banner_image_key(banner_id, k),
+        ),
     ]
     for make, is_valid in cases:
         a, b = make(), make()

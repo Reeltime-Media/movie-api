@@ -25,9 +25,7 @@ def _validate_link_url(value: str | None) -> str | None:
     is_path = value.startswith("/") and not value.startswith("//")
     is_http = value.startswith(("http://", "https://"))
     if not (is_path or is_http):
-        raise ValueError(
-            "link_url must be a path starting with / (not //) or an http(s) URL"
-        )
+        raise ValueError("link_url must be a path starting with / (not //) or an http(s) URL")
     return value
 
 
@@ -78,9 +76,7 @@ class HeroFeaturedItemCreate(BaseModel):
             if self.content_id is not None:
                 raise ValueError("custom slides must not reference catalog content")
             if not (self.video_key or self.youtube_url):
-                raise ValueError(
-                    "custom slides require an uploaded video or a YouTube URL"
-                )
+                raise ValueError("custom slides require an uploaded video or a YouTube URL")
         elif self.content_id is None:
             raise ValueError("content_id is required for movie and series slides")
         return self
@@ -177,9 +173,7 @@ class HeroUploadStart(BaseModel):
         normalized = self.content_type.strip().lower()
         allowed = HERO_BANNER_TYPES if self.kind == "banner" else HERO_VIDEO_TYPES
         if normalized not in allowed:
-            raise ValueError(
-                f"content_type must be one of {', '.join(sorted(allowed))}"
-            )
+            raise ValueError(f"content_type must be one of {', '.join(sorted(allowed))}")
         self.content_type = normalized
         return self
 

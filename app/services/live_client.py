@@ -70,9 +70,7 @@ async def start_channel(channel_id: str, source_url: str) -> dict:
     url = f"{_base_url()}/channels/{channel_id}/start"
     try:
         client = _get_live_client()
-        response = await client.post(
-            url, headers=_headers(), json={"source_url": source_url}
-        )
+        response = await client.post(url, headers=_headers(), json={"source_url": source_url})
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
         raise HTTPException(

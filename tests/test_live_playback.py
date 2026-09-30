@@ -43,9 +43,7 @@ def _install_transport(text: str) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, text=text)
 
-    live_playback._live_playback_client = httpx.AsyncClient(
-        transport=httpx.MockTransport(handler)
-    )
+    live_playback._live_playback_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
 
 @pytest.mark.asyncio
@@ -70,6 +68,32 @@ async def test_rewrites_media_playlist_segments_to_absolute_urls():
 
 
 @pytest.mark.asyncio
+async def test_rejects_insecure_live_origin_by_default():
+    _install_transport(_MEDIA_PLAYLIST)
+    with pytest.raises(Exception) as exc_info:
+        await live_playback.build_channel_playlist("http://media.example.com/channel1/720p.m3u8")
+    assert getattr(exc_info.value, "status_code", None) == 502
+
+
+@pytest.mark.asyncio
+async def test_debug_can_use_an_insecure_live_origin():
+    _install_transport(_MEDIA_PLAYLIST)
+    body = await live_playback.build_channel_playlist(
+        "http://media.example.com/channel1/720p.m3u8",
+        allow_insecure=True,
+    )
+    assert "http://media.example.com/channel1/segment1.ts" in body
+
+
+@pytest.mark.asyncio
+async def test_rejects_insecure_uri_inside_secure_playlist():
+    _install_transport("#EXTM3U\nhttp://media.example.com/segment1.ts\n")
+    with pytest.raises(Exception) as exc_info:
+        await live_playback.build_channel_playlist("https://media.example.com/channel1/720p.m3u8")
+    assert getattr(exc_info.value, "status_code", None) == 502
+
+
+@pytest.mark.asyncio
 async def test_playlist_cache_expires_after_one_second(monkeypatch):
     hits = {"n": 0}
 
@@ -77,9 +101,7 @@ async def test_playlist_cache_expires_after_one_second(monkeypatch):
         hits["n"] += 1
         return httpx.Response(200, text=_MEDIA_PLAYLIST)
 
-    live_playback._live_playback_client = httpx.AsyncClient(
-        transport=httpx.MockTransport(handler)
-    )
+    live_playback._live_playback_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     clock = {"t": 100.0}
     monkeypatch.setattr(live_playback.time, "monotonic", lambda: clock["t"])
 
@@ -98,9 +120,7 @@ async def test_upstream_failure_raises_502():
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("boom", request=request)
 
-    live_playback._live_playback_client = httpx.AsyncClient(
-        transport=httpx.MockTransport(handler)
-    )
+    live_playback._live_playback_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     with pytest.raises(Exception) as exc_info:
         await live_playback.build_channel_playlist("https://media.example.com/down.m3u8")
     assert getattr(exc_info.value, "status_code", None) == 502

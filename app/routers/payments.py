@@ -1,15 +1,15 @@
 import secrets
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from fastapi import APIRouter, Header, HTTPException, Request, Response, status
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 
+from app.config import get_settings
 from app.core.exceptions import ConflictError, NotFoundError
 from app.core.guest import get_guest_id, get_or_create_guest_id
-from app.core.url_validation import validate_checkout_url, validate_custom_success_url
-from app.config import get_settings
+from app.core.url_validation import validate_custom_success_url
 from app.dependencies import CurrentUser, DBSession, OptionalUser
 from app.models.content import Content
 from app.models.payment_intent import PaymentIntent
@@ -31,83 +31,29 @@ from app.services.bakong_settle import (
     settle_bakong_intent_if_paid,
 )
 from app.services.content_access import has_series_purchase, user_has_active_subscription
-from app.services.payment import checkout_url, create_intent
+from app.services.payment import create_intent
+from app.services.payment_intent_helpers import (
+    read_bakong_intent as _read_bakong_intent,
+)
+from app.services.payment_intent_helpers import (
+    read_payment_intent as _read_intent,
+)
+from app.services.payment_intent_helpers import (
+    regenerate_bakong_qr as _regenerate_bakong_qr,
+)
+from app.services.payment_intent_helpers import (
+    validate_payment_amount as _validate_amount,
+)
 from app.services.series import get_series_or_404
 from app.services.subscription_plans import resolve_active_plan
 
 router = APIRouter(prefix="/payments", tags=["payments"])
 
-_MIN_USD = Decimal("0.03")
 # Flat one-time price to unlock a single series — matches the "Mini" pricing
 # card (lib/pricing-tiers.ts on the client); series have no per-title unlock
 # price of their own (Series.monthly_price_usd is for the old subscription-only
 # design), so this is a constant rather than something resolved per series.
 _SERIES_UNLOCK_PRICE_USD = Decimal("2.50")
-
-
-def _read_intent(intent: PaymentIntent) -> PaymentIntentRead:
-    # Bakong intents poll in place — there's no redirect target to validate.
-    url = (
-        validate_checkout_url(checkout_url(intent.intent_id))
-        if intent.method == "baray"
-        else None
-    )
-    return PaymentIntentRead(
-        intent_id=intent.intent_id,
-        order_id=intent.order_id,
-        user_id=intent.user_id,
-        method=intent.method,
-        kind=intent.kind,
-        content_id=intent.content_id,
-        series_id=intent.series_id,
-        amount_usd=intent.amount_usd,
-        status=intent.status,
-        checkout_url=url,
-        created_at=intent.created_at,
-        resolved_at=intent.resolved_at,
-    )
-
-
-def _bakong_merchant_name(intent: PaymentIntent) -> str:
-    return (
-        (intent.bakong_merchant_name or "").strip()
-        or get_settings().bakong_merchant_name.strip()
-        or "Reeltime Media"
-    )
-
-
-def _read_bakong_intent(intent: PaymentIntent) -> BakongPaymentIntentRead:
-    return BakongPaymentIntentRead(
-        intent_id=intent.intent_id,
-        order_id=intent.order_id,
-        qr_string=intent.bakong_qr or "",
-        amount_usd=intent.amount_usd,
-        status=intent.status,
-        created_at=intent.created_at,
-        merchant_name=_bakong_merchant_name(intent),
-    )
-
-
-def _validate_amount(amount: Decimal | None) -> Decimal:
-    if amount is None or amount < _MIN_USD:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="USD payments must be at least 0.03",
-        )
-    return amount
-
-
-async def _regenerate_bakong_qr(intent: PaymentIntent) -> None:
-    """Issue a fresh KHQR on the same intent; keep previous md5 for late settles."""
-    bill_number = uuid.uuid4().hex[:20]
-    qr_string, md5, merchant_name = await bakong.generate_khqr(
-        intent.amount_usd, bill_number
-    )
-    intent.bakong_prev_md5 = intent.bakong_md5
-    intent.bakong_md5 = md5
-    intent.bakong_qr = qr_string
-    intent.bakong_merchant_name = merchant_name or intent.bakong_merchant_name
-    intent.bakong_qr_created_at = datetime.now(timezone.utc)
 
 
 async def _mark_succeeded_if_already_purchased(
@@ -133,7 +79,7 @@ async def _mark_succeeded_if_already_purchased(
         if existing.scalar_one_or_none() is None:
             return False
         intent.status = "succeeded"
-        intent.resolved_at = datetime.now(timezone.utc)
+        intent.resolved_at = datetime.now(UTC)
         return True
 
     if intent.content_id is None:
@@ -144,7 +90,7 @@ async def _mark_succeeded_if_already_purchased(
     if existing.scalar_one_or_none() is None:
         return False
     intent.status = "succeeded"
-    intent.resolved_at = datetime.now(timezone.utc)
+    intent.resolved_at = datetime.now(UTC)
     return True
 
 
@@ -166,9 +112,7 @@ async def create_movie_payment_intent(
     identity_filter = (
         (PaymentIntent.user_id == user.id) if user else (PaymentIntent.guest_id == guest_id)
     )
-    purchase_filter = (
-        (Purchase.user_id == user.id) if user else (Purchase.guest_id == guest_id)
-    )
+    purchase_filter = (Purchase.user_id == user.id) if user else (Purchase.guest_id == guest_id)
 
     existing_purchase = await db.execute(
         select(Purchase).where(purchase_filter, Purchase.content_id == content_id)
@@ -261,9 +205,7 @@ async def create_movie_bakong_intent(
     identity_filter = (
         (PaymentIntent.user_id == user.id) if user else (PaymentIntent.guest_id == guest_id)
     )
-    purchase_filter = (
-        (Purchase.user_id == user.id) if user else (Purchase.guest_id == guest_id)
-    )
+    purchase_filter = (Purchase.user_id == user.id) if user else (Purchase.guest_id == guest_id)
 
     existing_purchase = await db.execute(
         select(Purchase).where(purchase_filter, Purchase.content_id == content_id)
@@ -326,7 +268,7 @@ async def create_movie_bakong_intent(
     order_id = f"movie-{uuid.uuid4().hex}"
     bill_number = uuid.uuid4().hex[:20]
     qr_string, md5, merchant_name = await bakong.generate_khqr(amount, bill_number)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     intent = PaymentIntent(
         intent_id=f"bkg-{uuid.uuid4().hex}",
@@ -420,7 +362,7 @@ async def create_series_unlock_bakong_intent(
     order_id = f"series-{uuid.uuid4().hex}"
     bill_number = uuid.uuid4().hex[:20]
     qr_string, md5, merchant_name = await bakong.generate_khqr(amount, bill_number)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     intent = PaymentIntent(
         intent_id=f"bkg-{uuid.uuid4().hex}",
@@ -530,9 +472,7 @@ async def create_subscription_bakong_intent(
     plan = await resolve_active_plan(db, plan_code)
     amount = _validate_amount(plan.price_usd)
 
-    # Pending-intent reuse is scoped to this plan's price — PaymentIntent has
-    # no plan_code column, so amount_usd is what stops a switch from Value to
-    # Premium (say) from silently reusing a cheaper still-pending QR.
+    # Prefer plan_code; fall back to amount-only for pre-migration pending rows.
     pending = await db.execute(
         select(PaymentIntent)
         .where(
@@ -540,7 +480,13 @@ async def create_subscription_bakong_intent(
             PaymentIntent.method == "bakong",
             PaymentIntent.kind == "sub",
             PaymentIntent.status == "pending",
-            PaymentIntent.amount_usd == amount,
+            or_(
+                PaymentIntent.plan_code == plan.code,
+                and_(
+                    PaymentIntent.plan_code.is_(None),
+                    PaymentIntent.amount_usd == amount,
+                ),
+            ),
         )
         .order_by(PaymentIntent.created_at.asc())
         .with_for_update()
@@ -567,7 +513,7 @@ async def create_subscription_bakong_intent(
     order_id = f"sub-{plan.code}-{uuid.uuid4().hex}"
     bill_number = uuid.uuid4().hex[:20]
     qr_string, md5, merchant_name = await bakong.generate_khqr(amount, bill_number)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     intent = PaymentIntent(
         intent_id=f"bkg-{uuid.uuid4().hex}",
@@ -580,6 +526,7 @@ async def create_subscription_bakong_intent(
         bakong_qr_created_at=now,
         kind="sub",
         content_id=None,
+        plan_code=plan.code,
         amount_usd=amount,
         status="pending",
     )

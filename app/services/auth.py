@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
@@ -24,9 +24,7 @@ from app.services.session import create_session
 settings = get_settings()
 
 
-async def register_user(
-    db: AsyncSession, data: UserCreate, guest_id: str | None = None
-) -> User:
+async def register_user(db: AsyncSession, data: UserCreate, guest_id: str | None = None) -> User:
     result = await db.execute(select(User).where(User.email == data.email.lower()))
     if result.scalar_one_or_none():
         raise ConflictError("Unable to create account with this email")
@@ -91,6 +89,8 @@ async def authenticate_google(
     email = claims.get("email")
     if not google_sub or not email:
         raise UnauthorizedError("Google account is missing required profile data")
+    if claims.get("email_verified") is not True:
+        raise UnauthorizedError("Google email is not verified")
 
     email = email.lower()
     name = claims.get("name") or claims.get("given_name")
@@ -156,12 +156,8 @@ async def request_password_reset(db: AsyncSession, email: str) -> None:
     await db.execute(delete(PasswordResetToken).where(PasswordResetToken.user_id == user.id))
 
     raw_token, token_hash = generate_reset_token()
-    expires_at = datetime.now(timezone.utc) + timedelta(
-        minutes=settings.password_reset_token_expire_minutes
-    )
-    db.add(
-        PasswordResetToken(user_id=user.id, token_hash=token_hash, expires_at=expires_at)
-    )
+    expires_at = datetime.now(UTC) + timedelta(minutes=settings.password_reset_token_expire_minutes)
+    db.add(PasswordResetToken(user_id=user.id, token_hash=token_hash, expires_at=expires_at))
     await db.commit()
 
     reset_link = f"{_reset_base_url()}/reset-password?token={raw_token}"
@@ -175,12 +171,8 @@ async def reset_password(db: AsyncSession, token: str, new_password: str) -> Non
     )
     reset_token = result.scalar_one_or_none()
 
-    now = datetime.now(timezone.utc)
-    if (
-        not reset_token
-        or reset_token.used_at is not None
-        or reset_token.expires_at < now
-    ):
+    now = datetime.now(UTC)
+    if not reset_token or reset_token.used_at is not None or reset_token.expires_at < now:
         raise UnauthorizedError("This reset link is invalid or has expired")
 
     user = await db.get(User, reset_token.user_id)

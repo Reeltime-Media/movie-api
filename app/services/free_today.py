@@ -24,8 +24,11 @@ async def is_free_today(db: AsyncSession, content_id: UUID) -> bool:
 
 async def resolve_free_today_movies(db: AsyncSession) -> list[Content]:
     """Published movies currently listed, in rail order."""
+    from app.services.catalog_columns import content_list_load_options
+
     stmt = (
         select(Content)
+        .options(content_list_load_options())
         .join(FreeTodayItem, FreeTodayItem.content_id == Content.id)
         .where(Content.type == "single", Content.is_published.is_(True))
         .order_by(FreeTodayItem.sort_order.asc(), FreeTodayItem.created_at.desc())

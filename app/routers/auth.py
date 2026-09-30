@@ -1,9 +1,16 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Form, Request, Response
+
 from app.core.guest import clear_guest_cookie, get_guest_id
 from app.dependencies import CurrentSessionId, CurrentUser, DBSession
 from app.rate_limit import limiter
+from app.schemas.device_pairing import (
+    DevicePairingConfirmBody,
+    DevicePairingPollRead,
+    DevicePairingStartRead,
+)
+from app.schemas.tv_access_code import TvAccessLoginRequest
 from app.schemas.user import (
     ForgotPasswordRequest,
     GoogleAuthRequest,
@@ -23,12 +30,6 @@ from app.services.auth import (
 from app.services.device_pairing import confirm_pairing, poll_pairing, start_pairing
 from app.services.session import revoke_session
 from app.services.tv_access_codes import login_with_tv_access_code
-from app.schemas.device_pairing import (
-    DevicePairingConfirmBody,
-    DevicePairingPollRead,
-    DevicePairingStartRead,
-)
-from app.schemas.tv_access_code import TvAccessLoginRequest
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -63,7 +64,9 @@ async def login(
 
 @router.post("/google", response_model=TokenResponse)
 @limiter.limit("20/minute")
-async def login_google(request: Request, response: Response, data: GoogleAuthRequest, db: DBSession):
+async def login_google(
+    request: Request, response: Response, data: GoogleAuthRequest, db: DBSession
+):
     guest_id = get_guest_id(request)
     _, token = await authenticate_google(
         db, data.id_token, request.headers.get("user-agent"), guest_id
@@ -123,7 +126,5 @@ async def login_tv_access(
     db: DBSession,
 ):
     """Sign in on TV with an admin-issued access ID (unlocks all content until expiry)."""
-    token = await login_with_tv_access_code(
-        db, data.code, request.headers.get("user-agent")
-    )
+    token = await login_with_tv_access_code(db, data.code, request.headers.get("user-agent"))
     return TokenResponse(access_token=token)

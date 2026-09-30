@@ -1,6 +1,6 @@
 """Server-side entitlement checks for catalog and watch progress."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -35,7 +35,7 @@ async def get_published_content_or_404(
 
 
 async def user_has_active_subscription(db: AsyncSession, user_id: UUID) -> bool:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     result = await db.execute(
         select(Subscription).where(
             Subscription.user_id == user_id,
@@ -89,9 +89,15 @@ async def can_access_content(
     user: User | None,
     guest_id: str | None,
     content: Content,
+    *,
+    is_free_today: bool | None = None,
 ) -> bool:
     """Same entitlement rules as `user_can_access_content`, plus an anonymous
-    `guest_id` fallback for single movies and one-time series unlocks."""
+    `guest_id` fallback for single movies and one-time series unlocks.
+
+    Pass ``is_free_today`` when the caller already resolved Free-today membership
+    (e.g. movie detail) to avoid a duplicate DB round-trip.
+    """
     if user and user.role == "admin":
         return True
     if not content.is_published:
@@ -102,7 +108,12 @@ async def can_access_content(
         if _movie_is_free(content):
             return True
         # Admin-curated "Free movies today" picks are free while listed.
-        if await free_today.is_free_today(db, content.id):
+        listed = (
+            is_free_today
+            if is_free_today is not None
+            else await free_today.is_free_today(db, content.id)
+        )
+        if listed:
             return True
         if user:
             # Every subscription plan is marketed as "access to all movies",
@@ -131,20 +142,14 @@ async def can_access_content(
         if user:
             if await user_has_active_subscription(db, user.id):
                 return True
-            return await has_series_purchase(
-                db, content.series_id, user_id=user.id
-            )
+            return await has_series_purchase(db, content.series_id, user_id=user.id)
         if guest_id:
-            return await has_series_purchase(
-                db, content.series_id, guest_id=guest_id
-            )
+            return await has_series_purchase(db, content.series_id, guest_id=guest_id)
         return False
     return False
 
 
-async def can_access_channel(
-    db: AsyncSession, user: User | None, channel: TVChannel
-) -> bool:
+async def can_access_channel(db: AsyncSession, user: User | None, channel: TVChannel) -> bool:
     """Live TV channels are subscription-gated (no per-channel purchase, unlike
     single movies) unless the channel is marked free."""
     if user and user.role == "admin":

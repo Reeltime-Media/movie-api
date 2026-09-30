@@ -49,9 +49,7 @@ CurrentSessionId = Annotated[uuid.UUID, Depends(get_current_session_id)]
 
 
 async def get_current_user_optional(
-    credentials: Annotated[
-        HTTPAuthorizationCredentials | None, Depends(optional_bearer_scheme)
-    ],
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(optional_bearer_scheme)],
     db: DBSession,
 ) -> User | None:
     if credentials is None:

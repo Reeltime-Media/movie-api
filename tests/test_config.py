@@ -33,6 +33,9 @@ class TestCorsDefaults:
         assert "https://app.example.com" in origins
         assert origins.count("http://localhost:3000") == 1
 
+    def test_access_token_default_is_one_hour(self):
+        assert make_settings(debug=True).access_token_expire_minutes == 60
+
 
 class TestProductionValidation:
     def test_short_secret_key_rejected_when_not_debug(self):

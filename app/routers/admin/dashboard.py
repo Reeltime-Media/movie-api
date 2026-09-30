@@ -1,4 +1,4 @@
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 
 from fastapi import APIRouter, HTTPException, Query
@@ -47,7 +47,9 @@ async def get_dashboard_summary(db: DBSession, _: AdminUser):
             func.count(Content.id).filter(Content.status == "review").label("review"),
             func.count(Content.id).filter(Content.status == "scheduled").label("scheduled"),
             func.count(Content.id).filter(Content.transcode_status == "pending").label("pending"),
-            func.count(Content.id).filter(Content.transcode_status == "processing").label("processing"),
+            func.count(Content.id)
+            .filter(Content.transcode_status == "processing")
+            .label("processing"),
             func.count(Content.id).filter(Content.transcode_status == "failed").label("failed"),
         )
     )
@@ -58,9 +60,15 @@ async def get_dashboard_summary(db: DBSession, _: AdminUser):
     payment_counts = await db.execute(
         select(
             func.count(PaymentIntent.intent_id).label("total"),
-            func.count(PaymentIntent.intent_id).filter(PaymentIntent.status == "succeeded").label("succeeded"),
-            func.count(PaymentIntent.intent_id).filter(PaymentIntent.status == "pending").label("pending"),
-            func.count(PaymentIntent.intent_id).filter(PaymentIntent.status == "failed").label("failed"),
+            func.count(PaymentIntent.intent_id)
+            .filter(PaymentIntent.status == "succeeded")
+            .label("succeeded"),
+            func.count(PaymentIntent.intent_id)
+            .filter(PaymentIntent.status == "pending")
+            .label("pending"),
+            func.count(PaymentIntent.intent_id)
+            .filter(PaymentIntent.status == "failed")
+            .label("failed"),
             func.coalesce(
                 func.sum(PaymentIntent.amount_usd).filter(PaymentIntent.status == "succeeded"),
                 Decimal("0"),
@@ -112,7 +120,7 @@ async def get_revenue_timeline(
         description="Include revenue on or before this date (YYYY-MM-DD)",
     ),
 ):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     today = now.date()
 
     parsed_from: date | None = None
@@ -142,15 +150,17 @@ async def get_revenue_timeline(
     if range_days > 366:
         raise HTTPException(status_code=422, detail="Date range cannot exceed 366 days")
 
-    since = datetime.combine(start_date, time.min, tzinfo=timezone.utc)
-    until = datetime.combine(end_date, time.max, tzinfo=timezone.utc)
+    since = datetime.combine(start_date, time.min, tzinfo=UTC)
+    until = datetime.combine(end_date, time.max, tzinfo=UTC)
     revenue_timestamp = func.coalesce(PaymentIntent.resolved_at, PaymentIntent.created_at)
 
     rows = (
         await db.execute(
             select(
                 func.date(revenue_timestamp).label("day"),
-                func.coalesce(func.sum(PaymentIntent.amount_usd), Decimal("0")).label("revenue_usd"),
+                func.coalesce(func.sum(PaymentIntent.amount_usd), Decimal("0")).label(
+                    "revenue_usd"
+                ),
                 func.count(PaymentIntent.intent_id).label("payment_count"),
             )
             .where(

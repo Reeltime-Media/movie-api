@@ -41,9 +41,7 @@ def _public_status(status_value: str) -> str:
 
 async def _published_channel_or_404(db, channel_id: uuid.UUID) -> TVChannel:
     result = await db.execute(
-        select(TVChannel).where(
-            TVChannel.id == channel_id, TVChannel.is_published.is_(True)
-        )
+        select(TVChannel).where(TVChannel.id == channel_id, TVChannel.is_published.is_(True))
     )
     channel = result.scalar_one_or_none()
     if not channel:
@@ -77,9 +75,7 @@ async def list_channels(db: DBSession):
 
 
 @router.get("/channels/{channel_id}/authorize", response_model=TVChannelAuthorizeRead)
-async def authorize_channel_playback(
-    channel_id: uuid.UUID, db: DBSession, user: OptionalUser
-):
+async def authorize_channel_playback(channel_id: uuid.UUID, db: DBSession, user: OptionalUser):
     channel = await _published_channel_or_404(db, channel_id)
     if not await can_access_channel(db, user, channel):
         raise HTTPException(
@@ -91,9 +87,7 @@ async def authorize_channel_playback(
             status_code=status.HTTP_409_CONFLICT,
             detail="This channel is not live right now",
         )
-    token = create_channel_playback_token(
-        channel_id, settings.tv_playback_token_expiry_seconds
-    )
+    token = create_channel_playback_token(channel_id, settings.tv_playback_token_expiry_seconds)
     # Always return the tokened API entry playlist. Returning the bare origin
     # URL let anyone with a shared link watch without authorizing. Segments
     # still load from the origin/CDN after this one gated hop.
@@ -114,5 +108,8 @@ async def channel_live_playlist(
             status_code=status.HTTP_409_CONFLICT,
             detail="This channel is not live right now",
         )
-    body = await live_playback.build_channel_playlist(channel.hls_playback_url)
+    body = await live_playback.build_channel_playlist(
+        channel.hls_playback_url,
+        allow_insecure=settings.debug,
+    )
     return Response(content=body, media_type=_M3U8_MEDIA_TYPE, headers=_NO_STORE)

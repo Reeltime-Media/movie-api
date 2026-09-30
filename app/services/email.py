@@ -67,9 +67,7 @@ _BORDER = "#2A2A2A"
 _TEXT = "#FAFAFA"
 _TEXT_MUTED = "#A3A3A3"
 _BRAND = "#E50914"
-_FONT_STACK = (
-    "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
-)
+_FONT_STACK = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
 
 
 def _email_shell(*, preheader: str, body_html: str) -> str:

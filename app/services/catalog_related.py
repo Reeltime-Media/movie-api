@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.content import Content
 from app.models.series import Series
+from app.services.catalog_columns import content_list_load_options, series_list_load_options
 
 
 async def related_movies(
@@ -18,6 +19,7 @@ async def related_movies(
     genres = [g for g in (movie.genres or []) if g]
     stmt = (
         select(Content)
+        .options(content_list_load_options())
         .where(
             Content.type == "single",
             Content.is_published.is_(True),
@@ -29,6 +31,7 @@ async def related_movies(
     if genres:
         stmt = (
             select(Content)
+            .options(content_list_load_options())
             .where(
                 Content.type == "single",
                 Content.is_published.is_(True),
@@ -47,6 +50,7 @@ async def related_movies(
     existing_ids = {movie.id, *(m.id for m in items)}
     fallback = await db.execute(
         select(Content)
+        .options(content_list_load_options())
         .where(
             Content.type == "single",
             Content.is_published.is_(True),
@@ -67,6 +71,7 @@ async def related_series(
     genres = [g for g in (series.genres or []) if g]
     stmt = (
         select(Series)
+        .options(series_list_load_options())
         .where(
             Series.is_published.is_(True),
             Series.id != series.id,
@@ -77,6 +82,7 @@ async def related_series(
     if genres:
         stmt = (
             select(Series)
+            .options(series_list_load_options())
             .where(
                 Series.is_published.is_(True),
                 Series.id != series.id,
@@ -94,6 +100,7 @@ async def related_series(
     existing_ids = {series.id, *(s.id for s in items)}
     fallback = await db.execute(
         select(Series)
+        .options(series_list_load_options())
         .where(
             Series.is_published.is_(True),
             Series.id.not_in(existing_ids),

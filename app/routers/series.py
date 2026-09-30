@@ -32,7 +32,7 @@ from app.models.content import Content
 from app.models.series import Series
 from app.models.transcode_job import TranscodeJob
 from app.rate_limit import limiter
-from app.schemas.content import ContentRead, ContentUpdate, SeasonRead
+from app.schemas.content import ContentRead, ContentUpdate
 from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
 from app.schemas.series import (
     CreateSeriesBody,
@@ -53,6 +53,7 @@ from app.schemas.series import (
 )
 from app.schemas.upload import PartUrlRead
 from app.services import r2_keys, storage
+from app.services.catalog_columns import series_list_load_options
 from app.services.content_access import has_series_purchase, user_has_active_subscription
 from app.services.content_delete import (
     delete_content_dependencies,
@@ -68,6 +69,7 @@ from app.services.content_upload import (
 )
 from app.services.image_process import optimize_r2_image
 from app.services.pagination import paginate_query
+from app.services.response_cache import CATALOG_TTL_SECONDS, cache_get_async, cache_set_async
 from app.services.series import free_episode_counts_by_series, get_series_or_404
 
 router = APIRouter(prefix="/series", tags=["series"])
@@ -101,18 +103,18 @@ async def list_series(
     ),
 ):
     from app.services.catalog_search import apply_catalog_genre, apply_catalog_search
-    from app.services.response_cache import CATALOG_TTL_SECONDS, cache_get, cache_set
 
     cache_key = (
         f"series:search={search}:genre={genre}:free={free}:short={short}:"
         f"page={pagination.page}:page_size={pagination.page_size}"
     )
-    cached = cache_get(cache_key)
+    cached = await cache_get_async(cache_key)
     if cached is not None:
         return cached
 
     stmt = (
         select(Series)
+        .options(series_list_load_options())
         .where(Series.is_published.is_(True))
         .order_by(Series.created_at.desc())
     )
@@ -149,7 +151,7 @@ async def list_series(
         page=pagination.page,
         page_size=pagination.page_size,
     )
-    cache_set(cache_key, response, ttl_seconds=CATALOG_TTL_SECONDS)
+    await cache_set_async(cache_key, response, ttl_seconds=CATALOG_TTL_SECONDS)
     return response
 
 
@@ -201,7 +203,9 @@ async def create_series(data: CreateSeriesBody, db: DBSession, _: AdminUser):
 
 
 @router.post("/{slug}/poster/start", response_model=SeriesPosterStartRead)
-async def start_series_poster_upload(slug: str, data: SeriesPosterStart, db: DBSession, _: AdminUser):
+async def start_series_poster_upload(
+    slug: str, data: SeriesPosterStart, db: DBSession, _: AdminUser
+):
     """Get a presigned URL to upload the series poster directly to R2."""
     series = await get_series_or_404(db, slug)
     poster_key = r2_keys.series_poster_key(series.slug, data.poster_content_type)
@@ -210,7 +214,9 @@ async def start_series_poster_upload(slug: str, data: SeriesPosterStart, db: DBS
 
 
 @router.post("/{slug}/banner/start", response_model=SeriesBannerStartRead)
-async def start_series_banner_upload(slug: str, data: SeriesBannerStart, db: DBSession, _: AdminUser):
+async def start_series_banner_upload(
+    slug: str, data: SeriesBannerStart, db: DBSession, _: AdminUser
+):
     """Get a presigned URL to upload the series banner directly to R2."""
     series = await get_series_or_404(db, slug)
     banner_key = r2_keys.series_banner_key(series.slug, data.banner_content_type)
@@ -255,19 +261,28 @@ async def delete_series(slug: str, db: DBSession, _: AdminUser):
     await db.commit()
 
 
-@router.get("/{slug}/episodes", response_model=list[SeasonRead])
+@router.get("/{slug}/episodes", response_model=PaginatedResponse[ContentRead])
 async def list_episodes(
-    slug: str, db: DBSession, request: Request, current_user: OptionalUser
+    slug: str,
+    db: DBSession,
+    request: Request,
+    current_user: OptionalUser,
+    pagination: PaginationDep,
 ):
-    """Published episodes for a series (public — used for free-episode discovery on the catalog)."""
+    """Published episodes for a series (paginated, ordered by season/episode)."""
     series = await get_series_or_404(db, slug, published_only=True)
 
-    eps_result = await db.execute(
+    stmt = (
         select(Content)
         .where(Content.series_id == series.id, Content.is_published.is_(True))
         .order_by(Content.season_number, Content.episode_number)
     )
-    episodes = eps_result.scalars().all()
+    episodes, total = await paginate_query(
+        db,
+        stmt,
+        page=pagination.page,
+        page_size=pagination.page_size,
+    )
 
     is_admin = current_user is not None and current_user.role == "admin"
     entitled = False
@@ -278,21 +293,21 @@ async def list_episodes(
     else:
         guest_id = get_guest_id(request)
         if guest_id:
-            entitled = await has_series_purchase(
-                db, series.id, guest_id=guest_id
-            )
+            entitled = await has_series_purchase(db, series.id, guest_id=guest_id)
 
-    seasons: dict[int, list[ContentRead]] = {}
+    items: list[ContentRead] = []
     for ep in episodes:
         data = ContentRead.model_validate(ep)
         if not (is_admin or ep.is_free or entitled):
             data.hls_master_key = None
-        seasons.setdefault(ep.season_number or 1, []).append(data)
+        items.append(data)
 
-    return [
-        SeasonRead(season_number=sn, episodes=eps)
-        for sn, eps in sorted(seasons.items())
-    ]
+    return build_paginated_response(
+        items,
+        total=total,
+        page=pagination.page,
+        page_size=pagination.page_size,
+    )
 
 
 @router.post("/{slug}/episodes/uploads/start", response_model=EpisodeUploadStartRead)
@@ -341,7 +356,9 @@ async def get_episode_part_url(
 
 
 @router.post("/{slug}/episodes/uploads/complete", response_model=ContentRead, status_code=201)
-async def complete_episode_upload(slug: str, data: EpisodeUploadComplete, db: DBSession, _: AdminUser):
+async def complete_episode_upload(
+    slug: str, data: EpisodeUploadComplete, db: DBSession, _: AdminUser
+):
     """Assemble the uploaded parts, then create the episode record and transcode job."""
     try:
         validate_content_status(data.status)
@@ -354,7 +371,9 @@ async def complete_episode_upload(slug: str, data: EpisodeUploadComplete, db: DB
     if data.source_key != expected_source_key:
         raise HTTPException(status_code=422, detail="source_key does not match episode_slug")
 
-    if data.poster_key and not r2_keys.is_episode_asset_key(slug, data.episode_slug, data.poster_key):
+    if data.poster_key and not r2_keys.is_episode_asset_key(
+        slug, data.episode_slug, data.poster_key
+    ):
         raise HTTPException(status_code=422, detail="poster_key does not match episode_slug")
 
     await complete_multipart_upload(data.source_key, data.upload_id, data.parts)
@@ -479,7 +498,9 @@ async def complete_episode_asset_upload(
             data.source_key,
         )
         if not source_exists:
-            raise HTTPException(status_code=409, detail="Video upload is not available in storage yet")
+            raise HTTPException(
+                status_code=409, detail="Video upload is not available in storage yet"
+            )
 
         episode.transcode_status = "pending"
         episode.hls_master_key = None
@@ -495,7 +516,9 @@ async def complete_episode_asset_upload(
             data.poster_key,
         )
         if not poster_exists:
-            raise HTTPException(status_code=409, detail="Poster upload is not available in storage yet")
+            raise HTTPException(
+                status_code=409, detail="Poster upload is not available in storage yet"
+            )
 
         episode.poster_key = await optimize_r2_image(data.poster_key, kind="poster")
 

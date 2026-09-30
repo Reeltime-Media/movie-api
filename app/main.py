@@ -9,24 +9,28 @@ from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import get_settings
-from app.db_connect import verify_database_connection
+from app.db_connect import verify_database_connection  # noqa: F401 — patched in tests
 from app.exception_handlers.database import (
     sqlalchemy_error_handler,
     timeout_error_handler,
 )
 from app.lifespan import app_lifespan
-from app.middleware.db_warmup import database_warmup_middleware, db_warmup
+from app.middleware.db_warmup import (
+    database_warmup_middleware,
+    db_warmup,  # noqa: F401 — patched in tests
+)
+from app.middleware.request_id import RequestIdMiddleware
 from app.middleware.security import security_headers_middleware
 from app.rate_limit import limiter
 from app.routers import (
     admin,
     auth,
-    comments,
     coming_soon,
+    comments,
     favorites,
+    free_today,
     genres,
     health,
-    free_today,
     hero_featured,
     library,
     movies,
@@ -40,7 +44,6 @@ from app.routers import (
     tv,
     users,
     watch_progress,
-    # webhooks,  # BARAY DISABLED — not mounted
 )
 
 logger = logging.getLogger(__name__)
@@ -68,11 +71,13 @@ def create_app() -> FastAPI:
         "allow_origins": settings.cors_origin_list,
         "allow_credentials": True,
         "allow_methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        "allow_headers": ["Authorization", "Content-Type", "Accept"],
+        "allow_headers": ["Authorization", "Content-Type", "Accept", "X-Request-ID"],
+        "expose_headers": ["X-Request-ID"],
     }
     if settings.cors_origin_regex:
         cors_kwargs["allow_origin_regex"] = settings.cors_origin_regex
     app.add_middleware(CORSMiddleware, **cors_kwargs)
+    app.add_middleware(RequestIdMiddleware)
 
     app.middleware("http")(security_headers_middleware)
     app.middleware("http")(database_warmup_middleware)
@@ -96,14 +101,15 @@ def create_app() -> FastAPI:
     app.include_router(genres.router)
     app.include_router(library.router)
     app.include_router(tv.router)
-    # BARAY DISABLED — webhook + payment-test kept in codebase, not mounted.
-    # app.include_router(webhooks.router)
-    app.include_router(admin.router)
+    if settings.baray_enabled:
+        from app.routers import webhooks
 
-    # if settings.debug:
-    #     from app.routers import payment_test
-    #
-    #     app.include_router(payment_test.router)
+        app.include_router(webhooks.router)
+        if settings.debug:
+            from app.routers import payment_test
+
+            app.include_router(payment_test.router)
+    app.include_router(admin.router)
 
     register_health_routes(app)
     return app

@@ -31,7 +31,11 @@ async def list_admin_promotion_banners(db: DBSession, _: AdminUser):
         return list(result.scalars().all())
     except Exception as exc:
         message = str(exc).lower()
-        if "promotion_banners" in message or "does not exist" in message or "undefinedtable" in message:
+        if (
+            "promotion_banners" in message
+            or "does not exist" in message
+            or "undefinedtable" in message
+        ):
             raise HTTPException(
                 status_code=503,
                 detail=(
@@ -62,9 +66,7 @@ async def update_admin_promotion_banner(
     db: DBSession,
     _: AdminUser,
 ):
-    result = await db.execute(
-        select(PromotionBanner).where(PromotionBanner.id == banner_id)
-    )
+    result = await db.execute(select(PromotionBanner).where(PromotionBanner.id == banner_id))
     banner = result.scalar_one_or_none()
     if not banner:
         raise NotFoundError("Promotion banner not found")
@@ -86,9 +88,7 @@ async def delete_admin_promotion_banner(
     db: DBSession,
     _: AdminUser,
 ):
-    result = await db.execute(
-        select(PromotionBanner).where(PromotionBanner.id == banner_id)
-    )
+    result = await db.execute(select(PromotionBanner).where(PromotionBanner.id == banner_id))
     banner = result.scalar_one_or_none()
     if not banner:
         raise NotFoundError("Promotion banner not found")
@@ -106,9 +106,7 @@ async def start_admin_promotion_banner_image_upload(
     _: AdminUser,
     db: DBSession,
 ):
-    result = await db.execute(
-        select(PromotionBanner).where(PromotionBanner.id == banner_id)
-    )
+    result = await db.execute(select(PromotionBanner).where(PromotionBanner.id == banner_id))
     banner = result.scalar_one_or_none()
     if not banner:
         raise NotFoundError("Promotion banner not found")

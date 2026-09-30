@@ -21,8 +21,7 @@ router = APIRouter()
 async def admin_transcode_job_counts(db: DBSession, _: AdminUser):
     """Single query for admin filter badges — avoids 5 paginated list round-trips."""
     result = await db.execute(
-        select(TranscodeJob.status, func.count())
-        .group_by(TranscodeJob.status)
+        select(TranscodeJob.status, func.count()).group_by(TranscodeJob.status)
     )
     by_status = {status: count for status, count in result.all()}
     queued = int(by_status.get("queued", 0))
@@ -89,7 +88,5 @@ async def retry_transcode_job(job_id: uuid.UUID, db: DBSession, _: AdminUser):
     job.status = "queued"
     job.error = None
     await db.commit()
-    row = (
-        await db.execute(transcode_jobs_select().where(TranscodeJob.id == job_id))
-    ).one()
+    row = (await db.execute(transcode_jobs_select().where(TranscodeJob.id == job_id))).one()
     return transcode_job_row_to_read(row)

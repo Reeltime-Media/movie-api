@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     cors_origin_regex: str = r"https://.*\.vercel\.app"
     secret_key: str
     algorithm: str = "HS256"
-    access_token_expire_minutes: int = 480  # 8 hours
+    access_token_expire_minutes: int = 60  # 1 hour; logout still revokes via session
     # Public frontend URL(s) for payment success redirects (comma-separated; falls back to CORS_ORIGINS)
     app_public_url: str = ""
 
@@ -99,10 +99,12 @@ class Settings(BaseSettings):
     # presign = private S3-API URLs (bypasses CDN; keep as fallback).
     playback_segment_mode: str = "cdn"
 
-    # Optional shared cache (Upstash / Redis). Empty = in-process only.
+    # Optional shared cache across Uvicorn workers (Upstash / Redis).
     redis_url: str = ""
 
-    # Baray Payment Gateway
+    # Baray Payment Gateway — off by default; set BARAY_ENABLED=true to mount
+    # webhook (+ payment-test when DEBUG) routes again.
+    baray_enabled: bool = False
     baray_api_key: str = ""
     baray_sk: str = ""
     baray_iv: str = ""
@@ -142,6 +144,8 @@ class Settings(BaseSettings):
     # Background sweeper (closed-tab). Keep false — client polls
     # + Mark paid cover settle without burning abandoned QRs.
     bakong_sweeper_enabled: bool = False
+    # When false, API lifespan skips sweeper/health — run `python -m app.workers.bakong`.
+    bakong_run_background_in_api: bool = True
 
     # Transcode worker (admin proxy only — never expose key to browsers)
     transcode_service_url: str = ""
@@ -185,6 +189,8 @@ class Settings(BaseSettings):
             raise ValueError("SECRET_KEY must not use a placeholder value when DEBUG is false")
 
         if self.baray_api_key.strip():
+            # Credentials present — validate completeness even if BARAY_ENABLED
+            # is still false (avoids half-configured prod secrets).
             if not self.baray_webhook_secret.strip():
                 raise ValueError(
                     "BARAY_WEBHOOK_SECRET is required when BARAY_API_KEY is set (DEBUG is false)"

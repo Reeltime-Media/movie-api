@@ -20,8 +20,8 @@ the rewrite loop.
 import asyncio
 import posixpath
 import re
-import time
 import threading
+import time
 
 from app.config import get_settings
 from app.services import storage
@@ -63,9 +63,7 @@ async def _get_object_text(key: str) -> str:
         return text
 
     def _fetch() -> str:
-        obj = storage._client().get_object(
-            Bucket=settings.r2_bucket_name, Key=key
-        )
+        obj = storage._client().get_object(Bucket=settings.r2_bucket_name, Key=key)
         return obj["Body"].read().decode("utf-8")
 
     text = await asyncio.to_thread(_fetch)
@@ -124,9 +122,7 @@ def order_master_playlist_for_startup(text: str) -> str:
     return "\n".join(out) + "\n"
 
 
-async def build_master_playlist(
-    hls_master_key: str, content_id, playback_token: str
-) -> str:
+async def build_master_playlist(hls_master_key: str, content_id, playback_token: str) -> str:
     """Rewrite each rendition reference to the token-carrying variant endpoint.
 
     Variant URLs are kept relative to the master so playback is independent of
@@ -154,9 +150,7 @@ def _rewrite_variant_text(text: str, prefix: str, expires_in: int) -> str:
     return "\n".join(out) + "\n"
 
 
-async def build_variant_playlist(
-    hls_master_key: str, variant_name: str, expires_in: int
-) -> str:
+async def build_variant_playlist(hls_master_key: str, variant_name: str, expires_in: int) -> str:
     """Rewrite each segment reference in a rendition playlist to a CDN/presigned URL.
 
     `variant_name` is validated by the caller. Segment names come from our own

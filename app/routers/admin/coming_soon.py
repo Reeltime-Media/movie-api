@@ -57,9 +57,7 @@ async def update_admin_coming_soon(
     db: DBSession,
     _: AdminUser,
 ):
-    result = await db.execute(
-        select(ComingSoonItem).where(ComingSoonItem.id == item_id)
-    )
+    result = await db.execute(select(ComingSoonItem).where(ComingSoonItem.id == item_id))
     item = result.scalar_one_or_none()
     if not item:
         raise NotFoundError("Coming Soon item not found")
@@ -77,9 +75,7 @@ async def delete_admin_coming_soon(
     db: DBSession,
     _: AdminUser,
 ):
-    result = await db.execute(
-        select(ComingSoonItem).where(ComingSoonItem.id == item_id)
-    )
+    result = await db.execute(select(ComingSoonItem).where(ComingSoonItem.id == item_id))
     item = result.scalar_one_or_none()
     if not item:
         raise NotFoundError("Coming Soon item not found")

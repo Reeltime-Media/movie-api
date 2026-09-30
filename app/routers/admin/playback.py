@@ -72,9 +72,7 @@ async def admin_source_video_url(
             detail="No source video is configured for this title",
         )
 
-    exists = await asyncio.get_event_loop().run_in_executor(
-        None, storage.object_exists, source_key
-    )
+    exists = await asyncio.get_event_loop().run_in_executor(None, storage.object_exists, source_key)
     if not exists:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

@@ -63,11 +63,7 @@ async def list_admin_movies(
     _: AdminUser,
     pagination: PaginationDep,
 ):
-    stmt = (
-        select(Content)
-        .where(Content.type == "single")
-        .order_by(Content.created_at.desc())
-    )
+    stmt = select(Content).where(Content.type == "single").order_by(Content.created_at.desc())
     items, total = await paginate_query(
         db, stmt, page=pagination.page, page_size=pagination.page_size
     )
@@ -190,7 +186,9 @@ async def start_admin_movie_asset_upload(
         )
 
     if not source_key and not poster_key and not banner_key:
-        raise HTTPException(status_code=422, detail="Choose a video, poster, or banner file to replace")
+        raise HTTPException(
+            status_code=422, detail="Choose a video, poster, or banner file to replace"
+        )
 
     return MovieAssetUploadStartRead(
         source_key=source_key,
@@ -225,7 +223,9 @@ async def complete_admin_movie_asset_upload(
             data.source_key,
         )
         if not source_exists:
-            raise HTTPException(status_code=409, detail="Video upload is not available in storage yet")
+            raise HTTPException(
+                status_code=409, detail="Video upload is not available in storage yet"
+            )
 
         movie.transcode_status = "pending"
         movie.hls_master_key = None
@@ -241,7 +241,9 @@ async def complete_admin_movie_asset_upload(
             data.poster_key,
         )
         if not poster_exists:
-            raise HTTPException(status_code=409, detail="Poster upload is not available in storage yet")
+            raise HTTPException(
+                status_code=409, detail="Poster upload is not available in storage yet"
+            )
 
     if data.banner_key:
         if not r2_keys.is_movie_asset_key(movie.slug, data.banner_key):
@@ -252,7 +254,9 @@ async def complete_admin_movie_asset_upload(
             data.banner_key,
         )
         if not banner_exists:
-            raise HTTPException(status_code=409, detail="Banner upload is not available in storage yet")
+            raise HTTPException(
+                status_code=409, detail="Banner upload is not available in storage yet"
+            )
 
     if data.poster_key or data.banner_key:
         poster_task = (

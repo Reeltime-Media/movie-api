@@ -7,7 +7,7 @@ NBC quota is exhausted.
 Bank-credit / external webhook settle is disabled (no bank hook available).
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import select
@@ -32,9 +32,9 @@ def qr_is_stale(intent: PaymentIntent, *, now: datetime | None = None) -> bool:
     issued = qr_issued_at(intent)
     if issued is None:
         return True
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     if issued.tzinfo is None:
-        issued = issued.replace(tzinfo=timezone.utc)
+        issued = issued.replace(tzinfo=UTC)
     ttl = timedelta(minutes=get_settings().bakong_qr_ttl_minutes)
     return now - issued >= ttl
 

@@ -21,9 +21,10 @@ os.environ.setdefault("R2_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("R2_BUCKET_NAME", "test")
 os.environ.setdefault("R2_PUBLIC_URL", "https://cdn.test")
 
+from unittest.mock import AsyncMock
+
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import AsyncMock
 
 from app import main as app_main
 

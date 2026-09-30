@@ -154,4 +154,3 @@ async def create_intent(
             detail="Baray returned an invalid payment intent response",
         )
     return data
-

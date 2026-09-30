@@ -2,7 +2,7 @@
 
 import asyncio
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -58,18 +58,14 @@ def test_add_rejects_duplicate():
 
 def test_add_rejects_eleventh_pick():
     movie_id = uuid.uuid4()
-    db = FakeDb(
-        [FakeResult(scalar=movie_id), FakeResult(scalar=None), FakeResult(scalar=10)]
-    )
+    db = FakeDb([FakeResult(scalar=movie_id), FakeResult(scalar=None), FakeResult(scalar=10)])
     with pytest.raises(ValueError, match="limited to 10"):
         asyncio.run(validate_free_today_add(db, movie_id))
 
 
 def test_add_allows_tenth_pick():
     movie_id = uuid.uuid4()
-    db = FakeDb(
-        [FakeResult(scalar=movie_id), FakeResult(scalar=None), FakeResult(scalar=9)]
-    )
+    db = FakeDb([FakeResult(scalar=movie_id), FakeResult(scalar=None), FakeResult(scalar=9)])
     asyncio.run(validate_free_today_add(db, movie_id))
 
 
@@ -83,7 +79,7 @@ def test_enrich_sets_movie_fields():
     movie_id = uuid.uuid4()
     movie = Content(id=movie_id, title="Test Movie", slug="test-movie", poster_key="p.webp")
     item = FreeTodayItem(id=uuid.uuid4(), content_id=movie_id, sort_order=1)
-    item.created_at = item.updated_at = datetime.now(timezone.utc)
+    item.created_at = item.updated_at = datetime.now(UTC)
     db = FakeDb([FakeResult(items=[movie])])
     enriched = asyncio.run(enrich_admin_free_today(db, [item]))
     assert enriched[0].content_title == "Test Movie"

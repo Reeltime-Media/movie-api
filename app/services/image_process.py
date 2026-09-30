@@ -113,9 +113,7 @@ def _optimize_r2_image_sync(key: str, *, kind: ImageKind) -> str:
         if target_key == key and len(optimized) >= len(original):
             target_key = key
             source_for_thumb = original
-            storage.put_object_bytes(
-                key, original, "image/webp", storage.IMAGE_CACHE_CONTROL
-            )
+            storage.put_object_bytes(key, original, "image/webp", storage.IMAGE_CACHE_CONTROL)
         else:
             storage.put_object_bytes(
                 target_key, optimized, "image/webp", storage.IMAGE_CACHE_CONTROL
@@ -140,9 +138,7 @@ def _optimize_r2_image_sync(key: str, *, kind: ImageKind) -> str:
     thumb_key = thumb_key_fn(target_key)
     try:
         thumb = thumb_bytes_fn(source_for_thumb)
-        storage.put_object_bytes(
-            thumb_key, thumb, "image/webp", storage.IMAGE_CACHE_CONTROL
-        )
+        storage.put_object_bytes(thumb_key, thumb, "image/webp", storage.IMAGE_CACHE_CONTROL)
         logger.info(
             "Wrote %s thumb %s (%d KB)",
             kind,
@@ -162,9 +158,7 @@ async def optimize_r2_image(key: str | None, *, kind: ImageKind) -> str | None:
 
     loop = asyncio.get_event_loop()
     try:
-        return await loop.run_in_executor(
-            None, lambda: _optimize_r2_image_sync(key, kind=kind)
-        )
+        return await loop.run_in_executor(None, lambda: _optimize_r2_image_sync(key, kind=kind))
     except Exception:
         logger.exception("Failed to optimize %s image at %s", kind, key)
         return key

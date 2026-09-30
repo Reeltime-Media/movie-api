@@ -20,16 +20,12 @@ async def list_public_subscription_plans(db: DBSession):
 
 @router.get("/me", response_model=list[SubscriptionRead])
 async def get_my_subscriptions(db: DBSession, current_user: CurrentUser):
-    result = await db.execute(
-        select(Subscription).where(Subscription.user_id == current_user.id)
-    )
+    result = await db.execute(select(Subscription).where(Subscription.user_id == current_user.id))
     return result.scalars().all()
 
 
 @router.get("/{subscription_id}", response_model=SubscriptionRead)
-async def get_subscription(
-    subscription_id: uuid.UUID, db: DBSession, current_user: CurrentUser
-):
+async def get_subscription(subscription_id: uuid.UUID, db: DBSession, current_user: CurrentUser):
     result = await db.execute(
         select(Subscription).where(
             Subscription.id == subscription_id,

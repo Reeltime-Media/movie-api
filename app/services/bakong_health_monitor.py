@@ -2,6 +2,9 @@
 
 Runs only while ``bakong_nbc_settle_enabled`` and a remote Bakong service URL
 are configured. At most one alert per ICT day (same ops chat as daily limit).
+
+Ownership: Redis lock (or flock fallback) so multi-worker deploys do not
+duplicate polls / alerts.
 """
 
 from __future__ import annotations
@@ -10,11 +13,15 @@ import asyncio
 import logging
 
 from app.config import get_settings
+from app.services.distributed_lock import HeldLock, try_acquire
 
 logger = logging.getLogger(__name__)
 
 _POLL_INTERVAL_SECONDS = 180.0
 _task: asyncio.Task | None = None
+_held_lock: HeldLock | None = None
+_LOCK_NAME = "bakong:health-monitor"
+_LOCK_TTL_SECONDS = 240
 
 
 async def check_once_and_alert() -> bool:
@@ -51,6 +58,9 @@ async def _monitor_loop() -> None:
     await asyncio.sleep(15.0)
     while True:
         try:
+            if _held_lock is not None and not _held_lock.refresh():
+                logger.warning("Bakong health monitor lost ownership lock — stopping")
+                break
             await check_once_and_alert()
         except asyncio.CancelledError:
             raise
@@ -59,27 +69,44 @@ async def _monitor_loop() -> None:
         await asyncio.sleep(_POLL_INTERVAL_SECONDS)
 
 
-def start_bakong_health_monitor() -> None:
-    global _task
+def start_bakong_health_monitor() -> bool:
+    """Start monitor in at most one process. Returns True if this process owns it."""
+    global _task, _held_lock
     settings = get_settings()
     if not settings.bakong_nbc_settle_enabled:
         logger.info("Bakong health monitor not started (nbc settle off)")
-        return
+        return False
     if not (settings.bakong_service_url or "").strip():
         logger.info("Bakong health monitor not started (no BAKONG_SERVICE_URL)")
-        return
+        return False
     if _task is not None and not _task.done():
-        return
+        return True
+
+    held = try_acquire(
+        _LOCK_NAME,
+        ttl_seconds=_LOCK_TTL_SECONDS,
+        flock_path="/tmp/reeltime-bakong-health.lock",
+    )
+    if held is None:
+        logger.info("Bakong health monitor already running elsewhere")
+        return False
+    _held_lock = held
+    logger.info("Bakong health monitor lock acquired via %s", held.backend)
     _task = asyncio.create_task(_monitor_loop(), name="bakong-health-monitor")
+    return True
 
 
 async def stop_bakong_health_monitor() -> None:
-    global _task
-    if _task is None:
+    global _task, _held_lock
+    if _task is None and _held_lock is None:
         return
-    _task.cancel()
-    try:
-        await _task
-    except asyncio.CancelledError:
-        pass
-    _task = None
+    if _task is not None:
+        _task.cancel()
+        try:
+            await _task
+        except asyncio.CancelledError:
+            pass
+        _task = None
+    if _held_lock is not None:
+        _held_lock.release()
+        _held_lock = None

@@ -4,8 +4,8 @@ catalog list request."""
 import pytest
 
 from app.services.response_cache import (
-    CATALOG_TTL_SECONDS,
     _CACHE,
+    CATALOG_TTL_SECONDS,
     cache_get,
     cache_get_or_set,
     cache_set,

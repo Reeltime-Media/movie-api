@@ -11,9 +11,7 @@ from app.database import Base
 class Comment(Base):
     __tablename__ = "comments"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     content_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("content.id", ondelete="CASCADE"), nullable=False
     )
@@ -33,6 +31,4 @@ class Comment(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
-    deleted_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

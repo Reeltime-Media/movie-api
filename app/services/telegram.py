@@ -79,9 +79,7 @@ async def notify_payment_succeeded(
 
     buyer = "guest"
     if intent.user_id:
-        row = await db.execute(
-            select(User.email, User.full_name).where(User.id == intent.user_id)
-        )
+        row = await db.execute(select(User.email, User.full_name).where(User.id == intent.user_id))
         user_row = row.one_or_none()
         if user_row:
             email, full_name = user_row

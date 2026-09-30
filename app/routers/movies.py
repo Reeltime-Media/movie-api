@@ -1,16 +1,16 @@
 """Movie upload flow (multipart — API server never buffers video bytes):
 
-  1. POST /movies/uploads/start  (requires title + file_size_bytes)
-       → { content_id, slug, upload_id, source_key, part_size, part_urls[], poster_key?, poster_upload_url? }
+1. POST /movies/uploads/start  (requires title + file_size_bytes)
+     → { content_id, slug, upload_id, source_key, part_size, part_urls[], poster_key?, poster_upload_url? }
 
-  2. GET  /movies/uploads/part-url?source_key=…&upload_id=…&part_number=N
-       → { url }   (optional fallback — start returns all part URLs in one response)
+2. GET  /movies/uploads/part-url?source_key=…&upload_id=…&part_number=N
+     → { url }   (optional fallback — start returns all part URLs in one response)
 
-  3. POST /movies/uploads/complete
-       → ContentRead   (completes multipart upload + creates DB record + queues transcode)
+3. POST /movies/uploads/complete
+     → ContentRead   (completes multipart upload + creates DB record + queues transcode)
 
-  4. POST /movies/uploads/abort
-       → 204           (frees partial uploads on cancel / error)
+4. POST /movies/uploads/abort
+     → 204           (frees partial uploads on cancel / error)
 """
 
 import asyncio
@@ -21,6 +21,7 @@ from sqlalchemy import select
 
 from app.core.content_status import validate_content_status
 from app.core.exceptions import NotFoundError
+from app.core.guest import get_guest_id
 from app.dependencies import AdminUser, DBSession, OptionalUser
 from app.models.content import Content
 from app.models.transcode_job import TranscodeJob
@@ -34,8 +35,8 @@ from app.schemas.upload import (
     MultipartUploadAbort,
     PartUrlRead,
 )
-from app.core.guest import get_guest_id
 from app.services import coming_soon, free_today, r2_keys
+from app.services.catalog_columns import content_list_load_options
 from app.services.content_access import can_access_content
 from app.services.content_delete import delete_content_dependencies
 from app.services.content_publish import ensure_movie_publishable
@@ -49,6 +50,7 @@ from app.services.content_upload import (
 )
 from app.services.image_process import optimize_r2_image
 from app.services.pagination import paginate_query
+from app.services.response_cache import CATALOG_TTL_SECONDS, cache_get_async, cache_set_async
 from app.services.runtime import apply_runtime_minutes
 
 router = APIRouter(prefix="/movies", tags=["movies"])
@@ -205,18 +207,18 @@ async def list_movies(
     ),
 ):
     from app.services.catalog_search import apply_catalog_genre, apply_catalog_search
-    from app.services.response_cache import CATALOG_TTL_SECONDS, cache_get, cache_set
 
     cache_key = (
         f"movies:search={search}:genre={genre}:free={free}:"
         f"page={pagination.page}:page_size={pagination.page_size}"
     )
-    cached = cache_get(cache_key)
+    cached = await cache_get_async(cache_key)
     if cached is not None:
         return cached
 
     stmt = (
         select(Content)
+        .options(content_list_load_options())
         .where(Content.type == "single", Content.is_published.is_(True))
         .order_by(Content.created_at.desc())
     )
@@ -236,7 +238,7 @@ async def list_movies(
         page=pagination.page,
         page_size=pagination.page_size,
     )
-    cache_set(cache_key, response, ttl_seconds=CATALOG_TTL_SECONDS)
+    await cache_set_async(cache_key, response, ttl_seconds=CATALOG_TTL_SECONDS)
     return response
 
 
@@ -274,16 +276,16 @@ async def get_movie(slug: str, db: DBSession, request: Request, current_user: Op
     data = ContentRead.model_validate(movie)
     data.is_free_today = await free_today.is_free_today(db, movie.id)
     guest_id = None if current_user else get_guest_id(request)
-    if not await can_access_content(db, current_user, guest_id, movie):
+    if not await can_access_content(
+        db, current_user, guest_id, movie, is_free_today=data.is_free_today
+    ):
         data.hls_master_key = None
     return data
 
 
 @router.patch("/{slug}", response_model=ContentRead)
 async def update_movie(slug: str, data: ContentUpdate, db: DBSession, _: AdminUser):
-    result = await db.execute(
-        select(Content).where(Content.slug == slug, Content.type == "single")
-    )
+    result = await db.execute(select(Content).where(Content.slug == slug, Content.type == "single"))
     movie = result.scalar_one_or_none()
     if not movie:
         raise NotFoundError("Movie not found")
@@ -317,9 +319,7 @@ async def update_movie(slug: str, data: ContentUpdate, db: DBSession, _: AdminUs
 
 @router.delete("/{slug}", status_code=204)
 async def delete_movie(slug: str, db: DBSession, _: AdminUser):
-    result = await db.execute(
-        select(Content).where(Content.slug == slug, Content.type == "single")
-    )
+    result = await db.execute(select(Content).where(Content.slug == slug, Content.type == "single"))
     movie = result.scalar_one_or_none()
     if not movie:
         raise NotFoundError("Movie not found")

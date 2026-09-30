@@ -1,20 +1,21 @@
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, Request, status
-from app.rate_limit import limiter
 from sqlalchemy import select
 
 from app.core.webhook_auth import verify_baray_webhook
 from app.dependencies import DBSession
 from app.models.payment_intent import PaymentIntent
 from app.models.webhook_event import WebhookEvent
+from app.rate_limit import limiter
 from app.services.payment import decrypt_order_id
 from app.services.payment_fulfillment import fulfill_payment_intent
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
-# BARAY DISABLED — router is not mounted in main.py. Handler kept for later.
+# Mounted only when BARAY_ENABLED=true. Handler below still 503s until Baray
+# settle path is fully re-verified (idempotent event ids, etc.).
 
 
 @router.post("/baray")
@@ -30,9 +31,7 @@ async def baray_webhook(request: Request, db: DBSession):
     try:
         payload = json.loads(body)
     except json.JSONDecodeError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON"
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON")
     if not isinstance(payload, dict):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid webhook payload"
@@ -56,14 +55,14 @@ async def baray_webhook(request: Request, db: DBSession):
     event = WebhookEvent(
         provider="baray",
         payload=payload,
-        received_at=datetime.now(timezone.utc),
+        received_at=datetime.now(UTC),
     )
     db.add(event)
     await db.flush()
 
     try:
         await _process_baray_event(db, order_id, payload)
-        event.processed_at = datetime.now(timezone.utc)
+        event.processed_at = datetime.now(UTC)
     except Exception as exc:
         event.error = str(exc)
 
@@ -72,9 +71,7 @@ async def baray_webhook(request: Request, db: DBSession):
 
 
 async def _process_baray_event(db, order_id: str, payload: dict) -> None:
-    result = await db.execute(
-        select(PaymentIntent).where(PaymentIntent.order_id == order_id)
-    )
+    result = await db.execute(select(PaymentIntent).where(PaymentIntent.order_id == order_id))
     intent = result.scalar_one_or_none()
     if not intent:
         return

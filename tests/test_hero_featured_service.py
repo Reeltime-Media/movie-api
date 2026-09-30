@@ -203,9 +203,7 @@ def test_video_enabled_true_keeps_trailer_fallback():
 
 def test_validate_custom_requires_video():
     with pytest.raises(ValueError, match="video"):
-        asyncio.run(
-            validate_hero_content(None, content_type="custom", content_id=None)
-        )
+        asyncio.run(validate_hero_content(None, content_type="custom", content_id=None))
 
 
 def test_validate_custom_rejects_content_id():
@@ -244,6 +242,4 @@ def test_validate_custom_ok_with_uploaded_video():
 
 def test_validate_movie_requires_content_id():
     with pytest.raises(ValueError, match="content_id"):
-        asyncio.run(
-            validate_hero_content(None, content_type="movie", content_id=None)
-        )
+        asyncio.run(validate_hero_content(None, content_type="movie", content_id=None))

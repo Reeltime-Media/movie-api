@@ -1,7 +1,4 @@
-"""Baray payment test page — BARAY DISABLED (router not mounted in main.py).
-
-Kept in the codebase for when Baray checkout is re-enabled.
-"""
+"""Baray payment test page — mounted only when BARAY_ENABLED=true and DEBUG=true."""
 
 import uuid
 

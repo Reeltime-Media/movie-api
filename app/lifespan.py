@@ -4,7 +4,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.config import get_settings
-from app.db_connect import database_connection_label, validate_database_url, verify_database_connection
+from app.db_connect import (
+    database_connection_label,
+    validate_database_url,
+    verify_database_connection,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +38,16 @@ async def app_lifespan(app: FastAPI):
             database_connection_label(db_url),
         )
 
-    if get_settings().bakong_nbc_settle_enabled and get_settings().bakong_sweeper_enabled:
+    if (
+        get_settings().bakong_run_background_in_api
+        and get_settings().bakong_nbc_settle_enabled
+        and get_settings().bakong_sweeper_enabled
+    ):
         start_bakong_sweeper()
     else:
         logger.info(
-            "Bakong sweeper not started (nbc_settle=%s sweeper=%s)",
+            "Bakong sweeper not started in API (in_api=%s nbc_settle=%s sweeper=%s)",
+            get_settings().bakong_run_background_in_api,
             get_settings().bakong_nbc_settle_enabled,
             get_settings().bakong_sweeper_enabled,
         )
@@ -48,7 +57,10 @@ async def app_lifespan(app: FastAPI):
         stop_bakong_health_monitor,
     )
 
-    start_bakong_health_monitor()
+    if get_settings().bakong_run_background_in_api:
+        start_bakong_health_monitor()
+    else:
+        logger.info("Bakong health monitor not started in API (run worker instead)")
 
     yield
 
@@ -57,9 +69,9 @@ async def app_lifespan(app: FastAPI):
 
     from app.services.bakong import close_http_client as close_bakong_http_client
     from app.services.email import close_http_client as close_email_http_client
-    from app.services.payment import close_http_client as close_payment_http_client
     from app.services.live_client import close_http_client as close_live_http_client
     from app.services.live_playback import close_http_client as close_live_playback_http_client
+    from app.services.payment import close_http_client as close_payment_http_client
     from app.services.storage import reset_client as reset_storage_client
     from app.services.telegram import close_http_client as close_telegram_http_client
     from app.services.transcode_client import close_http_client as close_transcode_http_client

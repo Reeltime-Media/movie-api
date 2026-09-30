@@ -1,6 +1,6 @@
 import re
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,7 +36,9 @@ def device_label_from_user_agent(user_agent: str | None) -> str:
     if not user_agent:
         return "Unknown device"
 
-    browser = next((name for pattern, name in _BROWSER_PATTERNS if pattern.search(user_agent)), None)
+    browser = next(
+        (name for pattern, name in _BROWSER_PATTERNS if pattern.search(user_agent)), None
+    )
     os_name = next((name for pattern, name in _OS_PATTERNS if pattern.search(user_agent)), None)
 
     if browser and os_name:
@@ -49,7 +51,7 @@ def device_label_from_user_agent(user_agent: str | None) -> str:
 
 
 async def _count_active_sessions(db: AsyncSession, user_id: uuid.UUID) -> int:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     result = await db.execute(
         select(func.count())
         .select_from(Session)
@@ -62,9 +64,7 @@ async def _count_active_sessions(db: AsyncSession, user_id: uuid.UUID) -> int:
     return result.scalar_one()
 
 
-async def create_session(
-    db: AsyncSession, user_id: uuid.UUID, user_agent: str | None
-) -> Session:
+async def create_session(db: AsyncSession, user_id: uuid.UUID, user_agent: str | None) -> Session:
     """Raises ForbiddenError if the account is already at its concurrent
     device limit — caller must revoke a session before logging in again."""
     active_count = await _count_active_sessions(db, user_id)
@@ -74,9 +74,7 @@ async def create_session(
             "Log out from another device to continue."
         )
 
-    expires_at = datetime.now(timezone.utc) + timedelta(
-        minutes=settings.access_token_expire_minutes
-    )
+    expires_at = datetime.now(UTC) + timedelta(minutes=settings.access_token_expire_minutes)
     session = Session(
         user_id=user_id,
         device_label=device_label_from_user_agent(user_agent),
@@ -89,7 +87,7 @@ async def create_session(
 
 
 async def get_active_session(db: AsyncSession, session_id: uuid.UUID) -> Session | None:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     result = await db.execute(
         select(Session).where(
             Session.id == session_id,
@@ -101,7 +99,7 @@ async def get_active_session(db: AsyncSession, session_id: uuid.UUID) -> Session
 
 
 async def list_active_sessions(db: AsyncSession, user_id: uuid.UUID) -> list[Session]:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     result = await db.execute(
         select(Session)
         .where(
@@ -122,7 +120,7 @@ async def revoke_session(db: AsyncSession, user_id: uuid.UUID, session_id: uuid.
     session = result.scalar_one_or_none()
     if not session or session.revoked_at is not None:
         raise NotFoundError("Session not found")
-    session.revoked_at = datetime.now(timezone.utc)
+    session.revoked_at = datetime.now(UTC)
     await db.commit()
 
 

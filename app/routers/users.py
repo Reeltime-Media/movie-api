@@ -42,15 +42,15 @@ async def update_me(data: UserUpdate, current_user: CurrentUser, db: DBSession):
 
 
 @router.get("/me/sessions", response_model=list[SessionRead])
-async def list_my_sessions(current_user: CurrentUser, current_session_id: CurrentSessionId, db: DBSession):
+async def list_my_sessions(
+    current_user: CurrentUser, current_session_id: CurrentSessionId, db: DBSession
+):
     sessions = await list_active_sessions(db, current_user.id)
     return [session_to_read(s, is_current=s.id == current_session_id) for s in sessions]
 
 
 @router.delete("/me/sessions/{session_id}", status_code=204)
-async def revoke_my_session(
-    session_id: uuid.UUID, current_user: CurrentUser, db: DBSession
-):
+async def revoke_my_session(session_id: uuid.UUID, current_user: CurrentUser, db: DBSession):
     await revoke_session(db, current_user.id, session_id)
 
 

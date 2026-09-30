@@ -12,9 +12,7 @@ from app.database import Base
 class SubscriptionPayment(Base):
     __tablename__ = "subscription_payments"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     subscription_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("subscriptions.id"), nullable=False
     )
@@ -25,6 +23,4 @@ class SubscriptionPayment(Base):
     paid_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
-    period_extended_to: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    period_extended_to: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

@@ -127,7 +127,9 @@ class SeriesBannerStartRead(BaseModel):
 class EpisodeUploadStart(BaseModel):
     season_number: int
     episode_number: int
-    file_size_bytes: int = Field(gt=0, description="Raw video file size — used to presign all part URLs")
+    file_size_bytes: int = Field(
+        gt=0, description="Raw video file size — used to presign all part URLs"
+    )
     video_content_type: str = "video/mp4"
     poster_content_type: str | None = None
 

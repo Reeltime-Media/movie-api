@@ -42,9 +42,7 @@ async def _content_or_404(db, content_id: uuid.UUID) -> Content:
     result = await db.execute(select(Content).where(Content.id == content_id))
     content = result.scalar_one_or_none()
     if not content:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Content not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content not found")
     if not content.hls_master_key:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -61,20 +59,31 @@ async def authorize_playback(
     hand back a tokenized master playlist URL."""
     content = await get_published_content_or_404(db, content_id, user=user)
     guest_id = None if user else get_guest_id(request)
-    if not await can_access_content(db, user, guest_id, content):
+    # Resolve Free-today once — both entitlement checks below reuse it.
+    free_today_flag: bool | None = None
+    if content.type == "single" and not content.is_free:
+        from app.services import free_today as free_today_svc
+
+        free_today_flag = await free_today_svc.is_free_today(db, content.id)
+    if not await can_access_content(db, user, guest_id, content, is_free_today=free_today_flag):
         # Customer may have paid KHQR while NBC checks were down / tab closed.
         # One settle attempt here unlocks the movie without a second charge.
+        settled = False
         if content.type == "single":
             from app.services.bakong_settle import settle_pending_movie_bakong_for_buyer
 
-            if await settle_pending_movie_bakong_for_buyer(
+            settled = await settle_pending_movie_bakong_for_buyer(
                 db,
                 content_id=content.id,
                 user_id=user.id if user else None,
                 guest_id=guest_id,
-            ):
+            )
+            if settled:
                 await db.commit()
-        if not await can_access_content(db, user, guest_id, content):
+        # Only re-check entitlement when settle may have granted access.
+        if not settled or not await can_access_content(
+            db, user, guest_id, content, is_free_today=free_today_flag
+        ):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You do not have access to this title",
@@ -92,9 +101,7 @@ async def authorize_playback(
 
 
 @router.get("/{content_id}/master.m3u8")
-async def master_playlist(
-    content_id: uuid.UUID, db: DBSession, t: str = Query(...)
-) -> Response:
+async def master_playlist(content_id: uuid.UUID, db: DBSession, t: str = Query(...)) -> Response:
     verify_playback_token(t, content_id)
     content = await _content_or_404(db, content_id)
     body = await playback.build_master_playlist(content.hls_master_key, content_id, t)
@@ -106,9 +113,7 @@ async def variant_playlist(
     content_id: uuid.UUID, name: str, db: DBSession, t: str = Query(...)
 ) -> Response:
     if not _VARIANT_NAME_RE.match(name):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid rendition"
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid rendition")
     verify_playback_token(t, content_id)
     content = await _content_or_404(db, content_id)
     body = await playback.build_variant_playlist(

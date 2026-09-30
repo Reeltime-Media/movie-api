@@ -10,7 +10,7 @@ from __future__ import annotations
 import secrets
 import string
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,13 +33,13 @@ _CODE_ALPHABET = string.ascii_uppercase + string.digits
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _ensure_aware(value: datetime) -> datetime:
     if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def _is_expired(row: TvAccessCode, *, now: datetime | None = None) -> bool:
@@ -68,33 +68,25 @@ def _generate_code() -> str:
 
 async def _unique_code(db: AsyncSession, preferred: str | None) -> str:
     if preferred:
-        existing = await db.execute(
-            select(TvAccessCode.id).where(TvAccessCode.code == preferred)
-        )
+        existing = await db.execute(select(TvAccessCode.id).where(TvAccessCode.code == preferred))
         if existing.scalar_one_or_none():
             raise ConflictError("This TV ID is already in use")
         return preferred
 
     for _ in range(12):
         candidate = _generate_code()
-        existing = await db.execute(
-            select(TvAccessCode.id).where(TvAccessCode.code == candidate)
-        )
+        existing = await db.execute(select(TvAccessCode.id).where(TvAccessCode.code == candidate))
         if existing.scalar_one_or_none() is None:
             return candidate
     raise ConflictError("Could not generate a unique TV ID. Try again.")
 
 
 async def list_tv_access_codes(db: AsyncSession) -> list[TvAccessCodeRead]:
-    result = await db.execute(
-        select(TvAccessCode).order_by(TvAccessCode.created_at.desc())
-    )
+    result = await db.execute(select(TvAccessCode).order_by(TvAccessCode.created_at.desc()))
     return [to_read(row) for row in result.scalars()]
 
 
-async def create_tv_access_code(
-    db: AsyncSession, data: TvAccessCodeCreate
-) -> TvAccessCodeRead:
+async def create_tv_access_code(db: AsyncSession, data: TvAccessCodeCreate) -> TvAccessCodeRead:
     expires_at = _ensure_aware(data.expires_at)
     if expires_at <= _utcnow():
         raise ConflictError("Expiry must be in the future")

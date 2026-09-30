@@ -11,9 +11,7 @@ from app.database import Base
 class PromotionBanner(Base):
     __tablename__ = "promotion_banners"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     subtitle: Mapped[str | None] = mapped_column(Text, nullable=True)
     image_key: Mapped[str | None] = mapped_column(Text, nullable=True)

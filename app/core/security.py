@@ -1,6 +1,6 @@
 import hashlib
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import jwt
@@ -35,9 +35,7 @@ def hash_reset_token(raw_token: str) -> str:
 
 
 def create_access_token(user_id: UUID, role: str, session_id: UUID) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(
-        minutes=settings.access_token_expire_minutes
-    )
+    expire = datetime.now(UTC) + timedelta(minutes=settings.access_token_expire_minutes)
     payload = {
         "sub": str(user_id),
         "role": role,
@@ -58,7 +56,7 @@ def create_playback_token(content_id: UUID, expires_in: int) -> str:
     """Short-lived token scoped to a single content id, minted only after an
     entitlement check. It gates the HLS playlist endpoints so the user's main
     access token never appears in playlist bodies or media URLs."""
-    expire = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+    expire = datetime.now(UTC) + timedelta(seconds=expires_in)
     payload = {"sub": str(content_id), "scope": "playback", "exp": expire}
     return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
 
@@ -77,7 +75,7 @@ def create_channel_playback_token(channel_id: UUID, expires_in: int) -> str:
     """Short-lived token scoped to a single TV channel id, minted only after an
     entitlement check. Separate scope from `create_playback_token` so a VOD
     token can never be replayed against a live channel or vice versa."""
-    expire = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+    expire = datetime.now(UTC) + timedelta(seconds=expires_in)
     payload = {"sub": str(channel_id), "scope": "tv_playback", "exp": expire}
     return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
 

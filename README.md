@@ -27,7 +27,13 @@ cd movie-api
 
 python3.12 -m venv env
 source env/bin/activate
-pip install -r requirements.txt
+# Prefer the lockfile for reproducible installs (regenerate with:
+#   uv pip compile requirements.txt -o requirements.lock
+#   uv pip compile requirements-dev.txt -o requirements-dev.lock
+# )
+pip install -r requirements.lock
+# Dev extras (pytest, ruff, mypy):
+# pip install -r requirements-dev.lock
 
 cp .env.example .env
 ```
@@ -100,9 +106,23 @@ All seed scripts are idempotent — safe to re-run.
 
 ```bash
 pytest -q
+# CI also runs: ruff check, ruff format --check, mypy (services/core/workers)
 ```
 
 Also runs in CI on every push/PR to `main` (see `.github/workflows/deploy.yml`).
+
+## Bakong background worker (optional)
+
+By default the API can own sweeper/health loops (single-owner Redis lock, or
+flock fallback). To run them in a separate process instead:
+
+```bash
+# on the API
+BAKONG_RUN_BACKGROUND_IN_API=false
+
+# separate process / container
+BAKONG_SWEEPER_ENABLED=true python -m app.workers.bakong
+```
 
 ## Deployment
 

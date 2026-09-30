@@ -1,6 +1,5 @@
 """Subscription package fulfillment must credit the plan the user paid for."""
 
-from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 from uuid import uuid4
@@ -18,6 +17,35 @@ def test_plan_code_from_order_id():
     assert _plan_code_from_order_id("sub-value_1m-deadbeef") == "value_1m"
     assert _plan_code_from_order_id("sub-abcdef012345") is None
     assert _plan_code_from_order_id("movie-xyz") is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_plan_prefers_intent_plan_code(monkeypatch):
+    premium = SimpleNamespace(
+        code="premium_5m",
+        is_active=True,
+        billing_interval_days=150,
+        price_usd=Decimal("10.99"),
+    )
+
+    async def by_code(db, code):
+        assert code == "premium_5m"
+        return premium
+
+    monkeypatch.setattr(
+        "app.services.payment_fulfillment.get_subscription_plan_by_code",
+        by_code,
+    )
+
+    intent = SimpleNamespace(
+        plan_code="premium_5m",
+        order_id="sub-value_1m-deadbeef",
+        amount_usd=Decimal("3.49"),
+    )
+    from app.services.payment_fulfillment import _resolve_plan_for_subscription_intent
+
+    plan = await _resolve_plan_for_subscription_intent(None, intent)
+    assert plan.code == "premium_5m"
 
 
 class _ScalarResult:
@@ -108,7 +136,11 @@ async def test_fulfill_sub_uses_paid_plan_not_default(monkeypatch):
     await fulfill_payment_intent(db, intent, bank="bakong")
 
     assert intent.status == "succeeded"
-    sub = next(o for o in db.added if o.__class__.__name__ == "Subscription" or hasattr(o, "plan"))
+    assert any(
+        getattr(o, "plan", None) == "premium_5m"
+        or (o.__class__.__name__ == "Subscription" and getattr(o, "plan", None))
+        for o in db.added
+    )
     # Newly constructed Subscription in fulfillment uses the model class —
     # our fake just stores whatever was passed to add().
     plans = [getattr(o, "plan", None) for o in db.added]

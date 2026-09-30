@@ -25,7 +25,9 @@ def prefix_tsquery(term: str) -> str | None:
     return " & ".join(f"{part}:*" for part in parts)
 
 
-def apply_catalog_search(stmt: Select[tuple[T]], model: type[T], *, search: str | None) -> Select[tuple[T]]:
+def apply_catalog_search(
+    stmt: Select[tuple[T]], model: type[T], *, search: str | None
+) -> Select[tuple[T]]:
     if not search or not (term := search.strip()):
         return stmt
 
@@ -54,7 +56,9 @@ def apply_catalog_search(stmt: Select[tuple[T]], model: type[T], *, search: str 
     return stmt.where(or_(*clauses))
 
 
-def apply_catalog_genre(stmt: Select[tuple[T]], model: type[T], *, genre: str | None) -> Select[tuple[T]]:
+def apply_catalog_genre(
+    stmt: Select[tuple[T]], model: type[T], *, genre: str | None
+) -> Select[tuple[T]]:
     if not genre or not (label := genre.strip()):
         return stmt
     # Titles may have several genres in admin; catalog pages show only the first.

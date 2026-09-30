@@ -1,8 +1,13 @@
-"""Fulfill payment intents after verified Baray webhook (or idempotent retry)."""
+"""Fulfill payment intents after verified payment (Bakong settle, webhook, admin).
 
-from datetime import datetime, timedelta, timezone
+Idempotent: locking the intent row + ON CONFLICT DO NOTHING on side-effect
+tables so concurrent fulfillers cannot double-grant.
+"""
+
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.payment_intent import PaymentIntent
@@ -34,8 +39,10 @@ async def _resolve_plan_for_subscription_intent(
     db: AsyncSession,
     intent: PaymentIntent,
 ):
-    """Prefer the plan the customer actually paid for (order_id / amount)."""
-    coded = _plan_code_from_order_id(intent.order_id)
+    """Prefer the plan the customer actually paid for (plan_code / order_id / amount)."""
+    coded = (getattr(intent, "plan_code", None) or "").strip() or None
+    if not coded:
+        coded = _plan_code_from_order_id(intent.order_id)
     if coded:
         plan = await get_subscription_plan_by_code(db, coded)
         if plan and plan.is_active:
@@ -52,6 +59,19 @@ async def _resolve_plan_for_subscription_intent(
     return await resolve_active_plan(db)
 
 
+async def _lock_intent_if_orm(db: AsyncSession, intent: PaymentIntent) -> PaymentIntent | None:
+    """Re-load with FOR UPDATE when callers pass a real ORM row.
+
+    Unit tests pass SimpleNamespace stand-ins — skip locking for those.
+    """
+    if not isinstance(intent, PaymentIntent):
+        return intent
+    result = await db.execute(
+        select(PaymentIntent).where(PaymentIntent.intent_id == intent.intent_id).with_for_update()
+    )
+    return result.scalar_one_or_none()
+
+
 async def fulfill_payment_intent(
     db: AsyncSession,
     intent: PaymentIntent,
@@ -59,30 +79,48 @@ async def fulfill_payment_intent(
     bank: str | None = None,
 ) -> None:
     """Mark intent succeeded and create purchase/subscription side effects. Idempotent."""
+    locked = await _lock_intent_if_orm(db, intent)
+    if locked is None:
+        return
+    intent = locked
+
     if intent.status == "succeeded":
         return
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     intent.status = "succeeded"
     intent.resolved_at = now
 
     if intent.kind == "single" and intent.content_id:
-        existing = await db.execute(
-            select(Purchase).where(Purchase.intent_id == intent.intent_id)
-        )
+        existing = await db.execute(select(Purchase).where(Purchase.intent_id == intent.intent_id))
         if existing.scalar_one_or_none():
             return
-        db.add(
-            Purchase(
-                user_id=intent.user_id,
-                guest_id=intent.guest_id,
-                content_id=intent.content_id,
-                intent_id=intent.intent_id,
-                order_id=intent.order_id,
-                bank=bank,
-                amount_usd=intent.amount_usd,
+        if isinstance(intent, PaymentIntent):
+            await db.execute(
+                pg_insert(Purchase)
+                .values(
+                    user_id=intent.user_id,
+                    guest_id=intent.guest_id,
+                    content_id=intent.content_id,
+                    intent_id=intent.intent_id,
+                    order_id=intent.order_id,
+                    bank=bank,
+                    amount_usd=intent.amount_usd,
+                )
+                .on_conflict_do_nothing(index_elements=["intent_id"])
             )
-        )
+        else:
+            db.add(
+                Purchase(
+                    user_id=intent.user_id,
+                    guest_id=intent.guest_id,
+                    content_id=intent.content_id,
+                    intent_id=intent.intent_id,
+                    order_id=intent.order_id,
+                    bank=bank,
+                    amount_usd=intent.amount_usd,
+                )
+            )
         await notify_payment_succeeded(db, intent, bank=bank)
         return
 
@@ -92,17 +130,32 @@ async def fulfill_payment_intent(
         )
         if existing.scalar_one_or_none():
             return
-        db.add(
-            SeriesPurchase(
-                user_id=intent.user_id,
-                guest_id=intent.guest_id,
-                series_id=intent.series_id,
-                intent_id=intent.intent_id,
-                order_id=intent.order_id,
-                bank=bank,
-                amount_usd=intent.amount_usd,
+        if isinstance(intent, PaymentIntent):
+            await db.execute(
+                pg_insert(SeriesPurchase)
+                .values(
+                    user_id=intent.user_id,
+                    guest_id=intent.guest_id,
+                    series_id=intent.series_id,
+                    intent_id=intent.intent_id,
+                    order_id=intent.order_id,
+                    bank=bank,
+                    amount_usd=intent.amount_usd,
+                )
+                .on_conflict_do_nothing(index_elements=["intent_id"])
             )
-        )
+        else:
+            db.add(
+                SeriesPurchase(
+                    user_id=intent.user_id,
+                    guest_id=intent.guest_id,
+                    series_id=intent.series_id,
+                    intent_id=intent.intent_id,
+                    order_id=intent.order_id,
+                    bank=bank,
+                    amount_usd=intent.amount_usd,
+                )
+            )
         await notify_payment_succeeded(db, intent, bank=bank)
         return
 
@@ -111,9 +164,7 @@ async def fulfill_payment_intent(
         return
 
     existing_payment = await db.execute(
-        select(SubscriptionPayment).where(
-            SubscriptionPayment.intent_id == intent.intent_id
-        )
+        select(SubscriptionPayment).where(SubscriptionPayment.intent_id == intent.intent_id)
     )
     if existing_payment.scalar_one_or_none():
         return
@@ -123,6 +174,7 @@ async def fulfill_payment_intent(
         select(Subscription)
         .where(Subscription.user_id == intent.user_id)
         .order_by(Subscription.current_period_end.desc())
+        .with_for_update()
     )
     subscription = sub_result.scalars().first()
 
@@ -150,14 +202,28 @@ async def fulfill_payment_intent(
             subscription.current_period_start = now
         subscription.current_period_end = period_end
 
-    db.add(
-        SubscriptionPayment(
-            subscription_id=subscription.id,
-            intent_id=intent.intent_id,
-            order_id=intent.order_id,
-            bank=bank,
-            amount_usd=intent.amount_usd,
-            period_extended_to=period_end,
+    if isinstance(intent, PaymentIntent):
+        await db.execute(
+            pg_insert(SubscriptionPayment)
+            .values(
+                subscription_id=subscription.id,
+                intent_id=intent.intent_id,
+                order_id=intent.order_id,
+                bank=bank,
+                amount_usd=intent.amount_usd,
+                period_extended_to=period_end,
+            )
+            .on_conflict_do_nothing(index_elements=["intent_id"])
         )
-    )
+    else:
+        db.add(
+            SubscriptionPayment(
+                subscription_id=subscription.id,
+                intent_id=intent.intent_id,
+                order_id=intent.order_id,
+                bank=bank,
+                amount_usd=intent.amount_usd,
+                period_extended_to=period_end,
+            )
+        )
     await notify_payment_succeeded(db, intent, bank=bank)

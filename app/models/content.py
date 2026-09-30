@@ -19,9 +19,7 @@ _SEARCH_VECTOR_SQL = (
 class Content(Base):
     __tablename__ = "content"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     type: Mapped[str] = mapped_column(Text, nullable=False)  # 'single' | 'episode'
     series_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),

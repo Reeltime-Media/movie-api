@@ -10,7 +10,7 @@ Tests cover:
 
 import asyncio
 import ssl
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import certifi
 import pytest

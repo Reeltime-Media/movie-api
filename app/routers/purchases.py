@@ -1,17 +1,16 @@
 import uuid
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Request
 from sqlalchemy import false, select
 
-from app.core.exceptions import ConflictError, NotFoundError
+from app.core.exceptions import NotFoundError
 from app.core.guest import get_guest_id
-from app.dependencies import CurrentUser, DBSession, OptionalUser
+from app.dependencies import DBSession, OptionalUser
 from app.models.content import Content
-from app.models.payment_intent import PaymentIntent
 from app.models.purchase import Purchase
 from app.models.series_purchase import SeriesPurchase
 from app.schemas.content import ContentListItemRead
-from app.schemas.purchase import PurchaseCreate, PurchaseRead
+from app.schemas.purchase import PurchaseRead
 from app.schemas.series_purchase import SeriesPurchaseRead
 
 router = APIRouter(prefix="/purchases", tags=["purchases"])
@@ -36,9 +35,7 @@ def _series_identity_filter(user, guest_id: str | None):
 @router.get("", response_model=list[PurchaseRead])
 @router.get("/", response_model=list[PurchaseRead])
 async def list_purchases(db: DBSession, request: Request, user: OptionalUser):
-    result = await db.execute(
-        select(Purchase).where(_identity_filter(user, get_guest_id(request)))
-    )
+    result = await db.execute(select(Purchase).where(_identity_filter(user, get_guest_id(request))))
     return result.scalars().all()
 
 
@@ -62,9 +59,7 @@ async def list_purchased_movies(db: DBSession, request: Request, user: OptionalU
 async def list_purchased_series(db: DBSession, request: Request, user: OptionalUser):
     """Series unlocked with a one-time Bakong purchase (user or guest cookie)."""
     result = await db.execute(
-        select(SeriesPurchase).where(
-            _series_identity_filter(user, get_guest_id(request))
-        )
+        select(SeriesPurchase).where(_series_identity_filter(user, get_guest_id(request)))
     )
     return result.scalars().all()
 
@@ -80,38 +75,4 @@ async def get_purchase(purchase_id: uuid.UUID, db: DBSession, request: Request, 
     purchase = result.scalar_one_or_none()
     if not purchase:
         raise NotFoundError("Purchase not found")
-    return purchase
-
-
-@router.post("/", response_model=PurchaseRead, status_code=201)
-async def create_purchase(data: PurchaseCreate, db: DBSession, current_user: CurrentUser):
-    intent_result = await db.execute(
-        select(PaymentIntent).where(
-            PaymentIntent.intent_id == data.intent_id,
-            PaymentIntent.user_id == current_user.id,
-            PaymentIntent.kind == "single",
-            PaymentIntent.status == "succeeded",
-        )
-    )
-    intent = intent_result.scalar_one_or_none()
-    if (
-        not intent
-        or intent.content_id != data.content_id
-        or intent.order_id != data.order_id
-        or intent.amount_usd != data.amount_usd
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Purchase must match a succeeded payment intent",
-        )
-
-    existing = await db.execute(
-        select(Purchase).where(Purchase.intent_id == data.intent_id)
-    )
-    if existing.scalar_one_or_none():
-        raise ConflictError("Intent already processed")
-    purchase = Purchase(user_id=current_user.id, **data.model_dump())
-    db.add(purchase)
-    await db.commit()
-    await db.refresh(purchase)
     return purchase

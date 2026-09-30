@@ -1,5 +1,4 @@
-import uuid
-from datetime import date, datetime, time, timezone
+from datetime import UTC, date, datetime, time
 
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import or_, select
@@ -72,12 +71,12 @@ async def list_admin_payments(
 
     if date_from:
         parsed_from = parse_filter_date(date_from, "date_from")
-        start = datetime.combine(parsed_from, time.min, tzinfo=timezone.utc)
+        start = datetime.combine(parsed_from, time.min, tzinfo=UTC)
         stmt = stmt.where(PaymentIntent.created_at >= start)
 
     if date_to:
         parsed_to = parse_filter_date(date_to, "date_to")
-        end = datetime.combine(parsed_to, time.max, tzinfo=timezone.utc)
+        end = datetime.combine(parsed_to, time.max, tzinfo=UTC)
         stmt = stmt.where(PaymentIntent.created_at <= end)
 
     if parsed_from and parsed_to and parsed_from > parsed_to:
@@ -127,9 +126,7 @@ async def admin_fulfill_payment(
     Does not call NBC. Idempotent if already succeeded.
     """
     _ = admin
-    result = await db.execute(
-        select(PaymentIntent).where(PaymentIntent.intent_id == intent_id)
-    )
+    result = await db.execute(select(PaymentIntent).where(PaymentIntent.intent_id == intent_id))
     intent = result.scalar_one_or_none()
     if not intent:
         raise NotFoundError("Payment intent not found")

@@ -18,17 +18,13 @@ def test_custom_slide_requires_video():
 
 
 def test_custom_slide_title_is_optional():
-    item = HeroFeaturedItemCreate(
-        content_type="custom", youtube_url="https://youtu.be/abc123"
-    )
+    item = HeroFeaturedItemCreate(content_type="custom", youtube_url="https://youtu.be/abc123")
     assert item.title is None
     assert item.youtube_url == "https://youtu.be/abc123"
 
 
 def test_custom_slide_accepts_uploaded_video():
-    item = HeroFeaturedItemCreate(
-        content_type="custom", video_key="hero/videos/x.mp4"
-    )
+    item = HeroFeaturedItemCreate(content_type="custom", video_key="hero/videos/x.mp4")
     assert item.video_key == "hero/videos/x.mp4"
 
 

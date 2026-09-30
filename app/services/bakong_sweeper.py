@@ -3,16 +3,17 @@
 NBC allows ~100 check_transaction_by_md5 calls per developer token per day.
 This sweeper must stay tiny: a few recent intents only, sequential checks,
 long backoff on rate-limit, never stampede unpaid abandoned QRs.
+
+Ownership: Redis lock when REDIS_URL is set, else filesystem flock — so only
+one Uvicorn worker (or the dedicated bakong worker) runs the loop.
 """
 
 from __future__ import annotations
 
 import asyncio
-import fcntl
 import logging
 import time
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
 
@@ -27,12 +28,14 @@ from app.services.bakong_check_cache import (
 )
 from app.services.bakong_quota import bakong_checks_blocked, note_bakong_rate_limited
 from app.services.bakong_settle import settle_bakong_intent_if_paid
+from app.services.distributed_lock import HeldLock, try_acquire
 
 logger = logging.getLogger(__name__)
 
 _task: asyncio.Task | None = None
-_lock_file = None
-_SWEEP_LOCK_PATH = Path("/tmp/reeltime-bakong-sweeper.lock")
+_held_lock: HeldLock | None = None
+_LOCK_NAME = "bakong:sweeper"
+_LOCK_TTL_SECONDS = 180
 _RATE_LIMIT_BACKOFF_SECONDS = 60 * 60
 _rate_limit_until_monotonic = 0.0
 
@@ -46,14 +49,12 @@ async def sweep_pending_bakong_intents() -> int:
         return 0
 
     settings = get_settings()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     window_minutes = min(45, max(10, settings.bakong_sweeper_window_minutes))
     batch_size = min(3, max(1, settings.bakong_sweeper_batch_size))
     window_start = now - timedelta(minutes=window_minutes)
     settled = 0
-    qr_age = func.coalesce(
-        PaymentIntent.bakong_qr_created_at, PaymentIntent.created_at
-    )
+    qr_age = func.coalesce(PaymentIntent.bakong_qr_created_at, PaymentIntent.created_at)
 
     async with AsyncSessionLocal() as db:
         result = await db.execute(
@@ -85,9 +86,7 @@ async def sweep_pending_bakong_intents() -> int:
             try:
                 status = await bakong.probe_khqr_status(intent.bakong_md5 or "")
             except Exception:
-                logger.exception(
-                    "Bakong sweeper check failed for intent_id=%s", intent.intent_id
-                )
+                logger.exception("Bakong sweeper check failed for intent_id=%s", intent.intent_id)
                 continue
 
             if status == STATUS_UNKNOWN:
@@ -95,11 +94,7 @@ async def sweep_pending_bakong_intents() -> int:
                 break
 
             paid = status == STATUS_PAID
-            if (
-                not paid
-                and intent.bakong_prev_md5
-                and intent.bakong_prev_md5 != intent.bakong_md5
-            ):
+            if not paid and intent.bakong_prev_md5 and intent.bakong_prev_md5 != intent.bakong_md5:
                 prev = await bakong.probe_khqr_status(intent.bakong_prev_md5)
                 if prev == STATUS_UNKNOWN:
                     rate_limited = True
@@ -113,9 +108,7 @@ async def sweep_pending_bakong_intents() -> int:
                 if await settle_bakong_intent_if_paid(db, intent):
                     settled += 1
             except Exception:
-                logger.exception(
-                    "Bakong sweeper fulfill failed for intent_id=%s", intent.intent_id
-                )
+                logger.exception("Bakong sweeper fulfill failed for intent_id=%s", intent.intent_id)
 
         if settled:
             await db.commit()
@@ -144,6 +137,9 @@ async def _sweeper_loop() -> None:
     )
     while True:
         try:
+            if _held_lock is not None and not _held_lock.refresh():
+                logger.warning("Bakong sweeper lost ownership lock — stopping loop")
+                break
             await sweep_pending_bakong_intents()
         except asyncio.CancelledError:
             raise
@@ -152,25 +148,27 @@ async def _sweeper_loop() -> None:
         await asyncio.sleep(interval)
 
 
-def start_bakong_sweeper() -> None:
-    """Start the sweeper in at most one Uvicorn worker (file lock)."""
-    global _task, _lock_file
-    if _task is not None:
-        return
-    _SWEEP_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
-    lock_file = open(_SWEEP_LOCK_PATH, "a+", encoding="utf-8")
-    try:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        lock_file.close()
-        logger.info("Bakong sweeper already running in another worker")
-        return
-    _lock_file = lock_file
+def start_bakong_sweeper() -> bool:
+    """Start the sweeper in at most one process. Returns True if this process owns it."""
+    global _task, _held_lock
+    if _task is not None and not _task.done():
+        return True
+    held = try_acquire(
+        _LOCK_NAME,
+        ttl_seconds=_LOCK_TTL_SECONDS,
+        flock_path="/tmp/reeltime-bakong-sweeper.lock",
+    )
+    if held is None:
+        logger.info("Bakong sweeper already running elsewhere")
+        return False
+    _held_lock = held
+    logger.info("Bakong sweeper lock acquired via %s", held.backend)
     _task = asyncio.create_task(_sweeper_loop(), name="bakong-settle-sweeper")
+    return True
 
 
 async def stop_bakong_sweeper() -> None:
-    global _task, _lock_file
+    global _task, _held_lock
     if _task is not None:
         _task.cancel()
         try:
@@ -178,10 +176,7 @@ async def stop_bakong_sweeper() -> None:
         except asyncio.CancelledError:
             pass
         _task = None
-    if _lock_file is not None:
-        try:
-            fcntl.flock(_lock_file.fileno(), fcntl.LOCK_UN)
-        finally:
-            _lock_file.close()
-            _lock_file = None
+    if _held_lock is not None:
+        _held_lock.release()
+        _held_lock = None
     logger.info("Bakong settle sweeper stopped")

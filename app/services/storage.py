@@ -45,6 +45,7 @@ def cache_control_for_key(key: str) -> str | None:
         return IMAGE_CACHE_CONTROL
     return None
 
+
 _s3_client = None
 
 
@@ -63,6 +64,7 @@ def _client():
 
 
 # ── Simple object operations ───────────────────────────────────────────────────
+
 
 def upload_fileobj(file_obj, key: str, content_type: str = "application/octet-stream") -> None:
     extra: dict = {"ContentType": content_type}
@@ -155,6 +157,7 @@ def public_url(key: str) -> str:
 
 
 # ── Multipart upload (for large video files) ───────────────────────────────────
+
 
 def create_multipart_upload(key: str, content_type: str = "video/mp4") -> str:
     """Initiate a multipart upload and return the upload_id."""

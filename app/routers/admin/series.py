@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import APIRouter
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
 from app.core.exceptions import NotFoundError
 from app.dependencies import AdminUser, DBSession
@@ -63,10 +63,7 @@ async def list_admin_series_episodes(series_slug: str, db: DBSession, _: AdminUs
         sn = ep.season_number or 1
         seasons.setdefault(sn, []).append(ep)
 
-    return [
-        SeasonRead(season_number=sn, episodes=eps)
-        for sn, eps in sorted(seasons.items())
-    ]
+    return [SeasonRead(season_number=sn, episodes=eps) for sn, eps in sorted(seasons.items())]
 
 
 @router.delete("/series/{series_id}", status_code=204)

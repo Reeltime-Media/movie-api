@@ -13,60 +13,38 @@ from app.models.transcode_job import TranscodeJob
 from app.models.watch_progress import WatchProgress
 
 
-async def delete_transcode_jobs_for_content(
-    db: AsyncSession, content_id: uuid.UUID
-) -> None:
-    await db.execute(
-        delete(TranscodeJob).where(TranscodeJob.content_id == content_id)
-    )
+async def delete_transcode_jobs_for_content(db: AsyncSession, content_id: uuid.UUID) -> None:
+    await db.execute(delete(TranscodeJob).where(TranscodeJob.content_id == content_id))
 
 
-async def delete_transcode_jobs_for_series(
-    db: AsyncSession, series_id: uuid.UUID
-) -> None:
+async def delete_transcode_jobs_for_series(db: AsyncSession, series_id: uuid.UUID) -> None:
     await db.execute(
         delete(TranscodeJob).where(
-            TranscodeJob.content_id.in_(
-                select(Content.id).where(Content.series_id == series_id)
-            )
+            TranscodeJob.content_id.in_(select(Content.id).where(Content.series_id == series_id))
         )
     )
 
 
-async def delete_content_dependencies(
-    db: AsyncSession, content_id: uuid.UUID
-) -> None:
+async def delete_content_dependencies(db: AsyncSession, content_id: uuid.UUID) -> None:
     """Remove rows that reference content before deleting the content record."""
     await db.execute(delete(Purchase).where(Purchase.content_id == content_id))
     await db.execute(delete(Favorite).where(Favorite.content_id == content_id))
+    await db.execute(delete(FreeTodayItem).where(FreeTodayItem.content_id == content_id))
+    await db.execute(delete(WatchProgress).where(WatchProgress.content_id == content_id))
     await db.execute(
-        delete(FreeTodayItem).where(FreeTodayItem.content_id == content_id)
-    )
-    await db.execute(
-        delete(WatchProgress).where(WatchProgress.content_id == content_id)
-    )
-    await db.execute(
-        update(PaymentIntent)
-        .where(PaymentIntent.content_id == content_id)
-        .values(content_id=None)
+        update(PaymentIntent).where(PaymentIntent.content_id == content_id).values(content_id=None)
     )
     await delete_transcode_jobs_for_content(db, content_id)
 
 
-async def delete_content_dependencies_for_series(
-    db: AsyncSession, series_id: uuid.UUID
-) -> None:
+async def delete_content_dependencies_for_series(db: AsyncSession, series_id: uuid.UUID) -> None:
     """Remove rows referencing any episode of this series — one bulk delete
     per table instead of delete_content_dependencies() run once per episode,
     so a series with many episodes doesn't cost 5x round trips per episode."""
     episode_ids = select(Content.id).where(Content.series_id == series_id)
     await db.execute(delete(Purchase).where(Purchase.content_id.in_(episode_ids)))
-    await db.execute(
-        delete(FreeTodayItem).where(FreeTodayItem.content_id.in_(episode_ids))
-    )
-    await db.execute(
-        delete(WatchProgress).where(WatchProgress.content_id.in_(episode_ids))
-    )
+    await db.execute(delete(FreeTodayItem).where(FreeTodayItem.content_id.in_(episode_ids)))
+    await db.execute(delete(WatchProgress).where(WatchProgress.content_id.in_(episode_ids)))
     await db.execute(
         update(PaymentIntent)
         .where(PaymentIntent.content_id.in_(episode_ids))
@@ -75,9 +53,7 @@ async def delete_content_dependencies_for_series(
     await delete_transcode_jobs_for_series(db, series_id)
 
 
-async def delete_series_and_dependencies(
-    db: AsyncSession, series_id: uuid.UUID
-) -> None:
+async def delete_series_and_dependencies(db: AsyncSession, series_id: uuid.UUID) -> None:
     """Remove episode dependencies, hero picks, and episode rows before deleting the series."""
     await delete_content_dependencies_for_series(db, series_id)
     await db.execute(delete(Favorite).where(Favorite.content_id == series_id))

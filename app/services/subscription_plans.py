@@ -24,9 +24,7 @@ async def get_subscription_plan_by_code(
     db: AsyncSession,
     code: str,
 ) -> SubscriptionPlan | None:
-    result = await db.execute(
-        select(SubscriptionPlan).where(SubscriptionPlan.code == code)
-    )
+    result = await db.execute(select(SubscriptionPlan).where(SubscriptionPlan.code == code))
     return result.scalar_one_or_none()
 
 

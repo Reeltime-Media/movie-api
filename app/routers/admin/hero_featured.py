@@ -32,7 +32,11 @@ async def list_admin_hero_featured(db: DBSession, _: AdminUser):
         return await enrich_admin_hero_items(db, items)
     except Exception as exc:
         message = str(exc).lower()
-        if "hero_featured_items" in message or "does not exist" in message or "undefinedtable" in message:
+        if (
+            "hero_featured_items" in message
+            or "does not exist" in message
+            or "undefinedtable" in message
+        ):
             raise HTTPException(
                 status_code=503,
                 detail=(
@@ -82,9 +86,7 @@ async def update_admin_hero_featured(
     db: DBSession,
     _: AdminUser,
 ):
-    result = await db.execute(
-        select(HeroFeaturedItem).where(HeroFeaturedItem.id == item_id)
-    )
+    result = await db.execute(select(HeroFeaturedItem).where(HeroFeaturedItem.id == item_id))
     item = result.scalar_one_or_none()
     if not item:
         raise NotFoundError("Hero featured item not found")
@@ -98,10 +100,7 @@ async def update_admin_hero_featured(
         # Switching to custom drops any catalog reference.
         content_id = None
         updates["content_id"] = None
-    if any(
-        key in updates
-        for key in ("content_type", "content_id", "video_key", "youtube_url")
-    ):
+    if any(key in updates for key in ("content_type", "content_id", "video_key", "youtube_url")):
         try:
             await validate_hero_content(
                 db,
@@ -135,9 +134,7 @@ async def delete_admin_hero_featured(
     db: DBSession,
     _: AdminUser,
 ):
-    result = await db.execute(
-        select(HeroFeaturedItem).where(HeroFeaturedItem.id == item_id)
-    )
+    result = await db.execute(select(HeroFeaturedItem).where(HeroFeaturedItem.id == item_id))
     item = result.scalar_one_or_none()
     if not item:
         raise NotFoundError("Hero featured item not found")

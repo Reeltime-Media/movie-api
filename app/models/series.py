@@ -17,9 +17,7 @@ _SEARCH_VECTOR_SQL = (
 class Series(Base):
     __tablename__ = "series"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     slug: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     title_km: Mapped[str | None] = mapped_column(Text, nullable=True)

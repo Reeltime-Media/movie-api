@@ -9,6 +9,8 @@ from app.models.content import Content
 from app.models.favorite import Favorite
 from app.models.series import Series
 from app.schemas.favorite import FavoriteRead
+from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
+from app.services.pagination import paginate_query
 
 router = APIRouter(prefix="/favorites", tags=["favorites"])
 
@@ -27,15 +29,26 @@ async def _assert_favoritable(db: DBSession, target_id: uuid.UUID) -> None:
     raise NotFoundError("Title not found")
 
 
-@router.get("", response_model=list[FavoriteRead])
-@router.get("/", response_model=list[FavoriteRead])
-async def list_favorites(db: DBSession, current_user: CurrentUser):
-    result = await db.execute(
+@router.get("", response_model=PaginatedResponse[FavoriteRead])
+@router.get("/", response_model=PaginatedResponse[FavoriteRead])
+async def list_favorites(db: DBSession, current_user: CurrentUser, pagination: PaginationDep):
+    stmt = (
         select(Favorite)
         .where(Favorite.user_id == current_user.id)
         .order_by(Favorite.created_at.desc())
     )
-    return result.scalars().all()
+    items, total = await paginate_query(
+        db,
+        stmt,
+        page=pagination.page,
+        page_size=pagination.page_size,
+    )
+    return build_paginated_response(
+        items,
+        total=total,
+        page=pagination.page,
+        page_size=pagination.page_size,
+    )
 
 
 @router.put("/{content_id}", response_model=FavoriteRead)

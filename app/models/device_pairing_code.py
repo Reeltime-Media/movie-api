@@ -11,9 +11,7 @@ from app.database import Base
 class DevicePairingCode(Base):
     __tablename__ = "device_pairing_codes"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     # SHA-256 hex digest — the raw code only ever exists in the QR URL.
     code_hash: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")

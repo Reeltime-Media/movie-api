@@ -7,6 +7,11 @@ from app.database import AsyncSessionLocal
 from app.db_connect import is_transient_db_error
 
 
+async def _scalar_count(count_query) -> int:
+    async with AsyncSessionLocal() as count_db:
+        return (await count_db.scalar(count_query)) or 0
+
+
 async def paginate_query(
     db: AsyncSession,
     stmt: Select,
@@ -23,11 +28,7 @@ async def paginate_query(
 
             # Run count and data queries in parallel using a separate session
             # for the count so they execute concurrently.
-            async def _run_count() -> int:
-                async with AsyncSessionLocal() as count_db:
-                    return (await count_db.scalar(count_stmt)) or 0
-
-            total_task = asyncio.create_task(_run_count())
+            total_task = asyncio.create_task(_scalar_count(count_stmt))
             result = await db.execute(data_stmt)
             total = await total_task
 

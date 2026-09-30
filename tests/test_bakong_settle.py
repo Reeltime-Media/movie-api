@@ -1,6 +1,6 @@
 """Unit tests for Bakong QR TTL / settle helpers."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -16,8 +16,8 @@ def _intent(**overrides):
         "status": "pending",
         "bakong_md5": "current-md5",
         "bakong_prev_md5": None,
-        "bakong_qr_created_at": datetime.now(timezone.utc),
-        "created_at": datetime.now(timezone.utc),
+        "bakong_qr_created_at": datetime.now(UTC),
+        "created_at": datetime.now(UTC),
         "amount_usd": Decimal("2.99"),
         "intent_id": "bkg-test",
     }
@@ -28,23 +28,19 @@ def _intent(**overrides):
 class TestQrIsStale:
     def test_fresh_qr_not_stale(self, settings_factory):
         settings_factory(debug=True, bakong_qr_ttl_minutes=10)
-        intent = _intent(
-            bakong_qr_created_at=datetime.now(timezone.utc) - timedelta(minutes=5)
-        )
+        intent = _intent(bakong_qr_created_at=datetime.now(UTC) - timedelta(minutes=5))
         assert qr_is_stale(intent) is False
 
     def test_old_qr_is_stale(self, settings_factory):
         settings_factory(debug=True, bakong_qr_ttl_minutes=10)
-        intent = _intent(
-            bakong_qr_created_at=datetime.now(timezone.utc) - timedelta(minutes=11)
-        )
+        intent = _intent(bakong_qr_created_at=datetime.now(UTC) - timedelta(minutes=11))
         assert qr_is_stale(intent) is True
 
     def test_falls_back_to_created_at(self, settings_factory):
         settings_factory(debug=True, bakong_qr_ttl_minutes=10)
         intent = _intent(
             bakong_qr_created_at=None,
-            created_at=datetime.now(timezone.utc) - timedelta(minutes=12),
+            created_at=datetime.now(UTC) - timedelta(minutes=12),
         )
         assert qr_is_stale(intent) is True
 

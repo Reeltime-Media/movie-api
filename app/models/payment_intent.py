@@ -45,11 +45,11 @@ class PaymentIntent(Base):
     series_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("series.id"), nullable=True
     )
+    # Set for kind='sub' — scopes pending QR reuse to the chosen plan.
+    plan_code: Mapped[str | None] = mapped_column(Text, nullable=True)
     amount_usd: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
-    resolved_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

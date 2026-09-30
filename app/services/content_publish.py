@@ -1,9 +1,9 @@
 from fastapi import HTTPException
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.content import Content
 from app.models.transcode_job import TranscodeJob
-from sqlalchemy.ext.asyncio import AsyncSession
 
 
 async def ensure_movie_publishable(db: AsyncSession, movie: Content) -> None:

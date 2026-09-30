@@ -142,7 +142,11 @@ async def _remote_generate_khqr(amount_usd: Decimal, bill_number: str) -> tuple[
         )
 
     body = response.json()
-    return body["qr_string"], body["md5"], body.get("merchant_name") or settings.bakong_merchant_name
+    return (
+        body["qr_string"],
+        body["md5"],
+        body.get("merchant_name") or settings.bakong_merchant_name,
+    )
 
 
 def nbc_reports_paid(body: dict | None) -> bool:

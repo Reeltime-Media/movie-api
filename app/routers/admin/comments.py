@@ -45,10 +45,7 @@ async def list_admin_comments(
         page_size=pagination.page_size,
         scalar=False,
     )
-    items = [
-        to_comment_read(comment, author)
-        for comment, author in rows
-    ]
+    items = [to_comment_read(comment, author) for comment, author in rows]
     return build_paginated_response(
         items,
         total=total,

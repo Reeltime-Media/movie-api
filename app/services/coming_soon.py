@@ -19,8 +19,11 @@ async def is_coming_soon(db: AsyncSession, content_id: UUID) -> bool:
 
 async def resolve_coming_soon_movies(db: AsyncSession) -> list[Content]:
     """Movies on the Coming Soon rail (published or not), poster required."""
+    from app.services.catalog_columns import content_list_load_options
+
     stmt = (
         select(Content)
+        .options(content_list_load_options())
         .join(ComingSoonItem, ComingSoonItem.content_id == Content.id)
         .where(
             Content.type == "single",

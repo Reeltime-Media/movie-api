@@ -23,12 +23,15 @@ async def list_admin_subscription_plans(db: DBSession, _: AdminUser):
         return await list_subscription_plans(db)
     except Exception as exc:
         message = str(exc).lower()
-        if "subscription_plans" in message or "does not exist" in message or "undefinedtable" in message:
+        if (
+            "subscription_plans" in message
+            or "does not exist" in message
+            or "undefinedtable" in message
+        ):
             raise HTTPException(
                 status_code=503,
                 detail=(
-                    "subscription_plans table is missing. "
-                    "Run: cd movie-api && alembic upgrade head"
+                    "subscription_plans table is missing. Run: cd movie-api && alembic upgrade head"
                 ),
             ) from exc
         raise HTTPException(status_code=500, detail="Could not load subscription plans") from exc
@@ -40,9 +43,7 @@ async def create_admin_subscription_plan(
     db: DBSession,
     _: AdminUser,
 ):
-    existing = await db.execute(
-        select(SubscriptionPlan).where(SubscriptionPlan.code == data.code)
-    )
+    existing = await db.execute(select(SubscriptionPlan).where(SubscriptionPlan.code == data.code))
     if existing.scalar_one_or_none():
         raise ConflictError("A plan with this code already exists")
 

@@ -1,0 +1,27 @@
+# Ruff — keep rules light so CI is useful without a mass rewrite.
+line-length = 100
+target-version = "py312"
+
+[lint]
+select = [
+  "E",   # pycodestyle errors
+  "F",   # pyflakes
+  "I",   # isort
+  "UP",  # pyupgrade
+  "B",   # bugbear (selected)
+]
+ignore = [
+  "E501",  # line length — formatter handles most; many SQL strings are long
+  "B008",  # FastAPI Depends() in defaults is intentional
+  "B904",  # raise-from noise across existing auth/error wrappers
+  "UP046", # Generic[T] style still fine on 3.12
+  "UP047", # TypeVar functions — gradual migration
+]
+
+[lint.per-file-ignores]
+"tests/**" = ["B", "E402"]
+"seed/**" = ["E402", "F401"]
+"alembic/**" = ["E501", "I001"]
+
+[format]
+quote-style = "double"

@@ -1,6 +1,6 @@
 import uuid
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
@@ -235,9 +235,7 @@ async def list_comment_threads(
     count_stmt = select(func.count()).select_from(roots_stmt.subquery())
     total = await db.scalar(count_stmt) or 0
 
-    root_result = await db.execute(
-        roots_stmt.offset((page - 1) * page_size).limit(page_size)
-    )
+    root_result = await db.execute(roots_stmt.offset((page - 1) * page_size).limit(page_size))
     root_ids = [row[0] for row in root_result.all()]
 
     rows = await fetch_thread_rows_for_roots(db, content_id, root_ids)
@@ -258,13 +256,13 @@ async def list_comment_threads(
 
 
 async def soft_delete_comment(db: AsyncSession, comment: Comment) -> None:
-    comment.deleted_at = datetime.now(timezone.utc)
+    comment.deleted_at = datetime.now(UTC)
     await db.commit()
 
 
 async def update_comment_body(db: AsyncSession, comment: Comment, body: str) -> Comment:
     comment.body = body.strip()
-    comment.updated_at = datetime.now(timezone.utc)
+    comment.updated_at = datetime.now(UTC)
     await db.commit()
     await db.refresh(comment)
     return comment

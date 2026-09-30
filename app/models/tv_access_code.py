@@ -11,9 +11,7 @@ from app.database import Base
 class TvAccessCode(Base):
     __tablename__ = "tv_access_codes"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     # Human-entered TV ID (case-insensitive uniqueness enforced in service).
     code: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     label: Mapped[str | None] = mapped_column(Text, nullable=True)

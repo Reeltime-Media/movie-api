@@ -60,7 +60,7 @@ def settings(settings_factory) -> Settings:
 @pytest.fixture
 def cached_settings(settings_factory, monkeypatch: pytest.MonkeyPatch) -> Settings:
     """Settings loaded through get_settings() after env overrides."""
-    instance = settings_factory(debug=True)
+    settings_factory(debug=True)
     clear_settings_cache()
     monkeypatch.setenv("DEBUG", "true")
     for key, value in _SETTINGS_DEFAULTS.items():

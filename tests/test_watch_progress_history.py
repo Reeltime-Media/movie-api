@@ -1,6 +1,6 @@
 import asyncio
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -11,16 +11,34 @@ from app.routers.watch_progress import _history_row, list_watch_progress
 
 def _content(**changes):
     return SimpleNamespace(
-        **({"id": uuid.uuid4(), "type": "single", "slug": "older-title", "title": "Older title",
-            "title_km": "រឿង", "poster_key": "poster.webp", "banner_key": None,
-            "duration_seconds": 3600, "season_number": None, "episode_number": None,
-            "is_published": True, "hls_master_key": "private/master.m3u8"} | changes)
+        **(
+            {
+                "id": uuid.uuid4(),
+                "type": "single",
+                "slug": "older-title",
+                "title": "Older title",
+                "title_km": "រឿង",
+                "poster_key": "poster.webp",
+                "banner_key": None,
+                "duration_seconds": 3600,
+                "season_number": None,
+                "episode_number": None,
+                "is_published": True,
+                "hls_master_key": "private/master.m3u8",
+            }
+            | changes
+        )
     )
 
 
 def _progress(content):
-    return SimpleNamespace(user_id=uuid.uuid4(), content_id=content.id, position_seconds=120,
-                           completed=False, last_watched_at=datetime.now(timezone.utc))
+    return SimpleNamespace(
+        user_id=uuid.uuid4(),
+        content_id=content.id,
+        position_seconds=120,
+        completed=False,
+        last_watched_at=datetime.now(UTC),
+    )
 
 
 def test_movie_history_contains_resume_metadata_without_stream_secrets():
@@ -57,7 +75,9 @@ def test_history_fetches_metadata_in_one_query_scoped_to_current_user():
     content = _content()
     progress = _progress(content)
     user = SimpleNamespace(id=progress.user_id)
-    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(all=lambda: [(progress, content, None)])))
+    db = SimpleNamespace(
+        execute=AsyncMock(return_value=SimpleNamespace(all=lambda: [(progress, content, None)]))
+    )
     rows = asyncio.run(list_watch_progress(db, user))
     assert rows[0].content.id == content.id
     db.execute.assert_awaited_once()

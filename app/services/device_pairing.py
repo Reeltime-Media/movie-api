@@ -5,7 +5,7 @@ authenticated via the normal /auth/login or /auth/register flow) calls
 confirm_pairing(). See docs/superpowers/specs/2026-08-28-tv-device-pairing-design.md.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,30 +27,20 @@ settings = get_settings()
 async def start_pairing(db: AsyncSession) -> tuple[str, int]:
     """Create a pending pairing code. Returns (raw_code, expires_in_seconds)."""
     raw_code, code_hash = generate_reset_token()
-    expires_at = datetime.now(timezone.utc) + timedelta(
-        minutes=settings.device_pairing_code_expire_minutes
-    )
+    expires_at = datetime.now(UTC) + timedelta(minutes=settings.device_pairing_code_expire_minutes)
     db.add(DevicePairingCode(code_hash=code_hash, expires_at=expires_at))
     await db.commit()
     return raw_code, settings.device_pairing_code_expire_minutes * 60
 
 
-async def _find_pending_or_confirmed(
-    db: AsyncSession, raw_code: str
-) -> DevicePairingCode:
+async def _find_pending_or_confirmed(db: AsyncSession, raw_code: str) -> DevicePairingCode:
     code_hash = hash_reset_token(raw_code)
     result = await db.execute(
-        select(DevicePairingCode)
-        .where(DevicePairingCode.code_hash == code_hash)
-        .with_for_update()
+        select(DevicePairingCode).where(DevicePairingCode.code_hash == code_hash).with_for_update()
     )
     pairing = result.scalar_one_or_none()
-    now = datetime.now(timezone.utc)
-    if (
-        not pairing
-        or pairing.expires_at < now
-        or pairing.status not in ("pending", "confirmed")
-    ):
+    now = datetime.now(UTC)
+    if not pairing or pairing.expires_at < now or pairing.status not in ("pending", "confirmed"):
         raise NotFoundError("This code has expired.")
     return pairing
 
