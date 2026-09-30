@@ -13,11 +13,11 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings
-from app.models.payment_intent import PaymentIntent
 from app.billing import bakong
 from app.billing.bakong_check_cache import STATUS_PAID, STATUS_UNKNOWN, STATUS_UNPAID
 from app.billing.fulfillment import fulfill_payment_intent
+from app.config import get_settings
+from app.models.payment_intent import PaymentIntent
 
 
 def nbc_settle_enabled() -> bool:

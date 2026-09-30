@@ -9,9 +9,16 @@ from uuid import UUID
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.billing import bakong
+from app.billing.bakong_settle import (
+    bakong_qr_confirmed_unpaid,
+    qr_is_stale,
+    settle_bakong_intent_if_paid,
+)
 from app.billing.constants import SERIES_UNLOCK_PRICE_USD
 from app.billing.intent_helpers import regenerate_bakong_qr, validate_payment_amount
 from app.billing.ownership import mark_succeeded_if_already_purchased
+from app.billing.subscription_plans import resolve_active_plan
 from app.config import get_settings
 from app.core.exceptions import ConflictError, NotFoundError
 from app.models.content import Content
@@ -19,14 +26,7 @@ from app.models.payment_intent import PaymentIntent
 from app.models.purchase import Purchase
 from app.models.series import Series
 from app.models.user import User
-from app.billing import bakong
-from app.billing.bakong_settle import (
-    bakong_qr_confirmed_unpaid,
-    qr_is_stale,
-    settle_bakong_intent_if_paid,
-)
 from app.services.content_access import has_series_purchase, user_has_active_subscription
-from app.billing.subscription_plans import resolve_active_plan
 
 
 def _identity_filter(user: User | None, guest_id: str | None):

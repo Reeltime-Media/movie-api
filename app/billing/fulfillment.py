@@ -10,16 +10,16 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.payment_intent import PaymentIntent
-from app.models.purchase import Purchase
-from app.models.series_purchase import SeriesPurchase
-from app.models.subscription import Subscription
-from app.models.subscription_payment import SubscriptionPayment
 from app.billing.subscription_plans import (
     get_subscription_plan_by_code,
     list_subscription_plans,
     resolve_active_plan,
 )
+from app.models.payment_intent import PaymentIntent
+from app.models.purchase import Purchase
+from app.models.series_purchase import SeriesPurchase
+from app.models.subscription import Subscription
+from app.models.subscription_payment import SubscriptionPayment
 from app.services.telegram import notify_payment_succeeded
 
 

@@ -17,9 +17,6 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
 
-from app.config import get_settings
-from app.database import AsyncSessionLocal
-from app.models.payment_intent import PaymentIntent
 from app.billing import bakong
 from app.billing.bakong_check_cache import (
     STATUS_PAID,
@@ -28,6 +25,9 @@ from app.billing.bakong_check_cache import (
 )
 from app.billing.bakong_quota import bakong_checks_blocked, note_bakong_rate_limited
 from app.billing.bakong_settle import settle_bakong_intent_if_paid
+from app.config import get_settings
+from app.database import AsyncSessionLocal
+from app.models.payment_intent import PaymentIntent
 from app.services.distributed_lock import HeldLock, try_acquire
 
 logger = logging.getLogger(__name__)
