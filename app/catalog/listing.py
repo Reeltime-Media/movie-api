@@ -116,8 +116,7 @@ async def list_published_movies(
     free: bool | None = None,
 ):
     cache_key = (
-        f"movies:search={search}:genre={genre}:free={free}:"
-        f"page={page}:page_size={page_size}"
+        f"movies:search={search}:genre={genre}:free={free}:page={page}:page_size={page_size}"
     )
     cached = await cache_get_async(cache_key)
     if cached is not None:

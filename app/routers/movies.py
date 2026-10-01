@@ -226,9 +226,7 @@ async def get_related_movies(
 @router.get("/{slug}", response_model=ContentRead)
 async def get_movie(slug: str, db: DBSession, request: Request, current_user: OptionalUser):
     guest_id = None if current_user else get_guest_id(request)
-    return await get_movie_detail(
-        db, slug=slug, current_user=current_user, guest_id=guest_id
-    )
+    return await get_movie_detail(db, slug=slug, current_user=current_user, guest_id=guest_id)
 
 
 @router.patch("/{slug}", response_model=ContentRead)
