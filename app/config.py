@@ -1,5 +1,5 @@
 from functools import lru_cache
-from os import access, R_OK
+from os import R_OK, access
 from pathlib import Path
 from typing import Self
 from urllib.parse import urlparse
