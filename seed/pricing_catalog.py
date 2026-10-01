@@ -2,8 +2,11 @@
 
 from decimal import Decimal
 
+from app.billing.constants import SERIES_UNLOCK_PRICE_USD
+from app.core.money import MIN_PAID_USD
+
 PAID_MOVIE_PRICE_USD = Decimal("0.50")
-SERIES_PRICE_USD = Decimal("2.50")
+SERIES_PRICE_USD = SERIES_UNLOCK_PRICE_USD
 
 PLAN_ACCESS_DESCRIPTION = "Access to Series, Movies, Podcast, and News."
 
@@ -55,7 +58,7 @@ SEED_PLANS: list[dict] = [
         "code": "testing_1m",
         "name": "Testing",
         "description": f"Testing only — 1 month. {PLAN_ACCESS_DESCRIPTION}",
-        "price_usd": Decimal("0.03"),
+        "price_usd": MIN_PAID_USD,
         "billing_interval_days": 30,
         "is_active": True,
         "sort_order": 4,

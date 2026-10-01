@@ -5,6 +5,7 @@ from app.billing.schemas import (  # noqa: F401
     BakongPendingIntentRead,
     BakongPendingListRead,
     BakongWebhookPayload,
+    CatalogPricingRead,
     PaymentIntentCreate,
     PaymentIntentRead,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "BakongPendingIntentRead",
     "BakongPendingListRead",
     "BakongWebhookPayload",
+    "CatalogPricingRead",
     "PaymentIntentCreate",
     "PaymentIntentRead",
 ]

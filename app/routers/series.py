@@ -24,6 +24,9 @@ import uuid
 from fastapi import APIRouter, HTTPException, Query, Request
 from sqlalchemy import select
 
+from app.catalog.content_slug import unique_content_slug, unique_series_slug
+from app.catalog.listing import get_series_detail, list_published_series, list_related_series
+from app.catalog.series import get_series_or_404
 from app.core.content_status import validate_content_status
 from app.core.exceptions import NotFoundError
 from app.core.guest import get_guest_id
@@ -53,13 +56,11 @@ from app.schemas.series import (
 )
 from app.schemas.upload import PartUrlRead
 from app.services import r2_keys, storage
-from app.services.catalog_columns import series_list_load_options
 from app.services.content_access import has_series_purchase, user_has_active_subscription
 from app.services.content_delete import (
     delete_content_dependencies,
     delete_series_and_dependencies,
 )
-from app.services.content_slug import unique_content_slug, unique_series_slug
 from app.services.content_upload import (
     abort_multipart_upload,
     complete_multipart_upload,
@@ -69,8 +70,6 @@ from app.services.content_upload import (
 )
 from app.services.image_process import optimize_r2_image
 from app.services.pagination import paginate_query
-from app.services.response_cache import CATALOG_TTL_SECONDS, cache_get_async, cache_set_async
-from app.services.series import free_episode_counts_by_series, get_series_or_404
 
 router = APIRouter(prefix="/series", tags=["series"])
 
@@ -102,57 +101,16 @@ async def list_series(
         "excludes them when false, unfiltered when omitted",
     ),
 ):
-    from app.services.catalog_search import apply_catalog_genre, apply_catalog_search
-
-    cache_key = (
-        f"series:search={search}:genre={genre}:free={free}:short={short}:"
-        f"page={pagination.page}:page_size={pagination.page_size}"
-    )
-    cached = await cache_get_async(cache_key)
-    if cached is not None:
-        return cached
-
-    stmt = (
-        select(Series)
-        .options(series_list_load_options())
-        .where(Series.is_published.is_(True))
-        .order_by(Series.created_at.desc())
-    )
-    stmt = apply_catalog_search(stmt, Series, search=search)
-    stmt = apply_catalog_genre(stmt, Series, genre=genre)
-    if short is not None:
-        stmt = stmt.where(Series.is_short_movie.is_(short))
-    if free:
-        has_free_episode = (
-            select(Content.id)
-            .where(
-                Content.series_id == Series.id,
-                Content.is_free.is_(True),
-                Content.is_published.is_(True),
-            )
-            .exists()
-        )
-        stmt = stmt.where(has_free_episode)
-    items, total = await paginate_query(
+    _ = request  # SlowAPI
+    return await list_published_series(
         db,
-        stmt,
         page=pagination.page,
         page_size=pagination.page_size,
+        search=search,
+        genre=genre,
+        free=free,
+        short=short,
     )
-    counts = await free_episode_counts_by_series(db, [item.id for item in items])
-    response = build_paginated_response(
-        [
-            SeriesListItemRead.model_validate(item).model_copy(
-                update={"free_episode_count": counts.get(item.id, 0)}
-            )
-            for item in items
-        ],
-        total=total,
-        page=pagination.page,
-        page_size=pagination.page_size,
-    )
-    await cache_set_async(cache_key, response, ttl_seconds=CATALOG_TTL_SECONDS)
-    return response
 
 
 @router.get("/{slug}/related", response_model=list[SeriesListItemRead])
@@ -161,23 +119,12 @@ async def get_related_series(
     db: DBSession,
     limit: int = Query(default=8, ge=1, le=24),
 ):
-    from app.services.catalog_related import related_series
-
-    series = await get_series_or_404(db, slug, published_only=True)
-    items = await related_series(db, series=series, limit=limit)
-    counts = await free_episode_counts_by_series(db, [item.id for item in items])
-    return [
-        SeriesListItemRead.model_validate(item).model_copy(
-            update={"free_episode_count": counts.get(item.id, 0)}
-        )
-        for item in items
-    ]
+    return await list_related_series(db, slug=slug, limit=limit)
 
 
 @router.get("/{slug}", response_model=SeriesRead)
 async def get_series(slug: str, db: DBSession, current_user: OptionalUser):
-    published_only = not current_user or current_user.role != "admin"
-    return await get_series_or_404(db, slug, published_only=published_only)
+    return await get_series_detail(db, slug=slug, current_user=current_user)
 
 
 @router.post("/", response_model=SeriesRead, status_code=201)

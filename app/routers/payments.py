@@ -9,6 +9,7 @@ from app.billing.router import (  # noqa: F401
     create_series_subscription_payment_intent,
     create_series_unlock_bakong_intent,
     create_subscription_bakong_intent,
+    get_catalog_pricing,
     get_payment_intent,
     list_pending_bakong_payments,
     router,
@@ -24,6 +25,7 @@ __all__ = [
     "create_series_subscription_payment_intent",
     "create_series_unlock_bakong_intent",
     "create_subscription_bakong_intent",
+    "get_catalog_pricing",
     "get_payment_intent",
     "list_pending_bakong_payments",
 ]

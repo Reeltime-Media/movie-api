@@ -61,3 +61,10 @@ class BakongPendingIntentRead(BaseModel):
 
 class BakongPendingListRead(BaseModel):
     items: list[BakongPendingIntentRead]
+
+
+class CatalogPricingRead(BaseModel):
+    """Public catalog prices charged by checkout (not marketing-copy only)."""
+
+    series_unlock_usd: Decimal
+    min_paid_usd: Decimal

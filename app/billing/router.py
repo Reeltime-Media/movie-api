@@ -7,6 +7,7 @@ import uuid
 
 from fastapi import APIRouter, Header, HTTPException, Request, Response, status
 
+from app.billing.constants import SERIES_UNLOCK_PRICE_USD
 from app.billing.intent_helpers import (
     read_bakong_intent as _read_bakong_intent,
 )
@@ -24,16 +25,27 @@ from app.billing.schemas import (
     BakongPaymentIntentRead,
     BakongPendingListRead,
     BakongWebhookPayload,
+    CatalogPricingRead,
     PaymentIntentCreate,
     PaymentIntentRead,
 )
 from app.config import get_settings
 from app.core.guest import get_guest_id, get_or_create_guest_id
+from app.core.money import MIN_PAID_USD
 from app.dependencies import CurrentUser, DBSession, OptionalUser
 from app.rate_limit import limiter
 from app.services.series import get_series_or_404
 
 router = APIRouter(prefix="/payments", tags=["payments"])
+
+
+@router.get("/pricing", response_model=CatalogPricingRead)
+def get_catalog_pricing():
+    """Flat catalog amounts used by checkout — client display should match these."""
+    return CatalogPricingRead(
+        series_unlock_usd=SERIES_UNLOCK_PRICE_USD,
+        min_paid_usd=MIN_PAID_USD,
+    )
 
 
 @router.post("/movies/{content_id}/intent", response_model=PaymentIntentRead, status_code=201)

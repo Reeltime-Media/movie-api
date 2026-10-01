@@ -2,8 +2,9 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, computed_field, field_validator
 
+from app.billing.constants import SERIES_UNLOCK_PRICE_USD
 from app.core.money import validate_usd_price
 from app.schemas.upload import MultipartPart, MultipartPartUrl, MultipartUploadAbort
 
@@ -61,6 +62,12 @@ class SeriesRead(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def unlock_price_usd(self) -> Decimal:
+        """One-time series unlock charged at checkout (not monthly_price_usd)."""
+        return SERIES_UNLOCK_PRICE_USD
 
 
 class SeriesListItemRead(BaseModel):

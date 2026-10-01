@@ -1,5 +1,7 @@
 from decimal import Decimal
 
+from app.billing.constants import SERIES_UNLOCK_PRICE_USD
+from app.core.money import MIN_PAID_USD
 from seed.pricing_catalog import (
     LEGACY_PLAN_CODES,
     PAID_MOVIE_PRICE_USD,
@@ -14,7 +16,8 @@ from seed.pricing_catalog import (
 
 def test_catalog_prices():
     assert PAID_MOVIE_PRICE_USD == Decimal("0.50")
-    assert SERIES_PRICE_USD == Decimal("2.50")
+    assert SERIES_PRICE_USD == SERIES_UNLOCK_PRICE_USD == Decimal("2.50")
+    assert MIN_PAID_USD == Decimal("0.03")
 
 
 def test_seed_plans_match_card():

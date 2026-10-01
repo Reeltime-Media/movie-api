@@ -12,17 +12,16 @@ from app.billing import bakong
 from app.billing.payment import checkout_url
 from app.billing.schemas import BakongPaymentIntentRead, PaymentIntentRead
 from app.config import get_settings
+from app.core.money import MIN_PAID_USD
 from app.core.url_validation import validate_checkout_url
 from app.models.payment_intent import PaymentIntent
 
-_MIN_USD = Decimal("0.03")
-
 
 def validate_payment_amount(amount: Decimal | None) -> Decimal:
-    if amount is None or amount < _MIN_USD:
+    if amount is None or amount < MIN_PAID_USD:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="USD payments must be at least 0.03",
+            detail=f"USD payments must be at least {MIN_PAID_USD}",
         )
     return amount
 

@@ -19,6 +19,8 @@ import uuid
 from fastapi import APIRouter, HTTPException, Query, Request
 from sqlalchemy import select
 
+from app.catalog.content_slug import unique_content_slug
+from app.catalog.listing import get_movie_detail, list_published_movies, list_related_movies
 from app.core.content_status import validate_content_status
 from app.core.exceptions import NotFoundError
 from app.core.guest import get_guest_id
@@ -27,7 +29,7 @@ from app.models.content import Content
 from app.models.transcode_job import TranscodeJob
 from app.rate_limit import limiter
 from app.schemas.content import ContentListItemRead, ContentRead, ContentUpdate
-from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
+from app.schemas.pagination import PaginatedResponse, PaginationDep
 from app.schemas.upload import (
     MovieUploadComplete,
     MovieUploadStart,
@@ -35,12 +37,9 @@ from app.schemas.upload import (
     MultipartUploadAbort,
     PartUrlRead,
 )
-from app.services import coming_soon, free_today, r2_keys
-from app.services.catalog_columns import content_list_load_options
-from app.services.content_access import can_access_content
+from app.services import r2_keys
 from app.services.content_delete import delete_content_dependencies
 from app.services.content_publish import ensure_movie_publishable
-from app.services.content_slug import unique_content_slug
 from app.services.content_upload import (
     abort_multipart_upload,
     complete_multipart_upload,
@@ -49,8 +48,6 @@ from app.services.content_upload import (
     verify_storage_objects_exist,
 )
 from app.services.image_process import optimize_r2_image
-from app.services.pagination import paginate_query
-from app.services.response_cache import CATALOG_TTL_SECONDS, cache_get_async, cache_set_async
 from app.services.runtime import apply_runtime_minutes
 
 router = APIRouter(prefix="/movies", tags=["movies"])
@@ -206,40 +203,15 @@ async def list_movies(
         description="Only free movies when true",
     ),
 ):
-    from app.services.catalog_search import apply_catalog_genre, apply_catalog_search
-
-    cache_key = (
-        f"movies:search={search}:genre={genre}:free={free}:"
-        f"page={pagination.page}:page_size={pagination.page_size}"
-    )
-    cached = await cache_get_async(cache_key)
-    if cached is not None:
-        return cached
-
-    stmt = (
-        select(Content)
-        .options(content_list_load_options())
-        .where(Content.type == "single", Content.is_published.is_(True))
-        .order_by(Content.created_at.desc())
-    )
-    stmt = apply_catalog_search(stmt, Content, search=search)
-    stmt = apply_catalog_genre(stmt, Content, genre=genre)
-    if free:
-        stmt = stmt.where(Content.is_free.is_(True))
-    items, total = await paginate_query(
+    _ = request  # SlowAPI
+    return await list_published_movies(
         db,
-        stmt,
         page=pagination.page,
         page_size=pagination.page_size,
+        search=search,
+        genre=genre,
+        free=free,
     )
-    response = build_paginated_response(
-        [ContentListItemRead.model_validate(item) for item in items],
-        total=total,
-        page=pagination.page,
-        page_size=pagination.page_size,
-    )
-    await cache_set_async(cache_key, response, ttl_seconds=CATALOG_TTL_SECONDS)
-    return response
 
 
 @router.get("/{slug}/related", response_model=list[ContentListItemRead])
@@ -248,39 +220,15 @@ async def get_related_movies(
     db: DBSession,
     limit: int = Query(default=8, ge=1, le=24),
 ):
-    from app.services.catalog_related import related_movies
-
-    stmt = select(Content).where(Content.slug == slug, Content.type == "single")
-    stmt = stmt.where(Content.is_published.is_(True))
-    result = await db.execute(stmt)
-    movie = result.scalar_one_or_none()
-    if not movie:
-        raise NotFoundError("Movie not found")
-    items = await related_movies(db, movie=movie, limit=limit)
-    return [ContentListItemRead.model_validate(item) for item in items]
+    return await list_related_movies(db, slug=slug, limit=limit)
 
 
 @router.get("/{slug}", response_model=ContentRead)
 async def get_movie(slug: str, db: DBSession, request: Request, current_user: OptionalUser):
-    stmt = select(Content).where(Content.slug == slug, Content.type == "single")
-    result = await db.execute(stmt)
-    movie = result.scalar_one_or_none()
-    if not movie:
-        raise NotFoundError("Movie not found")
-
-    is_admin = bool(current_user and current_user.role == "admin")
-    if not movie.is_published and not is_admin:
-        if not await coming_soon.is_coming_soon(db, movie.id):
-            raise NotFoundError("Movie not found")
-
-    data = ContentRead.model_validate(movie)
-    data.is_free_today = await free_today.is_free_today(db, movie.id)
     guest_id = None if current_user else get_guest_id(request)
-    if not await can_access_content(
-        db, current_user, guest_id, movie, is_free_today=data.is_free_today
-    ):
-        data.hls_master_key = None
-    return data
+    return await get_movie_detail(
+        db, slug=slug, current_user=current_user, guest_id=guest_id
+    )
 
 
 @router.patch("/{slug}", response_model=ContentRead)
