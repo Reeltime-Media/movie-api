@@ -3,7 +3,9 @@
 from app.billing.router import (  # noqa: F401
     _bakong_webhook_reports_paid,
     _require_bakong_service_api_key,
+    bakong_watcher_router,
     bakong_payment_webhook,
+    baray_router,
     create_movie_bakong_intent,
     create_movie_payment_intent,
     create_series_subscription_payment_intent,
@@ -19,6 +21,8 @@ __all__ = [
     "router",
     "_bakong_webhook_reports_paid",
     "_require_bakong_service_api_key",
+    "baray_router",
+    "bakong_watcher_router",
     "bakong_payment_webhook",
     "create_movie_bakong_intent",
     "create_movie_payment_intent",

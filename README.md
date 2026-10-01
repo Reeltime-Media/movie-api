@@ -44,6 +44,7 @@ Fill in `.env`. At minimum you need:
 - `DATABASE_URL` / `POOLER_DATABASE_URL` — from your Supabase project settings
   (prefer the pooler URL; the direct `db.*` host is often IPv6-only and
   unreachable from Docker/local networks)
+- `DATABASE_SSL_ROOT_CERT` — required in non-debug mode for non-local DB hosts
 - `R2_*` — Cloudflare R2 bucket + credentials (required for media uploads;
   the API will still boot without them, but upload/transcode routes will fail)
 
@@ -51,6 +52,9 @@ Everything else (`BARAY_*`, `GOOGLE_CLIENT_ID`, `RESEND_*`,
 `TRANSCODE_*`) is optional for local development — those features simply
 no-op or return a clear error if unconfigured. See `.env.example` for the
 full list with inline comments.
+
+Disabled/legacy watcher routes are now opt-in: set `BAKONG_WATCHER_ENABLED=true`
+to expose `/payments/bakong/pending` and `/payments/bakong/webhook`.
 
 ## Running locally
 

@@ -1,4 +1,8 @@
-"""HTTP routes for `/payments/*` — thin handlers over billing domain services."""
+"""HTTP routes for `/payments/*` — thin handlers over billing domain services.
+
+`router` is always mounted. `baray_router` and `bakong_watcher_router`
+are mounted only when enabled via settings.
+"""
 
 from __future__ import annotations
 
@@ -37,6 +41,8 @@ from app.rate_limit import limiter
 from app.services.series import get_series_or_404
 
 router = APIRouter(prefix="/payments", tags=["payments"])
+baray_router = APIRouter(prefix="/payments", tags=["payments"])
+bakong_watcher_router = APIRouter(prefix="/payments", tags=["payments"])
 
 
 @router.get("/pricing", response_model=CatalogPricingRead)
@@ -48,7 +54,7 @@ def get_catalog_pricing():
     )
 
 
-@router.post("/movies/{content_id}/intent", response_model=PaymentIntentRead, status_code=201)
+@baray_router.post("/movies/{content_id}/intent", response_model=PaymentIntentRead, status_code=201)
 async def create_movie_payment_intent(
     content_id: uuid.UUID,
     data: PaymentIntentCreate,
@@ -110,7 +116,7 @@ async def create_series_unlock_bakong_intent(
     return _read_bakong_intent(intent)
 
 
-@router.post(
+@baray_router.post(
     "/series/{series_id}/subscription-intent",
     response_model=PaymentIntentRead,
     status_code=201,
@@ -196,17 +202,14 @@ def _require_bakong_service_api_key(x_api_key: str | None) -> None:
         )
 
 
-@router.get("/bakong/pending", response_model=BakongPendingListRead)
+@bakong_watcher_router.get("/bakong/pending", response_model=BakongPendingListRead)
 @limiter.limit("60/minute")
 async def list_pending_bakong_payments(
     request: Request,
     db: DBSession,
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ):
-    """DISABLED — Cambodia watcher / bank-credit feed not in use.
-
-    Kept as a stub so old clients get a clear 503 instead of silent 404.
-    """
+    """DISABLED — Cambodia watcher / bank-credit feed not in use."""
     _ = (request, db, x_api_key)
     raise HTTPException(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -214,15 +217,7 @@ async def list_pending_bakong_payments(
     )
 
 
-# --- Bank-credit / external watcher settle (DISABLED) -----------------------
-# No bank CASA webhook available. Auto unlock is NBC poll + Admin Mark paid.
-# Original handlers remain below for reference; routes above return 503.
-#
-# @router.get("/bakong/pending") — listed open QRs for Cambodia watcher
-# @router.post("/bakong/webhook") — fulfill from watcher / bank credit push
-
-
-@router.post("/bakong/webhook")
+@bakong_watcher_router.post("/bakong/webhook")
 @limiter.limit("120/minute")
 async def bakong_payment_webhook(
     request: Request,
@@ -230,10 +225,7 @@ async def bakong_payment_webhook(
     payload: BakongWebhookPayload,
     x_bakong_webhook_secret: str | None = Header(default=None),
 ):
-    """DISABLED — bank-credit / external watcher settle not available.
-
-    Use Admin → Mark paid, or NBC settle while checkout is open.
-    """
+    """DISABLED — bank-credit / external watcher settle not available."""
     _ = (request, db, payload, x_bakong_webhook_secret)
     raise HTTPException(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

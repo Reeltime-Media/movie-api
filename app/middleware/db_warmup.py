@@ -8,11 +8,11 @@ logger = logging.getLogger(__name__)
 
 
 def build_database_warmup() -> DatabaseWarmup:
-    from app.database import engine
+    from app.database import get_engine
     from app.db_connect import verify_database_connection
 
     async def ping() -> None:
-        await verify_database_connection(engine, attempts=2, base_delay_seconds=1.0)
+        await verify_database_connection(get_engine(), attempts=2, base_delay_seconds=1.0)
 
     return DatabaseWarmup(ping)
 

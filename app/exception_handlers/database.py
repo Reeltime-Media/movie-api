@@ -4,20 +4,27 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 
 from app.db_connect import exception_from_db_layer, is_transient_db_error, transient_db_detail
+from app.exception_handlers.http import error_response
 
 logger = logging.getLogger(__name__)
-
-
-def db_unavailable_response() -> JSONResponse:
-    return JSONResponse(status_code=503, content={"detail": transient_db_detail()})
-
 
 async def timeout_error_handler(_request: Request, exc: TimeoutError) -> JSONResponse:
     if exception_from_db_layer(exc):
         logger.error("Database timeout")
-        return db_unavailable_response()
+        return error_response(
+            _request,
+            status_code=503,
+            code="database_timeout",
+            message="Database timeout",
+            details=transient_db_detail(),
+        )
     logger.error("Request timeout: %s", exc)
-    return JSONResponse(status_code=503, content={"detail": str(exc) or "Request timed out"})
+    return error_response(
+        _request,
+        status_code=503,
+        code="request_timeout",
+        message=str(exc) or "Request timed out",
+    )
 
 
 async def sqlalchemy_error_handler(_request: Request, exc) -> JSONResponse:
@@ -26,7 +33,13 @@ async def sqlalchemy_error_handler(_request: Request, exc) -> JSONResponse:
     settings = get_settings()
     if is_transient_db_error(exc):
         logger.error("Database unreachable: %s", exc.__class__.__name__)
-        return db_unavailable_response()
+        return error_response(
+            _request,
+            status_code=503,
+            code="database_unavailable",
+            message="Database is temporarily unavailable",
+            details=transient_db_detail(),
+        )
 
     logger.exception("Database error")
     detail = "Database error. Please try again."
@@ -40,4 +53,10 @@ async def sqlalchemy_error_handler(_request: Request, exc) -> JSONResponse:
             "Database schema is missing subscription_plans. "
             "Run: cd movie-api && alembic upgrade head"
         )
-    return JSONResponse(status_code=500, content={"detail": detail})
+    return error_response(
+        _request,
+        status_code=500,
+        code="database_error",
+        message="Database error",
+        details=detail,
+    )

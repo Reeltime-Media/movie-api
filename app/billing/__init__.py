@@ -1,8 +1,4 @@
-"""Billing domain — payments, Bakong checkout, fulfillment.
-
-Public HTTP surface stays at ``/payments/*`` via ``app.billing.router``
-(re-exported from ``app.routers.payments`` for compatibility).
-"""
+"""Billing domain — payments, Bakong checkout, fulfillment."""
 
 from app.billing.fulfillment import fulfill_payment_intent
 from app.billing.intent_helpers import (

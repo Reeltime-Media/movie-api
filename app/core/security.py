@@ -10,8 +10,6 @@ from passlib.context import CryptContext
 from app.config import get_settings
 from app.core.exceptions import ForbiddenError, UnauthorizedError
 
-settings = get_settings()
-
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
@@ -35,6 +33,7 @@ def hash_reset_token(raw_token: str) -> str:
 
 
 def create_access_token(user_id: UUID, role: str, session_id: UUID) -> str:
+    settings = get_settings()
     expire = datetime.now(UTC) + timedelta(minutes=settings.access_token_expire_minutes)
     payload = {
         "sub": str(user_id),
@@ -46,6 +45,7 @@ def create_access_token(user_id: UUID, role: str, session_id: UUID) -> str:
 
 
 def decode_access_token(token: str) -> dict:
+    settings = get_settings()
     try:
         return jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
     except PyJWTError:
@@ -56,6 +56,7 @@ def create_playback_token(content_id: UUID, expires_in: int) -> str:
     """Short-lived token scoped to a single content id, minted only after an
     entitlement check. It gates the HLS playlist endpoints so the user's main
     access token never appears in playlist bodies or media URLs."""
+    settings = get_settings()
     expire = datetime.now(UTC) + timedelta(seconds=expires_in)
     payload = {"sub": str(content_id), "scope": "playback", "exp": expire}
     return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
@@ -63,6 +64,7 @@ def create_playback_token(content_id: UUID, expires_in: int) -> str:
 
 def verify_playback_token(token: str, content_id: UUID) -> None:
     """Raise 401/403 unless `token` is a valid playback token for `content_id`."""
+    settings = get_settings()
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
     except PyJWTError:
@@ -75,6 +77,7 @@ def create_channel_playback_token(channel_id: UUID, expires_in: int) -> str:
     """Short-lived token scoped to a single TV channel id, minted only after an
     entitlement check. Separate scope from `create_playback_token` so a VOD
     token can never be replayed against a live channel or vice versa."""
+    settings = get_settings()
     expire = datetime.now(UTC) + timedelta(seconds=expires_in)
     payload = {"sub": str(channel_id), "scope": "tv_playback", "exp": expire}
     return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
@@ -82,6 +85,7 @@ def create_channel_playback_token(channel_id: UUID, expires_in: int) -> str:
 
 def verify_channel_playback_token(token: str, channel_id: UUID) -> None:
     """Raise 401/403 unless `token` is a valid playback token for `channel_id`."""
+    settings = get_settings()
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
     except PyJWTError:

@@ -1,6 +1,7 @@
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from slowapi import _rate_limit_exceeded_handler
@@ -14,14 +15,21 @@ from app.exception_handlers.database import (
     sqlalchemy_error_handler,
     timeout_error_handler,
 )
+from app.exception_handlers.http import (
+    http_exception_handler,
+    unhandled_exception_handler,
+    validation_exception_handler,
+)
 from app.lifespan import app_lifespan
 from app.middleware.db_warmup import (
     database_warmup_middleware,
     db_warmup,  # noqa: F401 — patched in tests
 )
+from app.middleware.observability import observability_middleware
 from app.middleware.request_id import RequestIdMiddleware
 from app.middleware.security import security_headers_middleware
 from app.rate_limit import limiter
+from app.billing import router as billing_router
 from app.routers import (
     admin,
     auth,
@@ -34,7 +42,6 @@ from app.routers import (
     hero_featured,
     library,
     movies,
-    payments,
     playback,
     promotions,
     purchases,
@@ -47,10 +54,10 @@ from app.routers import (
 )
 
 logger = logging.getLogger(__name__)
-settings = get_settings()
 
 
 def create_app() -> FastAPI:
+    settings = get_settings()
     app = FastAPI(
         title=settings.app_name,
         version="1.0.0",
@@ -62,6 +69,9 @@ def create_app() -> FastAPI:
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     app.add_exception_handler(TimeoutError, timeout_error_handler)
     app.add_exception_handler(SQLAlchemyError, sqlalchemy_error_handler)
+    app.add_exception_handler(HTTPException, http_exception_handler)
+    app.add_exception_handler(RequestValidationError, validation_exception_handler)
+    app.add_exception_handler(Exception, unhandled_exception_handler)
     app.add_middleware(SlowAPIMiddleware)
     # Catalog list responses (movies/series pages) are the main beneficiary —
     # skip tiny bodies (health checks, 204s) where compression overhead isn't worth it.
@@ -72,7 +82,7 @@ def create_app() -> FastAPI:
         "allow_credentials": True,
         "allow_methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         "allow_headers": ["Authorization", "Content-Type", "Accept", "X-Request-ID"],
-        "expose_headers": ["X-Request-ID"],
+        "expose_headers": ["X-Request-ID", "X-Response-Time-Ms"],
     }
     if settings.cors_origin_regex:
         cors_kwargs["allow_origin_regex"] = settings.cors_origin_regex
@@ -81,12 +91,17 @@ def create_app() -> FastAPI:
 
     app.middleware("http")(security_headers_middleware)
     app.middleware("http")(database_warmup_middleware)
+    app.middleware("http")(observability_middleware)
 
     app.include_router(auth.router)
     app.include_router(users.router)
     app.include_router(series.router)
     app.include_router(movies.router)
-    app.include_router(payments.router)
+    app.include_router(billing_router.router)
+    if settings.baray_enabled:
+        app.include_router(billing_router.baray_router)
+    if settings.bakong_watcher_enabled:
+        app.include_router(billing_router.bakong_watcher_router)
     app.include_router(promotions.router)
     app.include_router(hero_featured.router)
     app.include_router(free_today.router)

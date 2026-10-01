@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def app_lifespan(app: FastAPI):
-    from app.database import engine
+    from app.database import get_engine
     from app.services.bakong_sweeper import start_bakong_sweeper, stop_bakong_sweeper
 
     settings = get_settings()
@@ -28,7 +28,7 @@ async def app_lifespan(app: FastAPI):
         logger.warning("Database config: %s", warning)
 
     try:
-        await verify_database_connection(engine)
+        await verify_database_connection(get_engine())
         app.state.db_ready = True
         logger.info("Database connected (%s)", database_connection_label(db_url))
     except Exception:
@@ -71,7 +71,7 @@ async def app_lifespan(app: FastAPI):
     from app.services.email import close_http_client as close_email_http_client
     from app.services.live_client import close_http_client as close_live_http_client
     from app.services.live_playback import close_http_client as close_live_playback_http_client
-    from app.services.payment import close_http_client as close_payment_http_client
+    from app.billing.payment import close_http_client as close_payment_http_client
     from app.services.storage import reset_client as reset_storage_client
     from app.services.telegram import close_http_client as close_telegram_http_client
     from app.services.transcode_client import close_http_client as close_transcode_http_client
@@ -88,4 +88,4 @@ async def app_lifespan(app: FastAPI):
 
     await close_shared_cache()
     reset_storage_client()
-    await engine.dispose()
+    await get_engine().dispose()

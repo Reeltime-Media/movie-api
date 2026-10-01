@@ -15,8 +15,6 @@ from fastapi import HTTPException, status
 
 from app.config import get_settings
 
-settings = get_settings()
-
 _BLOCK_SIZE_BITS = 128
 _CURRENCY = "USD"
 _CLIENT_TIMEOUT_SECONDS = 15
@@ -42,6 +40,7 @@ async def close_http_client() -> None:
 
 
 def _credential_pair() -> tuple[bytes, bytes]:
+    settings = get_settings()
     if not settings.baray_api_key or not settings.baray_sk or not settings.baray_iv:
         raise BarayCredentialsError("Baray API credentials are not configured")
 
@@ -82,6 +81,7 @@ def decrypt_order_id(encrypted_order_id: str) -> str:
 
 
 def checkout_url(intent_id: str) -> str:
+    settings = get_settings()
     return f"{settings.baray_checkout_base_url.rstrip('/')}/{intent_id}"
 
 
@@ -97,6 +97,7 @@ async def create_intent(
     order_details: dict | None = None,
     custom_success_url: str | None = None,
 ) -> dict:
+    settings = get_settings()
     payload = {
         "amount": format_usd(amount_usd),
         "currency": _CURRENCY,

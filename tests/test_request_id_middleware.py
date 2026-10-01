@@ -26,6 +26,7 @@ def test_health_live_gets_request_id_header():
     response = client.get("/health/live")
     assert response.status_code == 200
     assert response.headers.get("X-Request-ID")
+    assert response.headers.get("X-Response-Time-Ms")
 
 
 def test_client_request_id_is_echoed():

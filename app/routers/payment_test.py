@@ -10,7 +10,7 @@ from app.dependencies import DBSession
 from app.models.content import Content
 from app.models.payment_intent import PaymentIntent
 from app.models.user import User
-from app.services.payment import checkout_url, create_intent, format_usd
+from app.billing.payment import checkout_url, create_intent, format_usd
 
 router = APIRouter(prefix="/payment-test", tags=["payment-test"])
 

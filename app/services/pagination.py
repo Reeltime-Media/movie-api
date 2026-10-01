@@ -3,12 +3,12 @@ import asyncio
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import AsyncSessionLocal
+from app.database import get_async_session_maker
 from app.db_connect import is_transient_db_error
 
 
 async def _scalar_count(count_query) -> int:
-    async with AsyncSessionLocal() as count_db:
+    async with get_async_session_maker()() as count_db:
         return (await count_db.scalar(count_query)) or 0
 
 

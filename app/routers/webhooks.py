@@ -9,8 +9,8 @@ from app.dependencies import DBSession
 from app.models.payment_intent import PaymentIntent
 from app.models.webhook_event import WebhookEvent
 from app.rate_limit import limiter
-from app.services.payment import decrypt_order_id
-from app.services.payment_fulfillment import fulfill_payment_intent
+from app.billing.fulfillment import fulfill_payment_intent
+from app.billing.payment import decrypt_order_id
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 

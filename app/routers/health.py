@@ -10,10 +10,10 @@ async def liveness() -> dict[str, str]:
 
 
 async def readiness(request: Request):
-    from app.database import engine
+    from app.database import get_engine
 
     try:
-        await verify_database_connection(engine, attempts=2, base_delay_seconds=1.0)
+        await verify_database_connection(get_engine(), attempts=2, base_delay_seconds=1.0)
         request.app.state.db_ready = True
         return {"status": "ok", "database": "connected"}
     except Exception:

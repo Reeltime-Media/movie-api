@@ -38,6 +38,11 @@ def default_cors_origins() -> str:
     return ",".join(LOCAL_DEV_CORS_ORIGINS)
 
 
+def _db_host(database_url: str) -> str:
+    normalised = database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+    return (urlparse(normalised).hostname or "").lower()
+
+
 class Settings(BaseSettings):
     # Only read .env when the process can open it (bind-mounted 0600 files break
     # non-root containers). Compose env_file / process env still apply either way.
@@ -51,8 +56,8 @@ class Settings(BaseSettings):
     app_name: str = "Movies API"
     debug: bool = False
     cors_origins: str = Field(default_factory=default_cors_origins)
-    # Allow all Vercel production + preview URLs (e.g. *-team.vercel.app)
-    cors_origin_regex: str = r"https://.*\.vercel\.app"
+    # Empty by default; set explicitly for trusted preview domains.
+    cors_origin_regex: str = ""
     secret_key: str
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 60  # 1 hour; logout still revokes via session
@@ -142,6 +147,8 @@ class Settings(BaseSettings):
     bakong_sweeper_batch_size: int = 2
     # Shared secret for POST /payments/bakong/webhook (DISABLED — no bank credit).
     bakong_webhook_secret: str = ""
+    # Expose legacy watcher/webhook endpoints for external bank-credit settle.
+    bakong_watcher_enabled: bool = False
     # How far back GET /payments/bakong/pending looks (DISABLED — watcher unused).
     bakong_pending_window_minutes: int = 45
     bakong_pending_limit: int = 20
@@ -217,6 +224,14 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "API_PUBLIC_URL must be an absolute http(s) URL when DEBUG is false"
                 )
+
+        if (
+            _db_host(self.effective_database_url) not in ("", "localhost", "127.0.0.1")
+            and not self.database_ssl_root_cert.strip()
+        ):
+            raise ValueError(
+                "DATABASE_SSL_ROOT_CERT is required for non-local databases when DEBUG is false"
+            )
 
         if self.transcode_service_url.strip() and not self.transcode_api_key.strip():
             raise ValueError(

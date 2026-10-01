@@ -11,7 +11,7 @@ from app.schemas.admin import AdminPaymentFulfillRead, AdminPaymentRead
 from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
 from app.services.admin.dates import parse_filter_date
 from app.services.pagination import paginate_query
-from app.services.payment_fulfillment import fulfill_payment_intent
+from app.billing.fulfillment import fulfill_payment_intent
 
 router = APIRouter()
 

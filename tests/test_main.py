@@ -84,16 +84,20 @@ class TestTimeoutHandler:
         exc = _raise_timeout_in_module("asyncpg.connection")
         response = await app_main.timeout_error_handler(None, exc)
         assert response.status_code == 503
-        assert "Database" in json.loads(response.body)["detail"]
+        body = json.loads(response.body)
+        assert body["code"] == "database_timeout"
+        assert "Database" in body["message"]
+        assert "Supabase" in body["details"]
 
     @pytest.mark.asyncio
     async def test_non_db_timeout_is_not_blamed_on_database(self):
         exc = _raise_timeout_in_module("app.services.transcode_client")
         response = await app_main.timeout_error_handler(None, exc)
         assert response.status_code == 503
-        detail = json.loads(response.body)["detail"]
-        assert "Database" not in detail
-        assert "timed out" in detail.lower()
+        body = json.loads(response.body)
+        assert body["code"] == "request_timeout"
+        assert "Database" not in body["message"]
+        assert "timed out" in body["message"].lower()
 
 
 class TestWarmupMiddleware:
@@ -110,6 +114,16 @@ class TestWarmupMiddleware:
         app_main.app.state.db_ready = True
         client.get("/health/live")
         probe.assert_not_awaited()
+
+
+class TestPaymentsExposure:
+    def test_baray_routes_hidden_when_disabled(self):
+        response = client.post("/payments/movies/00000000-0000-0000-0000-000000000000/intent")
+        assert response.status_code == 404
+
+    def test_bakong_watcher_routes_hidden_when_disabled(self):
+        response = client.get("/payments/bakong/pending")
+        assert response.status_code == 404
 
 
 if __name__ == "__main__":

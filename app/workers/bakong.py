@@ -65,7 +65,7 @@ async def _run() -> None:
     await stop.wait()
     await stop_bakong_health_monitor()
     await stop_bakong_sweeper()
-    from app.database import engine
+    from app.database import get_engine
     from app.services.bakong import close_http_client as close_bakong
     from app.services.shared_cache import close_shared_cache
     from app.services.telegram import close_http_client as close_telegram
@@ -73,7 +73,7 @@ async def _run() -> None:
     await close_bakong()
     await close_telegram()
     await close_shared_cache()
-    await engine.dispose()
+    await get_engine().dispose()
     logger.info("Bakong worker stopped")
 
 
