@@ -10,7 +10,11 @@ from app.catalog.coming_soon import is_coming_soon
 from app.catalog.free_today import is_free_today
 from app.catalog.related import related_movies, related_series
 from app.catalog.search import apply_catalog_genre, apply_catalog_search
-from app.catalog.series import free_episode_counts_by_series, get_series_or_404
+from app.catalog.series import (
+    free_episode_counts_by_series,
+    get_series_or_404,
+    regions_by_series,
+)
 from app.core.exceptions import NotFoundError
 from app.models.content import Content
 from app.models.series import Series
@@ -63,11 +67,16 @@ async def list_published_series(
         )
         stmt = stmt.where(has_free_episode)
     items, total = await paginate_query(db, stmt, page=page, page_size=page_size)
-    counts = await free_episode_counts_by_series(db, [item.id for item in items])
+    ids = [item.id for item in items]
+    counts = await free_episode_counts_by_series(db, ids)
+    regions = await regions_by_series(db, ids)
     response = build_paginated_response(
         [
             SeriesListItemRead.model_validate(item).model_copy(
-                update={"free_episode_count": counts.get(item.id, 0)}
+                update={
+                    "free_episode_count": counts.get(item.id, 0),
+                    "region": regions.get(item.id),
+                }
             )
             for item in items
         ],
@@ -87,10 +96,15 @@ async def list_related_series(
 ) -> list[SeriesListItemRead]:
     series = await get_series_or_404(db, slug, published_only=True)
     items = await related_series(db, series=series, limit=limit)
-    counts = await free_episode_counts_by_series(db, [item.id for item in items])
+    ids = [item.id for item in items]
+    counts = await free_episode_counts_by_series(db, ids)
+    regions = await regions_by_series(db, ids)
     return [
         SeriesListItemRead.model_validate(item).model_copy(
-            update={"free_episode_count": counts.get(item.id, 0)}
+            update={
+                "free_episode_count": counts.get(item.id, 0),
+                "region": regions.get(item.id),
+            }
         )
         for item in items
     ]

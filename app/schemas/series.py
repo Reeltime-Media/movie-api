@@ -84,6 +84,8 @@ class SeriesListItemRead(BaseModel):
     is_short_movie: bool
     # Published free episodes — catalog cards label "Free Ep N" from this.
     free_episode_count: int = 0
+    # Region code from the episodes (e.g. "CH", "KR") — powers the nav region filters.
+    region: str | None = None
     # Lets catalog cards cache-bust poster/banner URLs after a re-upload.
     updated_at: datetime
 
