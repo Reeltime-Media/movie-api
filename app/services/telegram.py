@@ -65,13 +65,13 @@ async def send_telegram_message(text: str) -> None:
         logger.exception("Failed to send Telegram ops alert")
 
 
-async def notify_payment_succeeded(
+async def build_payment_succeeded_message(
     db: AsyncSession,
     intent: PaymentIntent,
     *,
     bank: str | None = None,
-) -> None:
-    """Build and send a payment-success alert for the team chat."""
+) -> str:
+    """Build a payment-success alert without sending it."""
     title = "Subscription"
     if intent.kind == "single" and intent.content_id:
         row = await db.execute(select(Content.title).where(Content.id == intent.content_id))
@@ -94,7 +94,7 @@ async def notify_payment_succeeded(
     kind_label = "Movie" if intent.kind == "single" else "Subscription"
     amount = f"${intent.amount_usd:.2f}"
 
-    text = (
+    return (
         "Reeltime payment succeeded\n"
         f"- {kind_label}: {title}\n"
         f"- Amount: {amount}\n"
@@ -103,7 +103,42 @@ async def notify_payment_succeeded(
         f"- Order: {intent.order_id}\n"
         f"- Intent: {intent.intent_id}"
     )
-    await send_telegram_message(text)
+
+
+def queue_telegram_alert(db: AsyncSession, text: str) -> None:
+    """Queue an alert to send after the caller's transaction commits."""
+    pending = db.info.setdefault("pending_telegram_alerts", [])
+    pending.append(text)
+
+
+async def flush_pending_telegram_alerts(db: AsyncSession) -> None:
+    """Deliver alerts queued on this session. Safe to call after every commit."""
+    pending = db.info.pop("pending_telegram_alerts", None) or []
+    for text in pending:
+        await send_telegram_message(text)
+
+
+async def notify_payment_succeeded(
+    db: AsyncSession,
+    intent: PaymentIntent,
+    *,
+    bank: str | None = None,
+) -> None:
+    """Queue a payment-success alert for delivery after commit.
+
+    Building the message still needs the DB (title/buyer lookup) while the
+    intent row is locked; the Telegram HTTP call waits until after commit so
+    we never announce success for a rolled-back payment or hold locks on I/O.
+    """
+    text = await build_payment_succeeded_message(db, intent, bank=bank)
+    queue_telegram_alert(db, text)
+
+
+async def commit_with_telegram(db: AsyncSession) -> None:
+    """Commit then deliver any queued payment alerts."""
+    await db.commit()
+    await flush_pending_telegram_alerts(db)
+
 
 
 def _ict_today() -> str:

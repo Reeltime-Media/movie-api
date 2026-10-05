@@ -25,6 +25,7 @@ from app.billing.bakong_check_cache import (
 )
 from app.billing.bakong_quota import bakong_checks_blocked, note_bakong_rate_limited
 from app.billing.bakong_settle import settle_bakong_intent_if_paid
+from app.services.telegram import commit_with_telegram
 from app.config import get_settings
 from app.database import AsyncSessionLocal
 from app.models.payment_intent import PaymentIntent
@@ -111,7 +112,7 @@ async def sweep_pending_bakong_intents() -> int:
                 logger.exception("Bakong sweeper fulfill failed for intent_id=%s", intent.intent_id)
 
         if settled:
-            await db.commit()
+            await commit_with_telegram(db)
         else:
             await db.rollback()
 

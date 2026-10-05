@@ -1,4 +1,8 @@
-"""Mark pending intents succeeded when the buyer already owns the title."""
+"""Resolve pending intents when the buyer already owns the title.
+
+Ownership is not payment evidence. Redundant unpaid intents are marked
+``superseded`` so checkout UI can close without inflating revenue.
+"""
 
 from __future__ import annotations
 
@@ -11,12 +15,19 @@ from app.models.payment_intent import PaymentIntent
 from app.models.purchase import Purchase
 from app.models.series_purchase import SeriesPurchase
 
+# Access already granted via another receipt — not a verified payment.
+STATUS_SUPERSEDED = "superseded"
+
 
 async def mark_succeeded_if_already_purchased(
     db: AsyncSession,
     intent: PaymentIntent,
 ) -> bool:
-    """Unstick QR UI when the title is already owned but this intent is still pending."""
+    """Unstick QR UI when the title is already owned but this intent is still pending.
+
+    Sets status to ``superseded`` (not ``succeeded``) so dashboards that sum
+    succeeded intents do not count ownership-only transitions as revenue.
+    """
     if intent.user_id is not None:
         movie_owner = Purchase.user_id == intent.user_id
         series_owner = SeriesPurchase.user_id == intent.user_id
@@ -34,7 +45,7 @@ async def mark_succeeded_if_already_purchased(
         )
         if existing.scalar_one_or_none() is None:
             return False
-        intent.status = "succeeded"
+        intent.status = STATUS_SUPERSEDED
         intent.resolved_at = datetime.now(UTC)
         return True
 
@@ -45,6 +56,6 @@ async def mark_succeeded_if_already_purchased(
     )
     if existing.scalar_one_or_none() is None:
         return False
-    intent.status = "succeeded"
+    intent.status = STATUS_SUPERSEDED
     intent.resolved_at = datetime.now(UTC)
     return True

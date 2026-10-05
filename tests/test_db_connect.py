@@ -202,14 +202,14 @@ class TestConnectionArguments:
     def test_asyncpg_args_enables_ssl_for_remote_host(self):
         """Should enable SSL for remote hosts."""
         url = "postgresql+asyncpg://user:pass@db.supabase.co/db"
-        args = asyncpg_connect_args(url)
+        args = asyncpg_connect_args(url, allow_insecure_ssl=True)
         assert "ssl" in args
         assert isinstance(args["ssl"], ssl.SSLContext)
 
     def test_asyncpg_args_ssl_context_disables_verification(self):
-        """SSL context should not verify hostname for pooler cert issues."""
+        """Unverified SSL is only used when explicitly allowed."""
         url = "postgresql+asyncpg://user:pass@db.supabase.co/db"
-        args = asyncpg_connect_args(url)
+        args = asyncpg_connect_args(url, allow_insecure_ssl=True)
         ssl_ctx = args["ssl"]
         assert ssl_ctx.check_hostname is False
         assert ssl_ctx.verify_mode == ssl.CERT_NONE
@@ -241,6 +241,13 @@ class TestConnectionArguments:
         kwargs_normal = sqlalchemy_engine_kwargs(url, debug=False)
         assert kwargs_debug["echo"] is True
         assert kwargs_normal["echo"] is False
+
+    def test_asyncpg_args_remote_without_cert_requires_allow_insecure(self):
+        url = "postgresql+asyncpg://user:pass@db.supabase.co/db"
+        with pytest.raises(RuntimeError, match="DATABASE_SSL_ROOT_CERT"):
+            asyncpg_connect_args(url)
+        args = asyncpg_connect_args(url, allow_insecure_ssl=True)
+        assert args["ssl"].verify_mode == ssl.CERT_NONE
 
     def test_asyncpg_args_with_root_cert_enables_verification(self):
         """Providing a CA bundle should turn certificate verification back on."""

@@ -1,7 +1,7 @@
 """Tests for Bakong self-settle (admin fulfill + webhook helpers)."""
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -32,6 +32,8 @@ async def test_admin_fulfill_calls_fulfillment():
     db.execute = AsyncMock(return_value=result)
     db.commit = AsyncMock()
     db.refresh = AsyncMock()
+    db.info = {}
+    db.add = MagicMock()
 
     with patch(
         "app.routers.admin.payments.fulfill_payment_intent",
@@ -41,3 +43,4 @@ async def test_admin_fulfill_calls_fulfillment():
         fulfill.assert_awaited_once()
         assert out.intent_id == "bkg-1"
         assert out.order_id == "movie-1"
+        db.add.assert_called_once()

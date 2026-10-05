@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import and_, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.billing import bakong
@@ -27,6 +29,9 @@ from app.models.purchase import Purchase
 from app.models.series import Series
 from app.models.user import User
 from app.services.content_access import has_series_purchase, user_has_active_subscription
+from app.services.telegram import commit_with_telegram
+
+logger = logging.getLogger(__name__)
 
 
 def _identity_filter(user: User | None, guest_id: str | None):
@@ -41,6 +46,13 @@ def _purchase_filter(user: User | None, guest_id: str | None):
     return Purchase.guest_id == guest_id
 
 
+async def _lock_buyer(db: AsyncSession, user: User | None) -> None:
+    """Serialize first pending-intent creation per logged-in buyer."""
+    if user is None:
+        return
+    await db.execute(select(User).where(User.id == user.id).with_for_update())
+
+
 async def _reuse_or_refresh_pending(
     db: AsyncSession,
     pending_intent: PaymentIntent,
@@ -50,25 +62,54 @@ async def _reuse_or_refresh_pending(
     """Shared pending-QR path: reuse fresh, settle/regenerate when stale."""
     if not qr_is_stale(pending_intent):
         if check_ownership and await mark_succeeded_if_already_purchased(db, pending_intent):
-            await db.commit()
+            await commit_with_telegram(db)
             await db.refresh(pending_intent)
         return pending_intent
 
     if await settle_bakong_intent_if_paid(db, pending_intent):
-        await db.commit()
+        await commit_with_telegram(db)
         await db.refresh(pending_intent)
         return pending_intent
 
     if check_ownership and await mark_succeeded_if_already_purchased(db, pending_intent):
-        await db.commit()
+        await commit_with_telegram(db)
         await db.refresh(pending_intent)
         return pending_intent
 
     if await bakong_qr_confirmed_unpaid(pending_intent):
         await regenerate_bakong_qr(pending_intent)
-        await db.commit()
+        await commit_with_telegram(db)
         await db.refresh(pending_intent)
     return pending_intent
+
+
+async def _commit_new_intent_or_reuse(
+    db: AsyncSession,
+    intent: PaymentIntent,
+    *,
+    pending_lookup,
+    check_ownership: bool = True,
+) -> PaymentIntent:
+    """Commit a newly built pending intent; on unique conflict, return the winner."""
+    db.add(intent)
+    try:
+        await commit_with_telegram(db)
+    except IntegrityError:
+        await db.rollback()
+        db.info.pop("pending_telegram_alerts", None)
+        logger.info(
+            "Concurrent pending checkout — reusing existing intent kind=%s",
+            intent.kind,
+        )
+        result = await db.execute(pending_lookup)
+        existing = result.scalars().first()
+        if existing is None:
+            raise
+        return await _reuse_or_refresh_pending(
+            db, existing, check_ownership=check_ownership
+        )
+    await db.refresh(intent)
+    return intent
 
 
 async def create_or_reuse_movie_bakong_intent(
@@ -83,12 +124,16 @@ async def create_or_reuse_movie_bakong_intent(
     purchase_filter = _purchase_filter(user, guest_id)
 
     existing_purchase = await db.execute(
-        select(Purchase).where(purchase_filter, Purchase.content_id == content_id)
+        select(Purchase.id)
+        .where(purchase_filter, Purchase.content_id == content_id)
+        .limit(1)
     )
-    if existing_purchase.scalar_one_or_none():
+    if existing_purchase.scalar_one_or_none() is not None:
         raise ConflictError("Movie already purchased")
 
-    pending = await db.execute(
+    await _lock_buyer(db, user)
+
+    pending_lookup = (
         select(PaymentIntent)
         .where(
             identity_filter,
@@ -98,8 +143,8 @@ async def create_or_reuse_movie_bakong_intent(
             PaymentIntent.status == "pending",
         )
         .order_by(PaymentIntent.created_at.asc())
-        .with_for_update()
     )
+    pending = await db.execute(pending_lookup.with_for_update())
     pending_intent = pending.scalars().first()
     if pending_intent:
         return await _reuse_or_refresh_pending(db, pending_intent)
@@ -136,10 +181,9 @@ async def create_or_reuse_movie_bakong_intent(
         amount_usd=amount,
         status="pending",
     )
-    db.add(intent)
-    await db.commit()
-    await db.refresh(intent)
-    return intent
+    return await _commit_new_intent_or_reuse(
+        db, intent, pending_lookup=pending_lookup
+    )
 
 
 async def create_or_reuse_series_bakong_intent(
@@ -163,7 +207,9 @@ async def create_or_reuse_series_bakong_intent(
     ):
         raise ConflictError("Series already unlocked")
 
-    pending = await db.execute(
+    await _lock_buyer(db, user)
+
+    pending_lookup = (
         select(PaymentIntent)
         .where(
             identity_filter,
@@ -173,8 +219,8 @@ async def create_or_reuse_series_bakong_intent(
             PaymentIntent.status == "pending",
         )
         .order_by(PaymentIntent.created_at.asc())
-        .with_for_update()
     )
+    pending = await db.execute(pending_lookup.with_for_update())
     pending_intent = pending.scalars().first()
     if pending_intent:
         return await _reuse_or_refresh_pending(db, pending_intent)
@@ -200,10 +246,9 @@ async def create_or_reuse_series_bakong_intent(
         amount_usd=amount,
         status="pending",
     )
-    db.add(intent)
-    await db.commit()
-    await db.refresh(intent)
-    return intent
+    return await _commit_new_intent_or_reuse(
+        db, intent, pending_lookup=pending_lookup
+    )
 
 
 async def create_or_reuse_subscription_bakong_intent(
@@ -216,7 +261,9 @@ async def create_or_reuse_subscription_bakong_intent(
     plan = await resolve_active_plan(db, plan_code)
     amount = validate_payment_amount(plan.price_usd)
 
-    pending = await db.execute(
+    await _lock_buyer(db, user)
+
+    pending_lookup = (
         select(PaymentIntent)
         .where(
             PaymentIntent.user_id == user.id,
@@ -232,8 +279,8 @@ async def create_or_reuse_subscription_bakong_intent(
             ),
         )
         .order_by(PaymentIntent.created_at.asc())
-        .with_for_update()
     )
+    pending = await db.execute(pending_lookup.with_for_update())
     pending_intent = pending.scalars().first()
     if pending_intent:
         # Subs don't use ownership unstick (no per-title purchase).
@@ -256,13 +303,13 @@ async def create_or_reuse_subscription_bakong_intent(
         kind="sub",
         content_id=None,
         plan_code=plan.code,
+        plan_interval_days=plan.billing_interval_days,
         amount_usd=amount,
         status="pending",
     )
-    db.add(intent)
-    await db.commit()
-    await db.refresh(intent)
-    return intent
+    return await _commit_new_intent_or_reuse(
+        db, intent, pending_lookup=pending_lookup, check_ownership=False
+    )
 
 
 async def load_buyer_intent(
@@ -298,7 +345,7 @@ async def settle_pending_intent_on_poll(
         return intent
 
     if await mark_succeeded_if_already_purchased(db, intent):
-        await db.commit()
+        await commit_with_telegram(db)
         await db.refresh(intent)
         return intent
 
@@ -313,7 +360,7 @@ async def settle_pending_intent_on_poll(
         return intent
 
     if await settle_bakong_intent_if_paid(db, intent):
-        await db.commit()
+        await commit_with_telegram(db)
         await db.refresh(intent)
     elif intent.content_id is not None:
         identity = (
@@ -337,9 +384,12 @@ async def settle_pending_intent_on_poll(
         )
         sibling = siblings.scalars().first()
         if sibling and await settle_bakong_intent_if_paid(db, sibling):
-            intent.status = "succeeded"
+            # Sibling was the paid receipt; this intent did not collect money.
+            from app.billing.ownership import STATUS_SUPERSEDED
+
+            intent.status = STATUS_SUPERSEDED
             intent.resolved_at = sibling.resolved_at
-            await db.commit()
+            await commit_with_telegram(db)
             await db.refresh(intent)
     mark_intent_polled(intent.intent_id)
     return intent

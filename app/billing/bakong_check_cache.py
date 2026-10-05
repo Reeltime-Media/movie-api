@@ -19,13 +19,15 @@ _PAID_TTL_SECONDS = 60.0
 _INTENT_POLL_TTL_SECONDS = 12.0
 # One stuck checkout tab must not burn a whole NBC token (~100/day).
 _MAX_NBC_CHECKS_PER_INTENT = 40
+# Cap resets after this window so a regenerated QR can be verified again.
+_INTENT_NBC_CHECK_WINDOW_SECONDS = 60 * 60
 
 _lock = Lock()
 # paid | unpaid | unknown
 _md5_cache: dict[str, tuple[str, float]] = {}
 _intent_polled_at: dict[str, float] = {}
-# intent_id -> count of NBC network checks reserved this process life
-_intent_nbc_checks: dict[str, int] = {}
+# intent_id -> (count, window_started_at)
+_intent_nbc_checks: dict[str, tuple[int, float]] = {}
 
 STATUS_PAID = "paid"
 STATUS_UNPAID = "unpaid"
@@ -127,8 +129,16 @@ def was_intent_recently_polled(intent_id: str) -> bool:
 def intent_nbc_check_count(intent_id: str) -> int:
     if not intent_id:
         return 0
+    now = time.monotonic()
     with _lock:
-        return int(_intent_nbc_checks.get(intent_id, 0))
+        entry = _intent_nbc_checks.get(intent_id)
+        if not entry:
+            return 0
+        used, started = entry
+        if now - started >= _INTENT_NBC_CHECK_WINDOW_SECONDS:
+            del _intent_nbc_checks[intent_id]
+            return 0
+        return int(used)
 
 
 def consume_intent_nbc_check(
@@ -140,11 +150,17 @@ def consume_intent_nbc_check(
     if not intent_id:
         return True
     limit = max(1, int(max_checks))
+    now = time.monotonic()
     with _lock:
-        used = int(_intent_nbc_checks.get(intent_id, 0))
-        if used >= limit:
-            return False
-        _intent_nbc_checks[intent_id] = used + 1
+        entry = _intent_nbc_checks.get(intent_id)
+        if entry is None or now - entry[1] >= _INTENT_NBC_CHECK_WINDOW_SECONDS:
+            _intent_nbc_checks[intent_id] = (1, now)
+            used = 1
+        else:
+            used = int(entry[0]) + 1
+            if used > limit:
+                return False
+            _intent_nbc_checks[intent_id] = (used, entry[1])
         # Soft prune if map grows (abandoned checkouts).
         if len(_intent_nbc_checks) > 2000:
             drop = list(_intent_nbc_checks.keys())[:500]
@@ -153,7 +169,15 @@ def consume_intent_nbc_check(
         return True
 
 
+def reset_intent_nbc_checks(intent_id: str | None = None) -> None:
+    """Reset check budget for one intent (e.g. after QR regenerate), or all."""
+    with _lock:
+        if intent_id:
+            _intent_nbc_checks.pop(intent_id, None)
+        else:
+            _intent_nbc_checks.clear()
+
+
 def clear_intent_nbc_checks() -> None:
     """Test helper."""
-    with _lock:
-        _intent_nbc_checks.clear()
+    reset_intent_nbc_checks()

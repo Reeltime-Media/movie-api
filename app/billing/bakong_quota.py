@@ -5,6 +5,9 @@ checks from movie-api for a while. Poll/sweeper return pending without
 burning the remaining quota; playback authorize can still try after the
 cooldown so paid customers unlock.
 
+Transient connectivity failures use a short cooldown so one timeout cannot
+suspend every buyer for an hour.
+
 Blocked-until is stored in Redis when REDIS_URL is set so all Uvicorn
 workers share one circuit; otherwise an in-process fallback is used.
 """
@@ -19,6 +22,8 @@ logger = logging.getLogger(__name__)
 
 # Match payment-bakong pause: do not keep probing after error 17.
 _DEFAULT_COOLDOWN_SECONDS = 60 * 60
+# Connectivity / HTTP errors — short backoff, not a full quota pause.
+_TRANSIENT_COOLDOWN_SECONDS = 30.0
 _REDIS_KEY = "bakong:nbc_blocked_until"
 _lock = Lock()
 _blocked_until_monotonic = 0.0
@@ -55,8 +60,18 @@ def _sync_redis():
 
 
 def note_bakong_rate_limited(*, cooldown_seconds: float = _DEFAULT_COOLDOWN_SECONDS) -> None:
+    """Quota / daily-limit pause (long cooldown)."""
+    _set_blocked_until(cooldown_seconds)
+
+
+def note_bakong_transient(*, cooldown_seconds: float = _TRANSIENT_COOLDOWN_SECONDS) -> None:
+    """Connectivity / inconclusive pause — short bounded backoff."""
+    _set_blocked_until(max(5.0, min(cooldown_seconds, 120.0)))
+
+
+def _set_blocked_until(cooldown_seconds: float) -> None:
     global _blocked_until_monotonic
-    cooldown = max(60.0, cooldown_seconds)
+    cooldown = max(5.0, cooldown_seconds)
     until_mono = time.monotonic() + cooldown
     with _lock:
         if until_mono > _blocked_until_monotonic:
@@ -74,7 +89,8 @@ def note_bakong_rate_limited(*, cooldown_seconds: float = _DEFAULT_COOLDOWN_SECO
                 until_unix = max(until_unix, float(existing))
             except (TypeError, ValueError):
                 pass
-        client.set(_REDIS_KEY, str(until_unix), ex=int(cooldown) + 60)
+        ttl = max(60, int(until_unix - time.time()) + 60)
+        client.set(_REDIS_KEY, str(until_unix), ex=ttl)
     except Exception as exc:
         logger.warning("bakong_quota: Redis set failed: %s", exc)
 

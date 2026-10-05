@@ -71,18 +71,27 @@ def validate_database_url(database_url: str, *, pooler_configured: bool) -> list
 
 
 @functools.lru_cache(maxsize=4)
-def _remote_ssl_context(root_cert_path: str | None = None) -> ssl.SSLContext:
-    """SSL context for remote connections; verifies against root_cert_path when given.
+def _remote_ssl_context(
+    root_cert_path: str | None = None,
+    *,
+    allow_insecure: bool = False,
+) -> ssl.SSLContext:
+    """SSL context for remote connections.
 
-    Without a CA bundle we fall back to unverified TLS, because the Supabase
-    pooler presents a certificate signed by a project-specific CA that is not
-    in the system trust store.
+    Prefer a project CA bundle. Unverified TLS is only used when explicitly
+    allowed (debug / DATABASE_SSL_ALLOW_INSECURE).
     """
     if root_cert_path:
         return ssl.create_default_context(cafile=root_cert_path)
+    if not allow_insecure:
+        raise RuntimeError(
+            "Remote database TLS requires DATABASE_SSL_ROOT_CERT "
+            "(or DATABASE_SSL_ALLOW_INSECURE=true as a temporary escape)"
+        )
     logger.warning(
-        "Database TLS certificate verification is disabled. "
-        "Set DATABASE_SSL_ROOT_CERT to your Supabase CA bundle to enable it."
+        "Database TLS certificate verification is DISABLED "
+        "(DATABASE_SSL_ALLOW_INSECURE or DEBUG). "
+        "Set DATABASE_SSL_ROOT_CERT to your Supabase CA bundle."
     )
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
@@ -141,6 +150,7 @@ def asyncpg_connect_args(
     database_url: str,
     *,
     ssl_root_cert: str | None = None,
+    allow_insecure_ssl: bool = False,
 ) -> dict[str, Any]:
     """Generate asyncpg connection args (disable caches, add TLS for remote hosts)."""
     args: dict[str, Any] = {
@@ -151,7 +161,10 @@ def asyncpg_connect_args(
     }
     host = _database_host(database_url)
     if host not in ("", "localhost", "127.0.0.1"):
-        args["ssl"] = _remote_ssl_context(ssl_root_cert or None)
+        args["ssl"] = _remote_ssl_context(
+            ssl_root_cert or None,
+            allow_insecure=bool(allow_insecure_ssl and not ssl_root_cert),
+        )
     return args
 
 
@@ -160,6 +173,7 @@ def sqlalchemy_engine_kwargs(
     *,
     debug: bool = False,
     ssl_root_cert: str | None = None,
+    allow_insecure_ssl: bool = False,
 ) -> dict[str, Any]:
     """Return SQLAlchemy engine kwargs optimized for Supabase pooler."""
     return {
@@ -169,7 +183,11 @@ def sqlalchemy_engine_kwargs(
         "pool_recycle": DEFAULT_POOL_RECYCLE,
         "pool_timeout": DEFAULT_POOL_TIMEOUT,
         "echo": debug,
-        "connect_args": asyncpg_connect_args(database_url, ssl_root_cert=ssl_root_cert),
+        "connect_args": asyncpg_connect_args(
+            database_url,
+            ssl_root_cert=ssl_root_cert,
+            allow_insecure_ssl=allow_insecure_ssl,
+        ),
     }
 
 

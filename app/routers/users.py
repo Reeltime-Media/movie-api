@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError, UnauthorizedError
-from app.core.security import hash_password, verify_password
+from app.core.security import hash_password_async, verify_password_async
 from app.dependencies import AdminUser, CurrentSessionId, CurrentUser, DBSession
 from app.models.user import User
 from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
@@ -32,10 +32,12 @@ async def update_me(data: UserUpdate, current_user: CurrentUser, db: DBSession):
         # has nothing to prove and skips straight to setting its first one.
         if current_user.password_hash is not None and (
             not data.current_password
-            or not verify_password(data.current_password, current_user.password_hash)
+            or not await verify_password_async(
+                data.current_password, current_user.password_hash
+            )
         ):
             raise UnauthorizedError("Current password is incorrect")
-        current_user.password_hash = hash_password(data.password)
+        current_user.password_hash = await hash_password_async(data.password)
     await db.commit()
     await db.refresh(current_user)
     return user_to_read(current_user)

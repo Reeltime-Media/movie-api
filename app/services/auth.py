@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 from google.auth.transport import requests as google_requests
@@ -10,16 +11,16 @@ from app.core.exceptions import ConflictError, UnauthorizedError
 from app.core.security import (
     create_access_token,
     generate_reset_token,
-    hash_password,
+    hash_password_async,
     hash_reset_token,
-    verify_password,
+    verify_password_async,
 )
 from app.models.password_reset_token import PasswordResetToken
 from app.models.user import User
 from app.schemas.user import UserCreate
 from app.services.email import send_password_reset_email
 from app.services.guest import claim_guest_purchases
-from app.services.session import create_session
+from app.services.session import create_session, revoke_all_user_sessions
 
 settings = get_settings()
 
@@ -31,7 +32,7 @@ async def register_user(db: AsyncSession, data: UserCreate, guest_id: str | None
 
     user = User(
         email=data.email.lower(),
-        password_hash=hash_password(data.password),
+        password_hash=await hash_password_async(data.password),
         full_name=data.full_name,
     )
     db.add(user)
@@ -52,7 +53,11 @@ async def authenticate_user(
     result = await db.execute(select(User).where(User.email == email.lower()))
     user = result.scalar_one_or_none()
 
-    if not user or not user.password_hash or not verify_password(password, user.password_hash):
+    if (
+        not user
+        or not user.password_hash
+        or not await verify_password_async(password, user.password_hash)
+    ):
         raise UnauthorizedError("Invalid email or password")
 
     if not user.is_active:
@@ -60,6 +65,7 @@ async def authenticate_user(
 
     await claim_guest_purchases(db, user.id, guest_id)
     session = await create_session(db, user.id, user_agent)
+    await db.commit()
     token = create_access_token(user.id, user.role, session.id)
     return user, token
 
@@ -83,7 +89,7 @@ async def authenticate_google(
     user_agent: str | None = None,
     guest_id: str | None = None,
 ) -> tuple[User, str]:
-    claims = _verify_google_id_token(id_token)
+    claims = await asyncio.to_thread(_verify_google_id_token, id_token)
 
     google_sub = claims.get("sub")
     email = claims.get("email")
@@ -130,10 +136,9 @@ async def authenticate_google(
 
     await db.flush()
     await claim_guest_purchases(db, user.id, guest_id)
+    session = await create_session(db, user.id, user_agent)
     await db.commit()
     await db.refresh(user)
-
-    session = await create_session(db, user.id, user_agent)
     token = create_access_token(user.id, user.role, session.id)
     return user, token
 
@@ -167,7 +172,9 @@ async def request_password_reset(db: AsyncSession, email: str) -> None:
 async def reset_password(db: AsyncSession, token: str, new_password: str) -> None:
     token_hash = hash_reset_token(token)
     result = await db.execute(
-        select(PasswordResetToken).where(PasswordResetToken.token_hash == token_hash)
+        select(PasswordResetToken)
+        .where(PasswordResetToken.token_hash == token_hash)
+        .with_for_update()
     )
     reset_token = result.scalar_one_or_none()
 
@@ -179,6 +186,8 @@ async def reset_password(db: AsyncSession, token: str, new_password: str) -> Non
     if not user or not user.is_active:
         raise UnauthorizedError("This reset link is invalid or has expired")
 
-    user.password_hash = hash_password(new_password)
+    user.password_hash = await hash_password_async(new_password)
     reset_token.used_at = now
+    # Stolen access tokens must stop working as soon as the password changes.
+    await revoke_all_user_sessions(db, user.id)
     await db.commit()

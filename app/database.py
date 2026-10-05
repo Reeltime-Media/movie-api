@@ -12,6 +12,7 @@ engine = create_async_engine(
         settings.effective_database_url,
         debug=settings.debug,
         ssl_root_cert=settings.database_ssl_root_cert or None,
+        allow_insecure_ssl=settings.debug or settings.database_ssl_allow_insecure,
     ),
 )
 

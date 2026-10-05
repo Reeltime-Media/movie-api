@@ -23,6 +23,7 @@ from app.services import shared_cache
 _CACHE: dict[str, tuple[float, Any]] = {}
 
 CATALOG_TTL_SECONDS = 30
+CATALOG_CACHE_MAX_ENTRIES = 512
 _REDIS_KEY_PREFIX = "catalog:"
 
 T = TypeVar("T")
@@ -39,8 +40,23 @@ def cache_get(key: str, *, now: float | None = None) -> Any | None:
     return value
 
 
+def _evict_catalog_cache(now: float) -> None:
+    """Drop expired entries, then oldest keys until under the capacity cap."""
+    expired = [k for k, (expires_at, _) in _CACHE.items() if now >= expires_at]
+    for key in expired:
+        _CACHE.pop(key, None)
+    if len(_CACHE) < CATALOG_CACHE_MAX_ENTRIES:
+        return
+    # Evict oldest by expiry timestamp (approximation of LRU for this TTL cache).
+    overflow = len(_CACHE) - CATALOG_CACHE_MAX_ENTRIES + 1
+    for key, _ in sorted(_CACHE.items(), key=lambda item: item[1][0])[:overflow]:
+        _CACHE.pop(key, None)
+
+
 def cache_set(key: str, value: Any, *, ttl_seconds: float, now: float | None = None) -> None:
     start = now if now is not None else time.monotonic()
+    if len(_CACHE) >= CATALOG_CACHE_MAX_ENTRIES and key not in _CACHE:
+        _evict_catalog_cache(start)
     _CACHE[key] = (start + ttl_seconds, value)
 
 

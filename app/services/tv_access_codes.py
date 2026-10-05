@@ -240,4 +240,5 @@ async def login_with_tv_access_code(
     # One active TV box per ID — re-login on a new TV kicks the previous one.
     await _revoke_all_sessions(db, user.id)
     session = await create_session(db, user.id, user_agent or "REELTIME TV")
+    await db.commit()
     return create_access_token(user.id, user.role, session.id)

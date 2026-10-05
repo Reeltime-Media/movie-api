@@ -1,10 +1,12 @@
 from datetime import UTC, date, datetime, time
+import logging
 
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import or_, select
 
 from app.core.exceptions import NotFoundError
 from app.dependencies import AdminUser, DBSession
+from app.models.payment_approval import PaymentApproval
 from app.models.payment_intent import PaymentIntent
 from app.models.user import User
 from app.schemas.admin import AdminPaymentFulfillRead, AdminPaymentRead
@@ -12,8 +14,10 @@ from app.schemas.pagination import PaginatedResponse, PaginationDep, build_pagin
 from app.services.admin.dates import parse_filter_date
 from app.services.pagination import paginate_query
 from app.services.payment_fulfillment import fulfill_payment_intent
+from app.services.telegram import commit_with_telegram
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("/payments", response_model=PaginatedResponse[AdminPaymentRead])
@@ -125,7 +129,6 @@ async def admin_fulfill_payment(
 
     Does not call NBC. Idempotent if already succeeded.
     """
-    _ = admin
     result = await db.execute(select(PaymentIntent).where(PaymentIntent.intent_id == intent_id))
     intent = result.scalar_one_or_none()
     if not intent:
@@ -137,7 +140,20 @@ async def admin_fulfill_payment(
         )
 
     await fulfill_payment_intent(db, intent, bank="manual_bakong")
-    await db.commit()
+    db.add(
+        PaymentApproval(
+            intent_id=intent.intent_id,
+            admin_user_id=admin.id,
+            bank="manual_bakong",
+        )
+    )
+    await commit_with_telegram(db)
+    logger.info(
+        "admin_manual_fulfill intent_id=%s admin_id=%s status=%s",
+        intent.intent_id,
+        admin.id,
+        intent.status,
+    )
     await db.refresh(intent)
     return AdminPaymentFulfillRead(
         intent_id=intent.intent_id,

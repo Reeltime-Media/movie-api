@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import secrets
 from datetime import UTC, datetime, timedelta
@@ -21,6 +22,15 @@ def hash_password(password: str) -> str:
 
 def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
+
+
+async def hash_password_async(password: str) -> str:
+    """Bcrypt off the event loop so login/register stay responsive."""
+    return await asyncio.to_thread(hash_password, password)
+
+
+async def verify_password_async(plain: str, hashed: str) -> bool:
+    return await asyncio.to_thread(verify_password, plain, hashed)
 
 
 def generate_reset_token() -> tuple[str, str]:

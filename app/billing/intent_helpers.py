@@ -69,6 +69,8 @@ def read_bakong_intent(intent: PaymentIntent) -> BakongPaymentIntentRead:
 
 async def regenerate_bakong_qr(intent: PaymentIntent) -> None:
     """Issue a fresh KHQR on the same intent; keep previous md5 for late settles."""
+    from app.billing.bakong_check_cache import reset_intent_nbc_checks
+
     bill_number = uuid.uuid4().hex[:20]
     qr_string, md5, merchant_name = await bakong.generate_khqr(intent.amount_usd, bill_number)
     intent.bakong_prev_md5 = intent.bakong_md5
@@ -76,3 +78,5 @@ async def regenerate_bakong_qr(intent: PaymentIntent) -> None:
     intent.bakong_qr = qr_string
     intent.bakong_merchant_name = merchant_name or intent.bakong_merchant_name
     intent.bakong_qr_created_at = datetime.now(UTC)
+    # New QR gets a fresh verification budget so the 40-check cap cannot strand regen.
+    reset_intent_nbc_checks(intent.intent_id)

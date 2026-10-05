@@ -51,8 +51,9 @@ class Settings(BaseSettings):
     app_name: str = "Movies API"
     debug: bool = False
     cors_origins: str = Field(default_factory=default_cors_origins)
-    # Allow all Vercel production + preview URLs (e.g. *-team.vercel.app)
-    cors_origin_regex: str = r"https://.*\.vercel\.app"
+    # Empty by default. Set CORS_ORIGIN_REGEX only for controlled preview hosts
+    # (never use a catch-all like https://.*.vercel.app in production).
+    cors_origin_regex: str = ""
     secret_key: str
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 60  # 1 hour; logout still revokes via session
@@ -67,21 +68,41 @@ class Settings(BaseSettings):
     # IPv4 pooler — use for Alembic from your Mac and for Docker (see root .env)
     pooler_database_url: str | None = None
     # Path to the Supabase CA bundle (Project Settings → Database → SSL certificate).
-    # When set, database TLS is verified; when empty, TLS is used but unverified.
+    # Required in production for remote databases unless DATABASE_SSL_ALLOW_INSECURE=true.
     database_ssl_root_cert: str = ""
+    # Emergency only — allows unverified TLS when the CA bundle is missing.
+    database_ssl_allow_insecure: bool = False
 
     @property
     def cors_origin_list(self) -> list[str]:
-        """Parsed CORS_ORIGINS plus local dev frontends (3000 client, 3001 admin)
-        and the production reeltime.fun frontend."""
+        """CORS allow-list.
+
+        Production: reeltime.fun + CORS_ORIGINS only (no localhost, no wildcard).
+        Debug: also merges local Next.js ports for convenience.
+        """
         from_env = [o.strip() for o in self.cors_origins.split(",") if o.strip()]
         seen: set[str] = set()
         merged: list[str] = []
-        for origin in (*LOCAL_DEV_CORS_ORIGINS, *PRODUCTION_CORS_ORIGINS, *from_env):
+        base = (
+            (*LOCAL_DEV_CORS_ORIGINS, *PRODUCTION_CORS_ORIGINS, *from_env)
+            if self.debug
+            else (*PRODUCTION_CORS_ORIGINS, *from_env)
+        )
+        for origin in base:
             if origin not in seen:
                 seen.add(origin)
                 merged.append(origin)
         return merged
+
+    @property
+    def requires_verified_database_tls(self) -> bool:
+        """True when this process must verify the database certificate."""
+        if self.debug or self.database_ssl_allow_insecure:
+            return False
+        host = urlparse(
+            self.effective_database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+        ).hostname or ""
+        return host.lower() not in ("", "localhost", "127.0.0.1")
 
     @property
     def effective_database_url(self) -> str:
@@ -240,6 +261,30 @@ class Settings(BaseSettings):
             raise ValueError(
                 "BAKONG_ACCOUNT_ID and BAKONG_MERCHANT_NAME are required when "
                 "BAKONG_DEVELOPER_TOKEN is set without BAKONG_SERVICE_URL (DEBUG is false)"
+            )
+
+        if self.requires_verified_database_tls:
+            cert = self.database_ssl_root_cert.strip()
+            if not cert:
+                raise ValueError(
+                    "DATABASE_SSL_ROOT_CERT is required when DEBUG is false "
+                    "(set DATABASE_SSL_ALLOW_INSECURE=true only as a temporary escape)"
+                )
+            cert_path = Path(cert)
+            if not cert_path.is_file():
+                raise ValueError(
+                    f"DATABASE_SSL_ROOT_CERT file not found: {cert}"
+                )
+
+        if (
+            not self.debug
+            and self.cors_origin_regex.strip()
+            and ".*" in self.cors_origin_regex
+            and "vercel" in self.cors_origin_regex.lower()
+        ):
+            raise ValueError(
+                "CORS_ORIGIN_REGEX must not allow all *.vercel.app hosts when DEBUG is false. "
+                "List specific preview origins in CORS_ORIGINS instead."
             )
 
         return self

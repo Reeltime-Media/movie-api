@@ -20,6 +20,7 @@ from app.models.purchase import Purchase
 from app.models.series_purchase import SeriesPurchase
 from app.models.subscription import Subscription
 from app.models.subscription_payment import SubscriptionPayment
+from app.models.user import User
 from app.services.telegram import notify_payment_succeeded
 
 
@@ -59,15 +60,28 @@ async def _resolve_plan_for_subscription_intent(
     return await resolve_active_plan(db)
 
 
+def _billing_interval_days(intent: PaymentIntent, plan) -> int:
+    """Prefer checkout snapshot so plan edits after QR issue cannot change terms."""
+    snapshotted = getattr(intent, "plan_interval_days", None)
+    if isinstance(snapshotted, int) and snapshotted > 0:
+        return snapshotted
+    return plan.billing_interval_days
+
+
 async def _lock_intent_if_orm(db: AsyncSession, intent: PaymentIntent) -> PaymentIntent | None:
     """Re-load with FOR UPDATE when callers pass a real ORM row.
 
     Unit tests pass SimpleNamespace stand-ins — skip locking for those.
+    populate_existing refreshes status so a concurrent fulfiller cannot leave
+    a stale pending value on an already-loaded identity-map instance.
     """
     if not isinstance(intent, PaymentIntent):
         return intent
     result = await db.execute(
-        select(PaymentIntent).where(PaymentIntent.intent_id == intent.intent_id).with_for_update()
+        select(PaymentIntent)
+        .where(PaymentIntent.intent_id == intent.intent_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     return result.scalar_one_or_none()
 
@@ -169,7 +183,12 @@ async def fulfill_payment_intent(
     if existing_payment.scalar_one_or_none():
         return
 
+    # Serialize first-time subscription creation per user (no row to lock yet).
+    if intent.user_id is not None:
+        await db.execute(select(User).where(User.id == intent.user_id).with_for_update())
+
     plan = await _resolve_plan_for_subscription_intent(db, intent)
+    interval_days = _billing_interval_days(intent, plan)
     sub_result = await db.execute(
         select(Subscription)
         .where(Subscription.user_id == intent.user_id)
@@ -183,7 +202,7 @@ async def fulfill_payment_intent(
     else:
         period_start = now
 
-    period_end = period_start + timedelta(days=plan.billing_interval_days)
+    period_end = period_start + timedelta(days=interval_days)
 
     if not subscription:
         subscription = Subscription(

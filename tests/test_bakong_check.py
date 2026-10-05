@@ -22,6 +22,7 @@ def test_intent_nbc_check_cap():
         clear_intent_nbc_checks,
         consume_intent_nbc_check,
         intent_nbc_check_count,
+        reset_intent_nbc_checks,
     )
 
     clear_intent_nbc_checks()
@@ -30,6 +31,9 @@ def test_intent_nbc_check_cap():
         assert consume_intent_nbc_check(intent_id, max_checks=40) is True
     assert intent_nbc_check_count(intent_id) == 40
     assert consume_intent_nbc_check(intent_id, max_checks=40) is False
+    reset_intent_nbc_checks(intent_id)
+    assert intent_nbc_check_count(intent_id) == 0
+    assert consume_intent_nbc_check(intent_id, max_checks=40) is True
     clear_intent_nbc_checks()
 
 
@@ -42,3 +46,18 @@ def test_unknown_status_is_not_treated_as_paid():
 
     set_cached_md5_status("abc-unknown", STATUS_UNKNOWN, ttl=30)
     assert get_cached_md5_paid("abc-unknown") is False
+
+
+def test_transient_cooldown_is_short(monkeypatch):
+    from app.billing import bakong_quota
+
+    monkeypatch.setattr(bakong_quota, "_sync_redis", lambda: None)
+    bakong_quota.clear_bakong_rate_limit()
+    monkeypatch.setattr(bakong_quota, "_sync_redis", lambda: None)
+
+    bakong_quota.note_bakong_transient(cooldown_seconds=30)
+    remaining = bakong_quota.bakong_checks_blocked_remaining_seconds()
+    assert bakong_quota.bakong_checks_blocked() is True
+    assert remaining <= 30.0 + 1.0
+    assert remaining > 0
+    bakong_quota.clear_bakong_rate_limit()

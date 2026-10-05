@@ -9,6 +9,7 @@ from app.models.free_today_item import FreeTodayItem
 from app.models.genre import Genre
 from app.models.hero_featured_item import HeroFeaturedItem
 from app.models.password_reset_token import PasswordResetToken
+from app.models.payment_approval import PaymentApproval
 from app.models.payment_intent import PaymentIntent
 from app.models.promotion_banner import PromotionBanner
 from app.models.purchase import Purchase
@@ -48,6 +49,7 @@ __all__ = [
     "DevicePairingCode",
     "FreeTodayItem",
     "PasswordResetToken",
+    "PaymentApproval",
     "PromotionBanner",
     "Session",
     "WebhookEvent",

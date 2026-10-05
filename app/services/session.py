@@ -2,12 +2,13 @@ import re
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.core.exceptions import ForbiddenError, NotFoundError, UnauthorizedError
 from app.models.session import Session
+from app.models.user import User
 
 settings = get_settings()
 
@@ -65,8 +66,17 @@ async def _count_active_sessions(db: AsyncSession, user_id: uuid.UUID) -> int:
 
 
 async def create_session(db: AsyncSession, user_id: uuid.UUID, user_agent: str | None) -> Session:
-    """Raises ForbiddenError if the account is already at its concurrent
-    device limit — caller must revoke a session before logging in again."""
+    """Create a session row. Caller owns the transaction commit.
+
+    Locks the user row so concurrent logins / pairing confirms cannot each
+    observe the same active-session count and exceed the device limit.
+    Flushes (does not commit) so device pairing can confirm the code in the
+    same transaction as the session insert.
+    """
+    locked = await db.execute(select(User).where(User.id == user_id).with_for_update())
+    if locked.scalar_one_or_none() is None:
+        raise NotFoundError("User not found")
+
     active_count = await _count_active_sessions(db, user_id)
     if active_count >= settings.max_active_sessions_per_user:
         raise ForbiddenError(
@@ -81,7 +91,7 @@ async def create_session(db: AsyncSession, user_id: uuid.UUID, user_agent: str |
         expires_at=expires_at,
     )
     db.add(session)
-    await db.commit()
+    await db.flush()
     await db.refresh(session)
     return session
 
@@ -122,6 +132,19 @@ async def revoke_session(db: AsyncSession, user_id: uuid.UUID, session_id: uuid.
         raise NotFoundError("Session not found")
     session.revoked_at = datetime.now(UTC)
     await db.commit()
+
+
+async def revoke_all_user_sessions(db: AsyncSession, user_id: uuid.UUID) -> None:
+    """Revoke every active session for a user. Caller owns the commit."""
+    now = datetime.now(UTC)
+    await db.execute(
+        update(Session)
+        .where(
+            Session.user_id == user_id,
+            Session.revoked_at.is_(None),
+        )
+        .values(revoked_at=now)
+    )
 
 
 async def require_active_session(db: AsyncSession, session_id_raw: str | None) -> uuid.UUID:

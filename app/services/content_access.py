@@ -37,11 +37,13 @@ async def get_published_content_or_404(
 async def user_has_active_subscription(db: AsyncSession, user_id: UUID) -> bool:
     now = datetime.now(UTC)
     result = await db.execute(
-        select(Subscription).where(
+        select(Subscription.id)
+        .where(
             Subscription.user_id == user_id,
             Subscription.status == "active",
             Subscription.current_period_end > now,
         )
+        .limit(1)
     )
     return result.scalar_one_or_none() is not None
 
@@ -67,7 +69,9 @@ async def has_series_purchase(
     else:
         return False
     result = await db.execute(
-        select(SeriesPurchase).where(owner, SeriesPurchase.series_id == series_id)
+        select(SeriesPurchase.id)
+        .where(owner, SeriesPurchase.series_id == series_id)
+        .limit(1)
     )
     return result.scalar_one_or_none() is not None
 
@@ -121,18 +125,22 @@ async def can_access_content(
             if await user_has_active_subscription(db, user.id):
                 return True
             purchase = await db.execute(
-                select(Purchase).where(
+                select(Purchase.id)
+                .where(
                     Purchase.user_id == user.id,
                     Purchase.content_id == content.id,
                 )
+                .limit(1)
             )
             return purchase.scalar_one_or_none() is not None
         if guest_id:
             purchase = await db.execute(
-                select(Purchase).where(
+                select(Purchase.id)
+                .where(
                     Purchase.guest_id == guest_id,
                     Purchase.content_id == content.id,
                 )
+                .limit(1)
             )
             return purchase.scalar_one_or_none() is not None
         return False

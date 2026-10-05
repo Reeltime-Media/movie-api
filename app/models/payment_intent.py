@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, Text, func
+from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -47,6 +47,8 @@ class PaymentIntent(Base):
     )
     # Set for kind='sub' — scopes pending QR reuse to the chosen plan.
     plan_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Snapshotted at checkout so fulfillment uses the terms the buyer paid for.
+    plan_interval_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     amount_usd: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
     created_at: Mapped[datetime] = mapped_column(
