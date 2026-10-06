@@ -1,10 +1,18 @@
 services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Internal only — do not publish 6379 to the public internet.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+
   api:
     build: .
     ports:
       - "8000:8000"
     env_file:
       - .env
+    depends_on:
+      - redis
     # Prefer pooler URL — direct db.* host often times out from Docker (IPv6 / routing).
     environment:
       - POOLER_DATABASE_URL=${POOLER_DATABASE_URL:-}

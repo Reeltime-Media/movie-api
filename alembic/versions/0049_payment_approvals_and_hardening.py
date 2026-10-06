@@ -36,6 +36,12 @@ def upgrade() -> None:
         "CREATE INDEX IF NOT EXISTS ix_payment_approvals_admin_user_id "
         "ON payment_approvals (admin_user_id)"
     )
+    op.execute("ALTER TABLE payment_approvals ENABLE ROW LEVEL SECURITY")
+    op.execute("REVOKE ALL ON TABLE payment_approvals FROM anon, authenticated")
+    op.execute(
+        "CREATE POLICY payment_approvals_deny_all ON payment_approvals "
+        "FOR ALL TO anon, authenticated USING (false) WITH CHECK (false)"
+    )
 
 
 def downgrade() -> None:

@@ -24,7 +24,9 @@ T = TypeVar("T")
 DEFAULT_POOL_SIZE = 2
 DEFAULT_MAX_OVERFLOW = 1
 DEFAULT_POOL_TIMEOUT = 30
-DEFAULT_POOL_RECYCLE = 180
+# Keep idle connections alive for 10 minutes (600s) to avoid churning
+# connections through PgBouncer get_auth / DISCARD ALL on every 3 minutes.
+DEFAULT_POOL_RECYCLE = 600
 DEFAULT_CONNECT_TIMEOUT = 30
 DEFAULT_COMMAND_TIMEOUT = 60
 
