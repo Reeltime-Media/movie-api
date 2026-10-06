@@ -287,6 +287,17 @@ class Settings(BaseSettings):
                 "List specific preview origins in CORS_ORIGINS instead."
             )
 
+        # Multi-worker SlowAPI needs shared storage; without Redis each Uvicorn
+        # process keeps its own counters and effective limits multiply by workers.
+        if not self.redis_url.strip():
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "REDIS_URL is unset while DEBUG is false — SlowAPI rate limits "
+                "will not be shared across Uvicorn workers. Set REDIS_URL in "
+                "production (Upstash/Redis) before scaling workers."
+            )
+
         return self
 
 

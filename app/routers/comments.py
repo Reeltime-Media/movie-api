@@ -1,12 +1,13 @@
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy import select
 
 from app.dependencies import CurrentUser, DBSession, OptionalUser
 from app.models.comment import Comment
 from app.models.user import User
+from app.rate_limit import limiter
 from app.schemas.comment import (
     CommentCreate,
     CommentRead,
@@ -53,7 +54,9 @@ async def list_comments(
 
 @router.post("", response_model=CommentRead, status_code=201)
 @router.post("/", response_model=CommentRead, status_code=201)
+@limiter.limit("5/minute")
 async def create_comment(
+    request: Request,
     data: CommentCreate,
     db: DBSession,
     current_user: CurrentUser,
@@ -76,7 +79,9 @@ async def create_comment(
 
 
 @router.put("/{comment_id}/vote", response_model=CommentRead)
+@limiter.limit("30/minute")
 async def vote_comment(
+    request: Request,
     comment_id: uuid.UUID,
     data: CommentVoteUpdate,
     db: DBSession,
@@ -101,7 +106,9 @@ async def vote_comment(
 
 
 @router.post("/{comment_id}/report", status_code=204)
+@limiter.limit("10/minute")
 async def report_comment_endpoint(
+    request: Request,
     comment_id: uuid.UUID,
     db: DBSession,
     current_user: CurrentUser,

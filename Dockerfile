@@ -23,6 +23,7 @@ USER app
 
 ENTRYPOINT ["/app/scripts/docker-entrypoint.sh"]
 # --loop asyncio: uvloop + asyncpg SSL to Supabase pooler can raise ConnectionResetError
-# FORWARDED_ALLOW_IPS: set to your load-balancer CIDRs in prod (default * preserves
-# prior behavior). Spoofable X-Forwarded-For makes SlowAPI IP limits weak when "*".
-CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --loop asyncio --proxy-headers --forwarded-allow-ips \"${FORWARDED_ALLOW_IPS:-*}\" --workers 2"]
+# FORWARDED_ALLOW_IPS: trust only loopback + private Docker/bridge ranges by default.
+# Never use "*" in production — spoofable X-Forwarded-For weakens SlowAPI IP limits.
+# Override with the exact load-balancer CIDRs when the edge is not on those networks.
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --loop asyncio --proxy-headers --forwarded-allow-ips \"${FORWARDED_ALLOW_IPS:-127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}\" --workers 2"]

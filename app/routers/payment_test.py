@@ -6,10 +6,9 @@ from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 
-from app.dependencies import DBSession
+from app.dependencies import AdminUser, DBSession
 from app.models.content import Content
 from app.models.payment_intent import PaymentIntent
-from app.models.user import User
 from app.services.payment import checkout_url, create_intent, format_usd
 
 router = APIRouter(prefix="/payment-test", tags=["payment-test"])
@@ -47,7 +46,8 @@ async def payment_test_page():
     <main>
       <section class="hero">
         <h1>Reeltime Payment Test</h1>
-        <p>This no-auth page creates a real Baray movie payment intent for one of your current movie records.</p>
+        <p>This admin-only page creates a real Baray movie payment intent for the signed-in admin.</p>
+        <p class="warning">DEBUG + BARAY_ENABLED only. Pass Authorization: Bearer &lt;admin token&gt; on every request.</p>
         <p class="warning">Use a tiny-priced movie. Your Baray key appears to be live mode.</p>
       </section>
       <section id="movies" class="grid">Loading movies...</section>
@@ -56,13 +56,24 @@ async def payment_test_page():
     <script>
       const moviesEl = document.querySelector("#movies");
       const logEl = document.querySelector("#log");
+      const token = new URLSearchParams(location.search).get("token") || "";
+
+      function authHeaders(extra = {}) {
+        return token
+          ? { ...extra, Authorization: `Bearer ${token}` }
+          : extra;
+      }
 
       function log(value) {
         logEl.textContent = typeof value === "string" ? value : JSON.stringify(value, null, 2);
       }
 
       async function loadMovies() {
-        const res = await fetch("/payment-test/movies");
+        if (!token) {
+          moviesEl.textContent = "Open /payment-test?token=<admin JWT> to load movies.";
+          return;
+        }
+        const res = await fetch("/payment-test/movies", { headers: authHeaders() });
         const movies = await res.json();
         if (!res.ok) throw new Error(movies.detail || "Could not load movies");
         if (!movies.length) {
@@ -91,7 +102,10 @@ async def payment_test_page():
         button.disabled = true;
         log("Creating Baray payment intent...");
         try {
-          const res = await fetch(`/payment-test/movies/${button.dataset.id}/intent`, { method: "POST" });
+          const res = await fetch(`/payment-test/movies/${button.dataset.id}/intent`, {
+            method: "POST",
+            headers: authHeaders(),
+          });
           const intent = await res.json();
           if (!res.ok) throw new Error(intent.detail || "Could not create payment intent");
           log(intent);
@@ -111,7 +125,7 @@ async def payment_test_page():
 
 
 @router.get("/movies")
-async def list_payment_test_movies(db: DBSession):
+async def list_payment_test_movies(_: AdminUser, db: DBSession):
     result = await db.execute(
         select(Content)
         .where(
@@ -138,17 +152,8 @@ async def create_payment_test_movie_intent(
     content_id: uuid.UUID,
     request: Request,
     db: DBSession,
+    admin: AdminUser,
 ):
-    user_result = await db.execute(
-        select(User).where(User.is_active.is_(True)).order_by(User.created_at)
-    )
-    test_user = user_result.scalars().first()
-    if not test_user:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Create at least one active user before testing payments",
-        )
-
     movie_result = await db.execute(
         select(Content).where(
             Content.id == content_id,
@@ -169,7 +174,7 @@ async def create_payment_test_movie_intent(
         tracking={
             "kind": "single",
             "test": True,
-            "user_id": str(test_user.id),
+            "user_id": str(admin.id),
             "content_id": str(movie.id),
         },
         order_details={
@@ -186,7 +191,7 @@ async def create_payment_test_movie_intent(
     intent = PaymentIntent(
         intent_id=baray_intent["_id"],
         order_id=order_id,
-        user_id=test_user.id,
+        user_id=admin.id,
         kind="single",
         content_id=movie.id,
         amount_usd=movie.price_usd,

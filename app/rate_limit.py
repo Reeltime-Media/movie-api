@@ -22,9 +22,15 @@ def build_limiter() -> Limiter:
             return Limiter(key_func=get_remote_address, storage_uri=uri)
         except Exception as exc:
             logger.warning(
-                "SlowAPI Redis storage unavailable (%s) — falling back to in-memory",
+                "SlowAPI Redis storage unavailable (%s) — falling back to in-memory "
+                "(limits will not be shared across Uvicorn workers)",
                 exc,
             )
+    else:
+        logger.warning(
+            "REDIS_URL unset — SlowAPI using in-memory storage "
+            "(limits will not be shared across Uvicorn workers)"
+        )
     return Limiter(key_func=get_remote_address)
 
 

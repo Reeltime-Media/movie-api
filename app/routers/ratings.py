@@ -1,11 +1,12 @@
 import uuid
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from sqlalchemy import select
 
 from app.core.exceptions import NotFoundError
 from app.dependencies import CurrentUser, DBSession
 from app.models.rating import Rating
+from app.rate_limit import limiter
 from app.schemas.rating import RatingRead, RatingUpsert, RatingWriteResult
 from app.services.ratings import assert_rateable_movie, upsert_rating
 
@@ -27,7 +28,9 @@ async def get_my_rating(content_id: uuid.UUID, db: DBSession, current_user: Curr
 
 
 @router.put("/{content_id}", response_model=RatingWriteResult)
+@limiter.limit("15/minute")
 async def rate_movie(
+    request: Request,
     content_id: uuid.UUID,
     data: RatingUpsert,
     db: DBSession,

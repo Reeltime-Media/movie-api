@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
@@ -8,6 +8,7 @@ from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError, Un
 from app.core.security import hash_password_async, verify_password_async
 from app.dependencies import AdminUser, CurrentSessionId, CurrentUser, DBSession
 from app.models.user import User
+from app.rate_limit import limiter
 from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
 from app.schemas.session import SessionRead, session_to_read
 from app.schemas.user import UserRead, UserStatusUpdate, UserUpdate, user_to_read
@@ -23,7 +24,13 @@ async def get_me(current_user: CurrentUser):
 
 
 @router.patch("/me", response_model=UserRead)
-async def update_me(data: UserUpdate, current_user: CurrentUser, db: DBSession):
+@limiter.limit("20/minute")
+async def update_me(
+    request: Request,
+    data: UserUpdate,
+    current_user: CurrentUser,
+    db: DBSession,
+):
     if data.full_name is not None:
         current_user.full_name = data.full_name
     if data.password is not None:

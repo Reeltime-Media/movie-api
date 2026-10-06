@@ -13,6 +13,7 @@ _REQUIRED_FIELDS = {
     "r2_secret_access_key": "secret-key",
     "r2_bucket_name": "movies",
     "r2_public_url": "https://cdn.example.com",
+    "redis_url": "redis://localhost:6379/0",
 }
 
 
@@ -60,6 +61,18 @@ class TestCorsDefaults:
     def test_production_rejects_wildcard_vercel_cors_regex(self):
         with pytest.raises(ValidationError, match="CORS_ORIGIN_REGEX"):
             make_settings(cors_origin_regex=r"https://.*\.vercel\.app")
+
+    def test_production_warns_when_redis_url_missing(self, caplog):
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            settings = make_settings(redis_url="")
+        assert settings.redis_url == ""
+        assert any("REDIS_URL is unset" in r.message for r in caplog.records)
+
+    def test_debug_allows_missing_redis_url(self):
+        settings = make_settings(debug=True, secret_key="change-me", redis_url="")
+        assert settings.redis_url == ""
 
     def test_access_token_default_is_one_hour(self):
         assert make_settings(debug=True).access_token_expire_minutes == 60

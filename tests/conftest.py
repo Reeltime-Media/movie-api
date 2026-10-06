@@ -6,6 +6,7 @@ from collections.abc import Iterator
 from typing import Any
 
 _SETTINGS_DEFAULTS: dict[str, Any] = {
+    "debug": "true",
     "secret_key": "test-secret-key-thirty-two-characters-min",
     "database_url": "postgresql+asyncpg://user:pass@localhost/db",
     "r2_account_id": "test-account",
@@ -13,13 +14,15 @@ _SETTINGS_DEFAULTS: dict[str, Any] = {
     "r2_secret_access_key": "test-secret-key",
     "r2_bucket_name": "movies",
     "r2_public_url": "https://cdn.example.com",
+    "redis_url": "redis://localhost:6379/0",
 }
 
 # Seed a valid baseline env before any app import below: app.database builds
 # its engine when imported, and CI runs with a bare environment (no .env).
-# Real env vars win — setdefault never overrides.
+# Force DEBUG=true for the test process so a developer .env with DEBUG=false
+# cannot trip production-only validators (REDIS_URL, SSL cert) at import time.
 for _key, _value in _SETTINGS_DEFAULTS.items():
-    os.environ.setdefault(_key.upper(), str(_value))
+    os.environ[_key.upper()] = str(_value)
 os.environ.setdefault("TRANSCODE_API_KEY", "test-transcode-key")
 
 import pytest  # noqa: E402
