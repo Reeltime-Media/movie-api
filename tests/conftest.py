@@ -14,7 +14,8 @@ _SETTINGS_DEFAULTS: dict[str, Any] = {
     "r2_secret_access_key": "test-secret-key",
     "r2_bucket_name": "movies",
     "r2_public_url": "https://cdn.example.com",
-    "redis_url": "redis://localhost:6379/0",
+    # Empty → SlowAPI/bakong helpers use in-memory paths (CI has no Redis).
+    "redis_url": "",
 }
 
 # Seed a valid baseline env before any app import below: app.database builds

@@ -13,7 +13,7 @@ _REQUIRED_FIELDS = {
     "r2_secret_access_key": "secret-key",
     "r2_bucket_name": "movies",
     "r2_public_url": "https://cdn.example.com",
-    "redis_url": "redis://localhost:6379/0",
+    "redis_url": "",
 }
 
 
