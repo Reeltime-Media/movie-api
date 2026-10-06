@@ -69,9 +69,7 @@ async def has_series_purchase(
     else:
         return False
     result = await db.execute(
-        select(SeriesPurchase.id)
-        .where(owner, SeriesPurchase.series_id == series_id)
-        .limit(1)
+        select(SeriesPurchase.id).where(owner, SeriesPurchase.series_id == series_id).limit(1)
     )
     return result.scalar_one_or_none() is not None
 

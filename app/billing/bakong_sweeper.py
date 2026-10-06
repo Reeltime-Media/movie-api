@@ -25,11 +25,11 @@ from app.billing.bakong_check_cache import (
 )
 from app.billing.bakong_quota import bakong_checks_blocked, note_bakong_rate_limited
 from app.billing.bakong_settle import settle_bakong_intent_if_paid
-from app.services.telegram import commit_with_telegram
 from app.config import get_settings
 from app.database import AsyncSessionLocal
 from app.models.payment_intent import PaymentIntent
 from app.services.distributed_lock import HeldLock, try_acquire
+from app.services.telegram import commit_with_telegram
 
 logger = logging.getLogger(__name__)
 

@@ -39,9 +39,7 @@ async def update_me(
         # has nothing to prove and skips straight to setting its first one.
         if current_user.password_hash is not None and (
             not data.current_password
-            or not await verify_password_async(
-                data.current_password, current_user.password_hash
-            )
+            or not await verify_password_async(data.current_password, current_user.password_hash)
         ):
             raise UnauthorizedError("Current password is incorrect")
         current_user.password_hash = await hash_password_async(data.password)

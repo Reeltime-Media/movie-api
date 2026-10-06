@@ -105,9 +105,7 @@ async def _commit_new_intent_or_reuse(
         existing = result.scalars().first()
         if existing is None:
             raise
-        return await _reuse_or_refresh_pending(
-            db, existing, check_ownership=check_ownership
-        )
+        return await _reuse_or_refresh_pending(db, existing, check_ownership=check_ownership)
     await db.refresh(intent)
     return intent
 
@@ -124,9 +122,7 @@ async def create_or_reuse_movie_bakong_intent(
     purchase_filter = _purchase_filter(user, guest_id)
 
     existing_purchase = await db.execute(
-        select(Purchase.id)
-        .where(purchase_filter, Purchase.content_id == content_id)
-        .limit(1)
+        select(Purchase.id).where(purchase_filter, Purchase.content_id == content_id).limit(1)
     )
     if existing_purchase.scalar_one_or_none() is not None:
         raise ConflictError("Movie already purchased")
@@ -181,9 +177,7 @@ async def create_or_reuse_movie_bakong_intent(
         amount_usd=amount,
         status="pending",
     )
-    return await _commit_new_intent_or_reuse(
-        db, intent, pending_lookup=pending_lookup
-    )
+    return await _commit_new_intent_or_reuse(db, intent, pending_lookup=pending_lookup)
 
 
 async def create_or_reuse_series_bakong_intent(
@@ -246,9 +240,7 @@ async def create_or_reuse_series_bakong_intent(
         amount_usd=amount,
         status="pending",
     )
-    return await _commit_new_intent_or_reuse(
-        db, intent, pending_lookup=pending_lookup
-    )
+    return await _commit_new_intent_or_reuse(db, intent, pending_lookup=pending_lookup)
 
 
 async def create_or_reuse_subscription_bakong_intent(

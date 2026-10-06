@@ -140,7 +140,6 @@ async def commit_with_telegram(db: AsyncSession) -> None:
     await flush_pending_telegram_alerts(db)
 
 
-
 def _ict_today() -> str:
     return datetime.now(_ICT).date().isoformat()
 

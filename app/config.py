@@ -99,9 +99,12 @@ class Settings(BaseSettings):
         """True when this process must verify the database certificate."""
         if self.debug or self.database_ssl_allow_insecure:
             return False
-        host = urlparse(
-            self.effective_database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
-        ).hostname or ""
+        host = (
+            urlparse(
+                self.effective_database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+            ).hostname
+            or ""
+        )
         return host.lower() not in ("", "localhost", "127.0.0.1")
 
     @property
@@ -272,9 +275,7 @@ class Settings(BaseSettings):
                 )
             cert_path = Path(cert)
             if not cert_path.is_file():
-                raise ValueError(
-                    f"DATABASE_SSL_ROOT_CERT file not found: {cert}"
-                )
+                raise ValueError(f"DATABASE_SSL_ROOT_CERT file not found: {cert}")
 
         if (
             not self.debug

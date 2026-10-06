@@ -1,6 +1,6 @@
 """Ownership-only pending intents must not inflate succeeded revenue."""
 
-from datetime import UTC, datetime
+from datetime import UTC
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4

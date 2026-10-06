@@ -3,7 +3,6 @@
 import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
 
 import pytest
 from sqlalchemy.dialects import postgresql
@@ -40,7 +39,9 @@ class _RecordingDb:
 
     async def execute(self, stmt):
         self.execute_stmts.append(stmt)
-        compiled = str(stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": False}))
+        compiled = str(
+            stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": False})
+        )
         upper = compiled.upper()
         # User lock / get
         if "FROM USERS" in upper or "FROM users" in compiled:
