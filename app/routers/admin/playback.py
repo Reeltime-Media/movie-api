@@ -54,13 +54,19 @@ async def admin_authorize_playback(
     }
 
 
+def _download_filename(content: Content) -> str:
+    base = (content.slug or str(content.id)).strip() or "video"
+    safe = "".join(ch if ch.isalnum() or ch in "-_." else "-" for ch in base).strip("-._")
+    return f"{safe or 'video'}.mp4"
+
+
 @router.get("/content/{content_id}/source-url")
 async def admin_source_video_url(
     content_id: uuid.UUID,
     db: DBSession,
     _: AdminUser,
 ):
-    """Presigned URL for the original source.mp4 (admin preview)."""
+    """Presigned URL for the original source.mp4 (admin preview / download)."""
     content = await db.scalar(select(Content).where(Content.id == content_id))
     if not content:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content not found")
@@ -79,9 +85,15 @@ async def admin_source_video_url(
             detail="Original source video was not found in storage",
         )
 
-    url = storage.generate_presigned_download_url(source_key, _SOURCE_URL_TTL)
+    filename = _download_filename(content)
+    url = storage.generate_presigned_download_url(
+        source_key,
+        _SOURCE_URL_TTL,
+        filename=filename,
+    )
     return {
         "url": url,
         "source_key": source_key,
+        "filename": filename,
         "expires_in": _SOURCE_URL_TTL,
     }

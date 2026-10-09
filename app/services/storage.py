@@ -95,10 +95,21 @@ def generate_presigned_upload_url(
     )
 
 
-def generate_presigned_download_url(key: str, expires_in: int = 3600) -> str:
+def generate_presigned_download_url(
+    key: str,
+    expires_in: int = 3600,
+    *,
+    filename: str | None = None,
+) -> str:
+    params: dict[str, str] = {"Bucket": settings.r2_bucket_name, "Key": key}
+    if filename:
+        safe = (
+            filename.replace('"', "").replace("\r", "").replace("\n", "").strip() or "download.bin"
+        )
+        params["ResponseContentDisposition"] = f'attachment; filename="{safe}"'
     return _client().generate_presigned_url(
         "get_object",
-        Params={"Bucket": settings.r2_bucket_name, "Key": key},
+        Params=params,
         ExpiresIn=expires_in,
     )
 

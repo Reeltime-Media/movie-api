@@ -31,7 +31,9 @@ def test_playback_segment_url_presign_mode(monkeypatch):
     monkeypatch.setattr(
         storage,
         "generate_presigned_download_url",
-        lambda key, expires_in=3600: f"https://r2.example/{key}?sig=1&exp={expires_in}",
+        lambda key, expires_in=3600, filename=None: (
+            f"https://r2.example/{key}?sig=1&exp={expires_in}"
+        ),
     )
     url = storage.generate_playback_segment_url("movies/demo/hls/720p_000.ts", 120)
     assert url.startswith("https://r2.example/movies/demo/hls/720p_000.ts?")
