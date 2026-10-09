@@ -199,13 +199,14 @@ async def enrich_admin_hero_items(
             if movie:
                 read.content_title = movie.title
                 read.content_slug = movie.slug
-                read.poster_key = movie.poster_key
+                # Prefer poster; fall back to banner so admin thumbs aren't blank.
+                read.poster_key = movie.poster_key or movie.banner_key
         elif item.content_type == "series":
             series = series_by_id.get(item.content_id)
             if series:
                 read.content_title = series.title
                 read.content_slug = series.slug
-                read.poster_key = series.poster_key
+                read.poster_key = series.poster_key or series.banner_key
         elif item.content_type == "custom":
             read.content_title = item.title
             read.poster_key = item.banner_key
