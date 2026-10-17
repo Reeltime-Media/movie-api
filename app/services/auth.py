@@ -117,12 +117,16 @@ async def authenticate_google(
             if name and not user.full_name:
                 user.full_name = name
         else:
+            # is_active must be set here: the column default only applies at
+            # INSERT, so it would still be None at the check below and every
+            # first-time Google user was rejected as "Account is disabled".
             user = User(
                 email=email,
                 google_id=google_sub,
                 full_name=name,
                 avatar_url=picture,
                 password_hash=None,
+                is_active=True,
             )
             db.add(user)
 

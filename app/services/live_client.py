@@ -3,7 +3,8 @@ the browser).
 
 Contract expected of LIVE_SERVICE_URL (a separate service, not this repo):
   POST /channels/{channel_id}/start  {"source_url": "..."}
-      -> {"status": "starting"|"live", "hls_url": "https://.../index.m3u8"}
+      -> {"status": "starting"|"live"|"error", "hls_url": "https://.../index.m3u8",
+          "error": str|None}
   POST /channels/{channel_id}/stop
       -> {"status": "offline"}
   GET  /channels/{channel_id}/status
@@ -21,6 +22,11 @@ from fastapi import HTTPException, status
 from app.config import get_settings
 
 _CLIENT_TIMEOUT_SECONDS = 15
+# /start blocks while the service waits up to 20s for ffmpeg's first playlist
+# (live_manager._PLAYLIST_WAIT_TIMEOUT), plus up to 10s stopping the previous
+# ffmpeg when the source changed. A shorter timeout turned every slow or dead
+# source into "Could not reach live TV service".
+_START_TIMEOUT_SECONDS = 35
 _live_client: httpx.AsyncClient | None = None
 
 
@@ -66,11 +72,26 @@ def _error_detail(exc: httpx.HTTPStatusError, fallback: str) -> str:
     return fallback
 
 
+def _transport_error(exc: httpx.HTTPError, timeout_detail: str) -> HTTPException:
+    """Connected-but-slow is not the same failure as unreachable."""
+    if isinstance(exc, httpx.ReadTimeout):
+        return HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=timeout_detail)
+    return HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail="Could not reach live TV service",
+    )
+
+
 async def start_channel(channel_id: str, source_url: str) -> dict:
     url = f"{_base_url()}/channels/{channel_id}/start"
     try:
         client = _get_live_client()
-        response = await client.post(url, headers=_headers(), json={"source_url": source_url})
+        response = await client.post(
+            url,
+            headers=_headers(),
+            json={"source_url": source_url},
+            timeout=_START_TIMEOUT_SECONDS,
+        )
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
         raise HTTPException(
@@ -78,9 +99,10 @@ async def start_channel(channel_id: str, source_url: str) -> dict:
             detail=_error_detail(exc, "Could not start channel"),
         ) from exc
     except httpx.HTTPError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Could not reach live TV service",
+        raise _transport_error(
+            exc,
+            "Live TV service timed out starting the channel. "
+            "Check that the source stream URL is reachable from the live server.",
         ) from exc
     data = response.json()
     return data if isinstance(data, dict) else {}

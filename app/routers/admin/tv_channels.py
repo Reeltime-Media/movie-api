@@ -110,7 +110,7 @@ async def start_channel(channel_id: uuid.UUID, db: DBSession, _: AdminUser):
     result = await live_client.start_channel(str(channel.id), channel.source_url)
     channel.status = result.get("status", "starting")
     channel.hls_playback_url = result.get("hls_url") or channel.hls_playback_url
-    channel.status_error = None
+    channel.status_error = result.get("error")
     await db.commit()
     await db.refresh(channel)
     return channel
