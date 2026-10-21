@@ -72,6 +72,25 @@ class GoogleAuthRequest(BaseModel):
     id_token: str
 
 
+class TelegramAuthStartRead(BaseModel):
+    nonce: str
+    url: str
+    expires_in: int
+
+
+class TelegramAuthRequest(BaseModel):
+    """Telegram Login Widget fields plus the nonce from /auth/telegram/start."""
+
+    nonce: str
+    id: int
+    first_name: str | None = None
+    last_name: str | None = None
+    username: str | None = None
+    photo_url: str | None = None
+    auth_date: int
+    hash: str
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"

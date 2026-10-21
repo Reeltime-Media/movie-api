@@ -15,6 +15,8 @@ from app.schemas.user import (
     ForgotPasswordRequest,
     GoogleAuthRequest,
     ResetPasswordRequest,
+    TelegramAuthRequest,
+    TelegramAuthStartRead,
     TokenResponse,
     UserCreate,
     UserRead,
@@ -22,10 +24,12 @@ from app.schemas.user import (
 )
 from app.services.auth import (
     authenticate_google,
+    authenticate_telegram,
     authenticate_user,
     register_user,
     request_password_reset,
     reset_password,
+    start_telegram_auth,
 )
 from app.services.device_pairing import confirm_pairing, poll_pairing, start_pairing
 from app.services.session import revoke_session
@@ -70,6 +74,27 @@ async def login_google(
     guest_id = get_guest_id(request)
     _, token = await authenticate_google(
         db, data.id_token, request.headers.get("user-agent"), guest_id
+    )
+    if guest_id:
+        clear_guest_cookie(response)
+    return TokenResponse(access_token=token)
+
+
+@router.post("/telegram/start", response_model=TelegramAuthStartRead)
+@limiter.limit("30/minute")
+async def telegram_start(request: Request, db: DBSession):
+    nonce, url, expires_in = await start_telegram_auth(db)
+    return TelegramAuthStartRead(nonce=nonce, url=url, expires_in=expires_in)
+
+
+@router.post("/telegram", response_model=TokenResponse)
+@limiter.limit("20/minute")
+async def login_telegram(
+    request: Request, response: Response, data: TelegramAuthRequest, db: DBSession
+):
+    guest_id = get_guest_id(request)
+    _, token = await authenticate_telegram(
+        db, data, request.headers.get("user-agent"), guest_id
     )
     if guest_id:
         clear_guest_cookie(response)

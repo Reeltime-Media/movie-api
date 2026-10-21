@@ -20,6 +20,7 @@ from app.models.session import Session
 from app.models.subscription import Subscription
 from app.models.subscription_payment import SubscriptionPayment
 from app.models.subscription_plan import SubscriptionPlan
+from app.models.telegram_auth_nonce import TelegramAuthNonce
 from app.models.transcode_job import TranscodeJob
 from app.models.tv_access_code import TvAccessCode
 from app.models.tv_channel import TVChannel
@@ -42,6 +43,7 @@ __all__ = [
     "Subscription",
     "SubscriptionPayment",
     "SubscriptionPlan",
+    "TelegramAuthNonce",
     "WatchProgress",
     "PaymentIntent",
     "HeroFeaturedItem",

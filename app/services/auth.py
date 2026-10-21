@@ -1,5 +1,9 @@
 import asyncio
+import hashlib
+import hmac
+import secrets
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urlencode
 
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
@@ -16,13 +20,16 @@ from app.core.security import (
     verify_password_async,
 )
 from app.models.password_reset_token import PasswordResetToken
+from app.models.telegram_auth_nonce import TelegramAuthNonce
 from app.models.user import User
-from app.schemas.user import UserCreate
+from app.schemas.user import TelegramAuthRequest, UserCreate
 from app.services.email import send_password_reset_email
 from app.services.guest import claim_guest_purchases
 from app.services.session import create_session, revoke_all_user_sessions
 
 settings = get_settings()
+
+TELEGRAM_SYNTHETIC_EMAIL_DOMAIN = "users.reeltime.fun"
 
 
 async def register_user(db: AsyncSession, data: UserCreate, guest_id: str | None = None) -> User:
@@ -137,6 +144,133 @@ async def authenticate_google(
         user.avatar_url = picture
     if name and not user.full_name:
         user.full_name = name
+
+    await db.flush()
+    await claim_guest_purchases(db, user.id, guest_id)
+    session = await create_session(db, user.id, user_agent)
+    await db.commit()
+    await db.refresh(user)
+    token = create_access_token(user.id, user.role, session.id)
+    return user, token
+
+
+def _telegram_configured() -> bool:
+    return bool(settings.telegram_bot_token.strip() and settings.telegram_bot_username.strip())
+
+
+def verify_telegram_login_hash(payload: dict[str, str], bot_token: str) -> bool:
+    """Validate Telegram Login Widget `hash` per Telegram docs."""
+    received = payload.get("hash", "")
+    if not received:
+        return False
+    check_rows = [f"{key}={value}" for key, value in sorted(payload.items()) if key != "hash"]
+    data_check_string = "\n".join(check_rows)
+    secret_key = hashlib.sha256(bot_token.encode()).digest()
+    expected = hmac.new(
+        secret_key, data_check_string.encode(), hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(expected, received)
+
+
+def telegram_synthetic_email(telegram_id: str) -> str:
+    return f"telegram_{telegram_id}@{TELEGRAM_SYNTHETIC_EMAIL_DOMAIN}"
+
+
+async def start_telegram_auth(db: AsyncSession) -> tuple[str, str, int]:
+    """Create a nonce and return (nonce, bridge_url, expires_in_seconds)."""
+    if not _telegram_configured():
+        raise UnauthorizedError("Telegram sign-in is not configured")
+
+    raw_nonce = secrets.token_urlsafe(24)
+    nonce_hash = hash_reset_token(raw_nonce)
+    expires_in = settings.telegram_auth_nonce_expire_minutes * 60
+    expires_at = datetime.now(UTC) + timedelta(minutes=settings.telegram_auth_nonce_expire_minutes)
+    db.add(TelegramAuthNonce(nonce_hash=nonce_hash, expires_at=expires_at))
+    await db.commit()
+
+    base = settings.telegram_auth_page_url.strip().rstrip("/")
+    query = urlencode(
+        {
+            "nonce": raw_nonce,
+            "bot": settings.telegram_bot_username.strip().lstrip("@"),
+        }
+    )
+    return raw_nonce, f"{base}?{query}", expires_in
+
+
+async def _consume_telegram_nonce(db: AsyncSession, raw_nonce: str) -> None:
+    nonce_hash = hash_reset_token(raw_nonce)
+    result = await db.execute(
+        select(TelegramAuthNonce)
+        .where(TelegramAuthNonce.nonce_hash == nonce_hash)
+        .with_for_update()
+    )
+    row = result.scalar_one_or_none()
+    now = datetime.now(UTC)
+    if not row or row.status != "pending" or row.expires_at < now:
+        raise UnauthorizedError("Telegram sign-in session expired. Try again.")
+    row.status = "used"
+
+
+async def authenticate_telegram(
+    db: AsyncSession,
+    data: TelegramAuthRequest,
+    user_agent: str | None = None,
+    guest_id: str | None = None,
+) -> tuple[User, str]:
+    if not _telegram_configured():
+        raise UnauthorizedError("Telegram sign-in is not configured")
+
+    now = datetime.now(UTC)
+    if abs(int(now.timestamp()) - int(data.auth_date)) > settings.telegram_auth_max_age_seconds:
+        raise UnauthorizedError("Telegram sign-in expired. Try again.")
+
+    payload: dict[str, str] = {
+        "id": str(data.id),
+        "auth_date": str(data.auth_date),
+        "hash": data.hash,
+    }
+    if data.first_name:
+        payload["first_name"] = data.first_name
+    if data.last_name:
+        payload["last_name"] = data.last_name
+    if data.username:
+        payload["username"] = data.username
+    if data.photo_url:
+        payload["photo_url"] = data.photo_url
+
+    if not verify_telegram_login_hash(payload, settings.telegram_bot_token.strip()):
+        raise UnauthorizedError("Invalid Telegram sign-in")
+
+    await _consume_telegram_nonce(db, data.nonce)
+
+    telegram_id = str(data.id)
+    result = await db.execute(select(User).where(User.telegram_id == telegram_id))
+    user = result.scalar_one_or_none()
+
+    display_name = " ".join(
+        part for part in (data.first_name, data.last_name) if part and part.strip()
+    ).strip() or (data.username.strip() if data.username else None)
+
+    if not user:
+        email = telegram_synthetic_email(telegram_id)
+        user = User(
+            email=email,
+            telegram_id=telegram_id,
+            full_name=display_name,
+            avatar_url=data.photo_url,
+            password_hash=None,
+            is_active=True,
+        )
+        db.add(user)
+    else:
+        if display_name and not user.full_name:
+            user.full_name = display_name
+        if data.photo_url:
+            user.avatar_url = data.photo_url
+
+    if not user.is_active:
+        raise UnauthorizedError("Account is disabled")
 
     await db.flush()
     await claim_guest_purchases(db, user.id, guest_id)

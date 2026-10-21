@@ -16,6 +16,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     password_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     google_id: Mapped[str | None] = mapped_column(Text, unique=True, nullable=True)
+    telegram_id: Mapped[str | None] = mapped_column(Text, unique=True, nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     full_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     role: Mapped[str] = mapped_column(Text, nullable=False, default="user")
