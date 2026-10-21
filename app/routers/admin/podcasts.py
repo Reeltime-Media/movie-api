@@ -2,6 +2,7 @@
 
 import asyncio
 import uuid
+from decimal import Decimal
 
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
@@ -63,7 +64,8 @@ async def create_admin_podcast_draft(data: AdminPodcastCreate, db: DBSession, _:
         description=data.description,
         genres=data.genres or ["Horror"],
         release_year=data.release_year,
-        price_usd=data.price_usd,
+        # Podcasts are plan-included (or free) — never à-la-carte priced.
+        price_usd=Decimal("0"),
         is_free=data.is_free,
         status="draft",
         is_published=False,
@@ -137,6 +139,9 @@ async def update_admin_podcast(
 
     updates = data.model_dump(exclude_unset=True)
     runtime_minutes = updates.pop("runtime_minutes", None)
+    # Ignore client price — podcasts stay plan-included / free only.
+    updates.pop("price_usd", None)
+    podcast.price_usd = Decimal("0")
     if "status" in updates:
         try:
             validate_content_status(updates["status"])

@@ -152,6 +152,12 @@ async def can_access_content(
         if guest_id:
             return await has_series_purchase(db, content.series_id, guest_id=guest_id)
         return False
+    if content.type == "podcast":
+        # Included with any active subscription plan; no à-la-carte purchase.
+        # Free podcasts are already allowed via content.is_free above.
+        if not user:
+            return False
+        return await user_has_active_subscription(db, user.id)
     return False
 
 
