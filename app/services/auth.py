@@ -166,9 +166,7 @@ def verify_telegram_login_hash(payload: dict[str, str], bot_token: str) -> bool:
     check_rows = [f"{key}={value}" for key, value in sorted(payload.items()) if key != "hash"]
     data_check_string = "\n".join(check_rows)
     secret_key = hashlib.sha256(bot_token.encode()).digest()
-    expected = hmac.new(
-        secret_key, data_check_string.encode(), hashlib.sha256
-    ).hexdigest()
+    expected = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, received)
 
 

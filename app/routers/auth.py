@@ -93,9 +93,7 @@ async def login_telegram(
     request: Request, response: Response, data: TelegramAuthRequest, db: DBSession
 ):
     guest_id = get_guest_id(request)
-    _, token = await authenticate_telegram(
-        db, data, request.headers.get("user-agent"), guest_id
-    )
+    _, token = await authenticate_telegram(db, data, request.headers.get("user-agent"), guest_id)
     if guest_id:
         clear_guest_cookie(response)
     return TokenResponse(access_token=token)
