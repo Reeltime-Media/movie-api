@@ -206,6 +206,11 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
 
+    # Error alerts (ERROR logs, unhandled exceptions) → ops alert relay on
+    # Cloud Run → Telegram alerts group. Leave the URL empty to disable.
+    alert_relay_url: str = ""
+    alert_relay_token: str = ""
+
     # Concurrent device sessions allowed per account before login is rejected
     max_active_sessions_per_user: int = 5
 

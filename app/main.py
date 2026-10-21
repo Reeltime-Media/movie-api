@@ -45,6 +45,7 @@ from app.routers import (
     users,
     watch_progress,
 )
+from app.services.error_alerts import install_error_alerts
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -112,6 +113,8 @@ def create_app() -> FastAPI:
     app.include_router(admin.router)
 
     register_health_routes(app)
+    # Last, so its request-line middleware is the outermost one.
+    install_error_alerts(app, url=settings.alert_relay_url, token=settings.alert_relay_token)
     return app
 
 
