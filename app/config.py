@@ -208,7 +208,8 @@ class Settings(BaseSettings):
     # Login Widget bot username (without @). Same bot token as TELEGRAM_BOT_TOKEN.
     telegram_bot_username: str = ""
     # Hosted bridge page the phone opens in the system browser
-    telegram_auth_page_url: str = "https://www.reeltime.fun/auth/telegram"
+    # Apex host — BotFather /setdomain is reeltime.fun; www is rejected by Telegram.
+    telegram_auth_page_url: str = "https://reeltime.fun/auth/telegram"
     telegram_auth_nonce_expire_minutes: int = 10
     telegram_auth_max_age_seconds: int = 300
 
