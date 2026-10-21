@@ -6,6 +6,10 @@ Movies:
   movies/{slug}/banner-{token}.{ext}
   movies/{slug}/hls/master.m3u8 (+ segments)
 
+Podcasts (standalone audio):
+  podcasts/{slug}/audio.{ext}
+  podcasts/{slug}/poster-{token}.{ext}
+
 Series:
   series/{series_slug}/poster-{token}.{ext}
   series/{series_slug}/banner-{token}.{ext}
@@ -31,6 +35,7 @@ from typing import Final
 
 MOVIES_PREFIX: Final = "movies"
 SERIES_PREFIX: Final = "series"
+PODCASTS_PREFIX: Final = "podcasts"
 PROMOTIONS_PREFIX: Final = "promotions"
 HERO_PREFIX: Final = "hero"
 TV_PREFIX: Final = "tv"
@@ -40,6 +45,17 @@ _POSTER_EXT = {
     "image/jpg": "jpg",
     "image/png": "png",
     "image/webp": "webp",
+}
+
+_AUDIO_EXT = {
+    "audio/mpeg": "mp3",
+    "audio/mp3": "mp3",
+    "audio/mp4": "m4a",
+    "audio/x-m4a": "m4a",
+    "audio/m4a": "m4a",
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+    "audio/aac": "aac",
 }
 
 
@@ -82,6 +98,29 @@ def movie_hls_master_key(slug: str) -> str:
 
 def is_movie_asset_key(slug: str, key: str) -> bool:
     return key.startswith(f"{movie_dir(slug)}/")
+
+
+# ── Podcasts ──────────────────────────────────────────────────────────────────
+
+
+def podcast_dir(slug: str) -> str:
+    return f"{PODCASTS_PREFIX}/{slug}"
+
+
+def podcast_audio_extension(content_type: str) -> str:
+    return _AUDIO_EXT.get(content_type.strip().lower(), "mp3")
+
+
+def podcast_audio_key(slug: str, content_type: str) -> str:
+    return f"{podcast_dir(slug)}/audio.{podcast_audio_extension(content_type)}"
+
+
+def podcast_poster_key(slug: str, content_type: str) -> str:
+    return f"{podcast_dir(slug)}/{_image_filename('poster', content_type)}"
+
+
+def is_podcast_asset_key(slug: str, key: str) -> bool:
+    return key.startswith(f"{podcast_dir(slug)}/")
 
 
 # ── Series ────────────────────────────────────────────────────────────────────

@@ -154,6 +154,55 @@ class AdminMovieCreate(BaseModel):
         return validate_usd_price(value)
 
 
+class AdminPodcastCreate(BaseModel):
+    title: str
+    title_km: str | None = None
+    description: str | None = None
+    genres: list[str] = Field(default_factory=lambda: ["Horror"])
+    release_year: int | None = None
+    runtime_minutes: int | None = Field(default=None, gt=0)
+    price_usd: Decimal = Decimal("0")
+    is_free: bool = False
+
+    @field_validator("title")
+    @classmethod
+    def title_required(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("title is required")
+        return value
+
+    @field_validator("title_km")
+    @classmethod
+    def normalize_title_km(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+    @field_validator("price_usd")
+    @classmethod
+    def check_price_usd(cls, value: Decimal) -> Decimal:
+        return validate_usd_price(value)
+
+
+class PodcastAssetUploadStart(BaseModel):
+    audio_content_type: str | None = None
+    poster_content_type: str | None = None
+
+
+class PodcastAssetUploadStartRead(BaseModel):
+    audio_key: str | None = None
+    audio_upload_url: str | None = None
+    poster_key: str | None = None
+    poster_upload_url: str | None = None
+
+
+class PodcastAssetUploadComplete(BaseModel):
+    audio_key: str | None = None
+    poster_key: str | None = None
+
+
 class AdminPaymentRead(BaseModel):
     intent_id: str
     order_id: str

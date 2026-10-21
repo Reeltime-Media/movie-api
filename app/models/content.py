@@ -20,7 +20,7 @@ class Content(Base):
     __tablename__ = "content"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    type: Mapped[str] = mapped_column(Text, nullable=False)  # 'single' | 'episode'
+    type: Mapped[str] = mapped_column(Text, nullable=False)  # 'single' | 'episode' | 'podcast'
     series_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("series.id", ondelete="CASCADE"),
@@ -42,6 +42,7 @@ class Content(Base):
     banner_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     trailer_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     hls_master_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    audio_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     price_usd: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     # 'draft' | 'review' | 'scheduled' | 'published'
     status: Mapped[str] = mapped_column(Text, nullable=False, default="draft")

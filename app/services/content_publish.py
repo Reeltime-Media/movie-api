@@ -21,3 +21,12 @@ async def ensure_movie_publishable(db: AsyncSession, movie: Content) -> None:
     if job:
         return
     raise HTTPException(status_code=422, detail="A movie video is required before publishing.")
+
+
+def ensure_podcast_publishable(podcast: Content) -> None:
+    if podcast.type != "podcast":
+        return
+    if not podcast.poster_key:
+        raise HTTPException(status_code=422, detail="A cover image is required before publishing.")
+    if not podcast.audio_key:
+        raise HTTPException(status_code=422, detail="An audio file is required before publishing.")

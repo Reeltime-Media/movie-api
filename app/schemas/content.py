@@ -70,6 +70,7 @@ class ContentRead(BaseModel):
     banner_key: str | None
     trailer_url: str | None
     hls_master_key: str | None
+    audio_key: str | None = None
     price_usd: Decimal | None
     status: str
     is_published: bool
