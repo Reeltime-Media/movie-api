@@ -36,6 +36,7 @@ from app.routers import (
     movies,
     payments,
     playback,
+    podcasts,
     promotions,
     purchases,
     ratings,
@@ -87,6 +88,7 @@ def create_app() -> FastAPI:
     app.include_router(users.router)
     app.include_router(series.router)
     app.include_router(movies.router)
+    app.include_router(podcasts.router)
     app.include_router(payments.router)
     app.include_router(promotions.router)
     app.include_router(hero_featured.router)
