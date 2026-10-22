@@ -91,6 +91,15 @@ class RevenueTimelinePoint(BaseModel):
     payment_count: int
 
 
+class RevenueKindSlice(BaseModel):
+    """Succeeded revenue for one payment kind in the selected period."""
+
+    kind: str  # movies | series | subscriptions
+    label: str
+    revenue_usd: Decimal
+    payment_count: int
+
+
 class RevenueTimelineRead(BaseModel):
     days: int
     date_from: date | None = None
@@ -99,6 +108,7 @@ class RevenueTimelineRead(BaseModel):
     all_time_revenue_usd: Decimal
     succeeded_payments: int
     points: list[RevenueTimelinePoint]
+    by_kind: list[RevenueKindSlice] = []
 
 
 class TopTitleReportRead(BaseModel):

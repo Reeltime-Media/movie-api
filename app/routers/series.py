@@ -142,6 +142,7 @@ async def create_series(data: CreateSeriesBody, db: DBSession, _: AdminUser):
         rating=data.rating,
         monthly_price_usd=data.monthly_price_usd,
         trailer_url=data.trailer_url,
+        is_short_movie=bool(data.is_short_movie),
     )
     db.add(series)
     await db.commit()

@@ -101,6 +101,7 @@ class CreateSeriesBody(BaseModel):
     release_year: int | None = None
     rating: Decimal | None = None
     trailer_url: str | None = None
+    is_short_movie: bool = False
 
     @field_validator("title_km")
     @classmethod

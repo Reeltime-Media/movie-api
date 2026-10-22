@@ -17,6 +17,7 @@ from app.schemas.admin import (
     DashboardSummaryRead,
     DashboardTranscodeSummary,
     DashboardUserSummary,
+    RevenueKindSlice,
     RevenueTimelinePoint,
     RevenueTimelineRead,
     TopTitleReportRead,
@@ -202,6 +203,40 @@ async def get_revenue_timeline(
         )
     )
 
+    kind_rows = (
+        await db.execute(
+            select(
+                PaymentIntent.kind,
+                func.coalesce(func.sum(PaymentIntent.amount_usd), Decimal("0")).label(
+                    "revenue_usd"
+                ),
+                func.count(PaymentIntent.intent_id).label("payment_count"),
+            )
+            .where(
+                PaymentIntent.status == "succeeded",
+                revenue_timestamp >= since,
+                revenue_timestamp <= until,
+            )
+            .group_by(PaymentIntent.kind)
+        )
+    ).all()
+    kind_totals = {row.kind: row for row in kind_rows}
+
+    def _slice(kind_key: str, db_kind: str, label: str) -> RevenueKindSlice:
+        row = kind_totals.get(db_kind)
+        return RevenueKindSlice(
+            kind=kind_key,
+            label=label,
+            revenue_usd=row.revenue_usd if row else Decimal("0"),
+            payment_count=row.payment_count if row else 0,
+        )
+
+    by_kind = [
+        _slice("movies", "single", "Movies"),
+        _slice("series", "series", "Series"),
+        _slice("subscriptions", "sub", "Subscriptions"),
+    ]
+
     return RevenueTimelineRead(
         days=range_days,
         date_from=start_date,
@@ -210,6 +245,7 @@ async def get_revenue_timeline(
         all_time_revenue_usd=all_time_revenue or Decimal("0"),
         succeeded_payments=succeeded_payments,
         points=points,
+        by_kind=by_kind,
     )
 
 
