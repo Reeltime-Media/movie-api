@@ -31,9 +31,11 @@ def _client():
     try:
         import redis.asyncio as redis_async
 
+        # decode_responses=False keeps values as bytes for the catalog cache.
+        # Do not pass encoding=None — redis-py 5+ rejects it with
+        # "encode() argument 'encoding' must be str, not None".
         _redis = redis_async.from_url(
             url,
-            encoding=None,
             decode_responses=False,
             socket_connect_timeout=1.5,
             socket_timeout=1.5,
