@@ -7,8 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.content import Content
 from app.models.genre_rail_item import GenreRailItem
-from app.schemas.genre_rail import GENRE_RAIL_MAX_PER_GENRE, GenreRailItemRead, GenreRailRead
 from app.schemas.content import ContentListItemRead
+from app.schemas.genre_rail import GENRE_RAIL_MAX_PER_GENRE, GenreRailItemRead, GenreRailRead
 
 
 def _normalize_genre(name: str) -> str:
