@@ -56,10 +56,10 @@ async def validate_genre_rail_add(db: AsyncSession, genre_name: str, content_id:
     if result.scalar_one_or_none():
         raise ValueError("This movie is already in that genre rail")
 
-    result = await db.execute(
+    count_result = await db.execute(
         select(func.count()).select_from(GenreRailItem).where(GenreRailItem.genre_name == genre)
     )
-    if (result.scalar() or 0) >= GENRE_RAIL_MAX_PER_GENRE:
+    if int(count_result.scalar() or 0) >= GENRE_RAIL_MAX_PER_GENRE:
         raise ValueError(f"Each genre rail is limited to {GENRE_RAIL_MAX_PER_GENRE} titles")
     return genre
 
