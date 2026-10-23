@@ -72,6 +72,16 @@ async def cache_set_bytes(key: str, value: bytes, ttl_seconds: float) -> None:
         logger.warning("shared_cache set failed key=%s: %s", key[:48], exc)
 
 
+async def cache_delete_bytes(key: str) -> None:
+    client = _client()
+    if client is None:
+        return
+    try:
+        await client.delete(key)
+    except Exception as exc:
+        logger.warning("shared_cache delete failed key=%s: %s", key[:48], exc)
+
+
 async def close_shared_cache() -> None:
     global _redis, _redis_failed
     client = _redis

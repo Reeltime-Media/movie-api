@@ -12,8 +12,13 @@ from app.schemas.genre_rail import (
     GenreRailItemUpdate,
 )
 from app.services.genre_rails import enrich_admin_genre_rail_items, validate_genre_rail_add
+from app.services.response_cache import cache_delete
 
 router = APIRouter()
+
+
+async def _bust_public_genre_rails_cache() -> None:
+    await cache_delete("genre-rails")
 
 
 @router.get("/genre-rails", response_model=list[GenreRailItemRead])
@@ -56,6 +61,7 @@ async def create_admin_genre_rail(
     db.add(item)
     await db.commit()
     await db.refresh(item)
+    await _bust_public_genre_rails_cache()
     enriched = await enrich_admin_genre_rail_items(db, [item])
     return enriched[0]
 
@@ -75,6 +81,7 @@ async def update_admin_genre_rail(
     item.sort_order = data.sort_order
     await db.commit()
     await db.refresh(item)
+    await _bust_public_genre_rails_cache()
     enriched = await enrich_admin_genre_rail_items(db, [item])
     return enriched[0]
 
@@ -91,3 +98,4 @@ async def delete_admin_genre_rail(
         raise NotFoundError("Genre rail item not found")
     await db.delete(item)
     await db.commit()
+    await _bust_public_genre_rails_cache()

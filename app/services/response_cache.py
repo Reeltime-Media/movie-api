@@ -114,3 +114,9 @@ async def cache_get_or_set(
     value = await factory()
     await cache_set_async(key, value, ttl_seconds=ttl_seconds)
     return value
+
+
+async def cache_delete(key: str) -> None:
+    """Drop L1 + Redis so the next public read rebuilds from the DB."""
+    _CACHE.pop(key, None)
+    await shared_cache.cache_delete_bytes(_REDIS_KEY_PREFIX + key)
