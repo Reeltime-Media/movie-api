@@ -36,9 +36,7 @@ async def enrich_admin_genre_rail_items(
     return enriched
 
 
-async def validate_genre_rail_add(
-    db: AsyncSession, genre_name: str, content_id: UUID
-) -> str:
+async def validate_genre_rail_add(db: AsyncSession, genre_name: str, content_id: UUID) -> str:
     genre = _normalize_genre(genre_name)
     if not genre:
         raise ValueError("Genre name is required")
@@ -59,14 +57,10 @@ async def validate_genre_rail_add(
         raise ValueError("This movie is already in that genre rail")
 
     result = await db.execute(
-        select(func.count())
-        .select_from(GenreRailItem)
-        .where(GenreRailItem.genre_name == genre)
+        select(func.count()).select_from(GenreRailItem).where(GenreRailItem.genre_name == genre)
     )
     if (result.scalar() or 0) >= GENRE_RAIL_MAX_PER_GENRE:
-        raise ValueError(
-            f"Each genre rail is limited to {GENRE_RAIL_MAX_PER_GENRE} titles"
-        )
+        raise ValueError(f"Each genre rail is limited to {GENRE_RAIL_MAX_PER_GENRE} titles")
     return genre
 
 
