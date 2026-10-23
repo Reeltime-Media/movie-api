@@ -8,6 +8,7 @@ Every production error ends up in the Telegram alerts group, through one relay.
 | `watchdog/` on each VM | container crashes (with last log lines), OOM kills, unhealthy containers, disk / memory / CPU, expected containers not running, VM restarts | Docker events + checks every minute → relay `/event` |
 | movie-api | unhandled exceptions, ERROR logs | `app/services/error_alerts.py` → relay `/event` |
 | movie-client, movie-admin | server errors (render, route handlers, server actions, proxy) | `instrumentation.ts` → relay `/event` |
+| GitHub Actions (movie-api) | each push to main: deployed, tests failed, or deploy failed | `notify` job in `.github/workflows/deploy.yml` → relay `/event` (repo secret `ALERT_RELAY_TOKEN`) |
 
 The relay runs outside the VMs, so "site down" alerts still arrive when a VM is down.
 It sends a repeated error at most once per 10 minutes (the next message counts the repeats)
