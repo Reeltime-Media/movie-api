@@ -5,6 +5,7 @@ from app.routers.admin import (
     comments,
     dashboard,
     free_today,
+    genre_rails,
     hero_featured,
     movies,
     payments,
@@ -34,3 +35,4 @@ router.include_router(promotions.router)
 router.include_router(hero_featured.router)
 router.include_router(free_today.router)
 router.include_router(coming_soon.router)
+router.include_router(genre_rails.router)
