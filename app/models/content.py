@@ -47,6 +47,8 @@ class Content(Base):
     # 'draft' | 'review' | 'scheduled' | 'published'
     status: Mapped[str] = mapped_column(Text, nullable=False, default="draft")
     is_published: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # When status=scheduled: UTC go-live time. Cleared once published.
+    publish_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_free: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     transcode_status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
     search_vector: Mapped[str | None] = mapped_column(

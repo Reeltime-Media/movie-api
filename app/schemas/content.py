@@ -27,6 +27,8 @@ class ContentUpdate(BaseModel):
     trailer_url: str | None = None
     status: str | None = None
     is_published: bool | None = None
+    # UTC go-live for scheduled movies; null clears the schedule.
+    publish_at: datetime | None = None
     is_free: bool | None = None
     price_usd: Decimal | None = None
     season_number: int | None = None
@@ -74,6 +76,7 @@ class ContentRead(BaseModel):
     price_usd: Decimal | None
     status: str
     is_published: bool
+    publish_at: datetime | None = None
     is_free: bool
     # True while the movie is in the admin-curated "Free movies today" list.
     is_free_today: bool = False

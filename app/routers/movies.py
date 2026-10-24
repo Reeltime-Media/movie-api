@@ -39,7 +39,7 @@ from app.schemas.upload import (
 )
 from app.services import r2_keys
 from app.services.content_delete import delete_content_dependencies
-from app.services.content_publish import ensure_movie_publishable
+from app.services.content_publish import apply_movie_publish_state, ensure_movie_publishable
 from app.services.content_upload import (
     abort_multipart_upload,
     complete_multipart_upload,
@@ -160,14 +160,21 @@ async def complete_movie_upload(data: MovieUploadComplete, db: DBSession, _: Adm
         banner_key=banner_key,
         trailer_url=data.trailer_url,
         status=data.status,
-        is_published=(data.status == "published"),
+        is_published=False,
+        publish_at=data.publish_at,
         transcode_status="pending",
     )
     apply_runtime_minutes(movie, data.runtime_minutes)
+    apply_movie_publish_state(
+        movie,
+        status=data.status,
+        publish_at=data.publish_at,
+        publish_at_set=True,
+    )
     db.add(movie)
     db.add(TranscodeJob(content_id=data.content_id, source_key=data.source_key))
 
-    if data.status == "published":
+    if movie.status == "published":
         await ensure_movie_publishable(db, movie)
 
     await db.commit()
@@ -238,12 +245,9 @@ async def update_movie(slug: str, data: ContentUpdate, db: DBSession, _: AdminUs
 
     updates = data.model_dump(exclude_unset=True)
     runtime_minutes = updates.pop("runtime_minutes", None)
-    if "status" in updates:
-        try:
-            validate_content_status(updates["status"])
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        updates.setdefault("is_published", updates["status"] == "published")
+    status = updates.pop("status", None)
+    publish_at_set = "publish_at" in updates
+    publish_at = updates.pop("publish_at", None) if publish_at_set else None
 
     for field, value in updates.items():
         setattr(movie, field, value)
@@ -254,6 +258,14 @@ async def update_movie(slug: str, data: ContentUpdate, db: DBSession, _: AdminUs
             movie.runtime = None
         else:
             apply_runtime_minutes(movie, runtime_minutes)
+
+    if status is not None or publish_at_set:
+        apply_movie_publish_state(
+            movie,
+            status=status,
+            publish_at=publish_at,
+            publish_at_set=publish_at_set,
+        )
 
     if movie.status == "published":
         await ensure_movie_publishable(db, movie)

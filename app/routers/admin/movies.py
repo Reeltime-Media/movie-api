@@ -4,7 +4,6 @@ import uuid
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
-from app.core.content_status import validate_content_status
 from app.core.exceptions import NotFoundError
 from app.dependencies import AdminUser, DBSession
 from app.models.content import Content
@@ -20,7 +19,7 @@ from app.schemas.pagination import PaginatedResponse, PaginationDep, build_pagin
 from app.services import r2_keys, storage
 from app.services.admin.helpers import purchase_counts_for_content, watch_counts_for_content
 from app.services.content_delete import delete_content_dependencies
-from app.services.content_publish import ensure_movie_publishable
+from app.services.content_publish import apply_movie_publish_state, ensure_movie_publishable
 from app.services.content_slug import unique_content_slug
 from app.services.image_process import optimize_r2_image
 from app.services.pagination import paginate_query
@@ -118,12 +117,9 @@ async def update_admin_movie(
 
     updates = data.model_dump(exclude_unset=True)
     runtime_minutes = updates.pop("runtime_minutes", None)
-    if "status" in updates:
-        try:
-            validate_content_status(updates["status"])
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        updates["is_published"] = updates["status"] == "published"
+    status = updates.pop("status", None)
+    publish_at_set = "publish_at" in updates
+    publish_at = updates.pop("publish_at", None) if publish_at_set else None
 
     for field, value in updates.items():
         setattr(movie, field, value)
@@ -134,6 +130,14 @@ async def update_admin_movie(
             movie.runtime = None
         else:
             apply_runtime_minutes(movie, runtime_minutes)
+
+    if status is not None or publish_at_set:
+        apply_movie_publish_state(
+            movie,
+            status=status,
+            publish_at=publish_at,
+            publish_at_set=publish_at_set,
+        )
 
     if movie.status == "published":
         await ensure_movie_publishable(db, movie)

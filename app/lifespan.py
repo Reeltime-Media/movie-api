@@ -62,8 +62,16 @@ async def app_lifespan(app: FastAPI):
     else:
         logger.info("Bakong health monitor not started in API (run worker instead)")
 
+    from app.services.publish_sweeper import start_publish_sweeper, stop_publish_sweeper
+
+    if get_settings().publish_sweeper_enabled:
+        start_publish_sweeper()
+    else:
+        logger.info("Publish sweeper disabled")
+
     yield
 
+    await stop_publish_sweeper()
     await stop_bakong_health_monitor()
     await stop_bakong_sweeper()
 

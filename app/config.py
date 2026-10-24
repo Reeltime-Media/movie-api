@@ -179,6 +179,10 @@ class Settings(BaseSettings):
     # When false, API lifespan skips sweeper/health — run `python -m app.workers.bakong`.
     bakong_run_background_in_api: bool = True
 
+    # Promote scheduled movies (publish_at <= now) when assets are ready.
+    publish_sweeper_interval_seconds: int = 45
+    publish_sweeper_enabled: bool = True
+
     # Transcode worker (admin proxy only — never expose key to browsers)
     transcode_service_url: str = ""
     transcode_api_key: str = ""
