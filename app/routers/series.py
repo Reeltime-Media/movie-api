@@ -37,11 +37,6 @@ from app.models.transcode_job import TranscodeJob
 from app.rate_limit import limiter
 from app.schemas.content import ContentRead, ContentUpdate
 from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
-from app.services.series_publish import (
-    apply_legacy_is_published,
-    apply_series_publish_state,
-    ensure_series_publishable,
-)
 from app.schemas.series import (
     CreateSeriesBody,
     EpisodeAssetUploadComplete,
@@ -75,6 +70,11 @@ from app.services.content_upload import (
 )
 from app.services.image_process import optimize_r2_image
 from app.services.pagination import paginate_query
+from app.services.series_publish import (
+    apply_legacy_is_published,
+    apply_series_publish_state,
+    ensure_series_publishable,
+)
 
 router = APIRouter(prefix="/series", tags=["series"])
 
