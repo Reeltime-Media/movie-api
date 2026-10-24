@@ -24,7 +24,9 @@ class SeriesUpdate(BaseModel):
     release_year: int | None = None
     rating: Decimal | None = None
     monthly_price_usd: Decimal | None = None
+    status: str | None = None
     is_published: bool | None = None
+    publish_at: datetime | None = None
     is_short_movie: bool | None = None
     trailer_url: str | None = None
     poster_key: str | None = None  # set after uploading poster via /poster/start
@@ -56,7 +58,9 @@ class SeriesRead(BaseModel):
     banner_key: str | None
     trailer_url: str | None
     monthly_price_usd: Decimal
+    status: str = "draft"
     is_published: bool
+    publish_at: datetime | None = None
     is_short_movie: bool
     created_at: datetime
     updated_at: datetime
@@ -102,6 +106,8 @@ class CreateSeriesBody(BaseModel):
     rating: Decimal | None = None
     trailer_url: str | None = None
     is_short_movie: bool = False
+    status: str = "draft"
+    publish_at: datetime | None = None
 
     @field_validator("title_km")
     @classmethod

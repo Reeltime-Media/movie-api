@@ -1,4 +1,4 @@
-"""Promote scheduled movies to published when publish_at is due and assets are ready."""
+"""Promote scheduled movies/series to published when publish_at is due and assets are ready."""
 
 from __future__ import annotations
 
@@ -11,11 +11,16 @@ from sqlalchemy import select
 from app.config import get_settings
 from app.database import AsyncSessionLocal
 from app.models.content import Content
+from app.models.series import Series
 from app.services.content_publish import (
     movie_is_publishable,
     promote_scheduled_movie_to_published,
 )
 from app.services.distributed_lock import HeldLock, try_acquire
+from app.services.series_publish import (
+    promote_scheduled_series_to_published,
+    series_is_publishable,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +74,49 @@ async def sweep_due_scheduled_movies(*, limit: int = 25) -> int:
     return promoted
 
 
+async def sweep_due_scheduled_series(*, limit: int = 25) -> int:
+    """Publish due scheduled series that are ready. Returns promoted count."""
+    now = datetime.now(UTC)
+    promoted = 0
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(Series)
+            .where(
+                Series.is_published.is_(False),
+                Series.publish_at.is_not(None),
+                Series.publish_at <= now,
+            )
+            .order_by(Series.publish_at.asc())
+            .limit(limit)
+            .with_for_update(skip_locked=True)
+        )
+        rows = list(result.scalars().all())
+        if not rows:
+            await db.rollback()
+            return 0
+
+        for series in rows:
+            if not series_is_publishable(series):
+                logger.info(
+                    "Scheduled series not ready yet id=%s slug=%s publish_at=%s",
+                    series.id,
+                    series.slug,
+                    series.publish_at,
+                )
+                continue
+            promote_scheduled_series_to_published(series)
+            promoted += 1
+            logger.info("Published scheduled series id=%s slug=%s", series.id, series.slug)
+
+        if promoted:
+            await db.commit()
+        else:
+            await db.rollback()
+
+    return promoted
+
+
 async def _sweeper_loop() -> None:
     settings = get_settings()
     interval = max(15, min(300, settings.publish_sweeper_interval_seconds))
@@ -79,6 +127,7 @@ async def _sweeper_loop() -> None:
                 logger.warning("Publish sweeper lost ownership lock — stopping loop")
                 break
             await sweep_due_scheduled_movies()
+            await sweep_due_scheduled_series()
         except asyncio.CancelledError:
             raise
         except Exception:

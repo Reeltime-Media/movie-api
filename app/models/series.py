@@ -29,7 +29,11 @@ class Series(Base):
     banner_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     trailer_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     monthly_price_usd: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    # 'draft' | 'review' | 'scheduled' | 'published'
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="draft")
     is_published: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # When status=scheduled: UTC go-live time. Cleared once published.
+    publish_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_short_movie: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     search_vector: Mapped[str | None] = mapped_column(
         TSVECTOR,

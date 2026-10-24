@@ -37,6 +37,11 @@ from app.models.transcode_job import TranscodeJob
 from app.rate_limit import limiter
 from app.schemas.content import ContentRead, ContentUpdate
 from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
+from app.services.series_publish import (
+    apply_legacy_is_published,
+    apply_series_publish_state,
+    ensure_series_publishable,
+)
 from app.schemas.series import (
     CreateSeriesBody,
     EpisodeAssetUploadComplete,
@@ -130,6 +135,11 @@ async def get_series(slug: str, db: DBSession, current_user: OptionalUser):
 @router.post("/", response_model=SeriesRead, status_code=201)
 async def create_series(data: CreateSeriesBody, db: DBSession, _: AdminUser):
     """Create a series record. Upload the poster separately via /series/{slug}/poster/start."""
+    try:
+        validate_content_status(data.status)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     slug = await unique_series_slug(data.title, db)
     series = Series(
         id=uuid.uuid4(),
@@ -143,7 +153,18 @@ async def create_series(data: CreateSeriesBody, db: DBSession, _: AdminUser):
         monthly_price_usd=data.monthly_price_usd,
         trailer_url=data.trailer_url,
         is_short_movie=bool(data.is_short_movie),
+        status=data.status,
+        publish_at=data.publish_at,
     )
+    apply_series_publish_state(
+        series,
+        status=data.status,
+        publish_at=data.publish_at,
+        publish_at_set=True,
+    )
+    if series.status == "published":
+        # Create starts without a poster — force draft until artwork is uploaded.
+        apply_series_publish_state(series, status="draft")
     db.add(series)
     await db.commit()
     await db.refresh(series)
@@ -178,6 +199,10 @@ async def update_series(slug: str, data: SeriesUpdate, db: DBSession, _: AdminUs
     updates = data.model_dump(exclude_unset=True)
     if updates.get("monthly_price_usd") is None:
         updates.pop("monthly_price_usd", None)
+    status = updates.pop("status", None)
+    publish_at_set = "publish_at" in updates
+    publish_at = updates.pop("publish_at", None) if publish_at_set else None
+    legacy_is_published = updates.pop("is_published", None)
     if updates.get("poster_key") or updates.get("banner_key"):
         poster_task = (
             optimize_r2_image(updates["poster_key"], kind="poster")
@@ -196,6 +221,20 @@ async def update_series(slug: str, data: SeriesUpdate, db: DBSession, _: AdminUs
             updates["banner_key"] = banner_key
     for field, value in updates.items():
         setattr(series, field, value)
+
+    if status is not None or publish_at_set:
+        apply_series_publish_state(
+            series,
+            status=status,
+            publish_at=publish_at,
+            publish_at_set=publish_at_set,
+        )
+    elif legacy_is_published is not None:
+        apply_legacy_is_published(series, bool(legacy_is_published))
+
+    if series.status == "published":
+        ensure_series_publishable(series)
+
     await db.commit()
     await db.refresh(series)
     return series
