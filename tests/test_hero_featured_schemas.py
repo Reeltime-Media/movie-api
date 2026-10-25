@@ -12,9 +12,20 @@ from app.schemas.hero_featured import (
 )
 
 
-def test_custom_slide_requires_video():
-    with pytest.raises(ValidationError, match="video"):
+def test_custom_slide_requires_image_or_video():
+    with pytest.raises(ValidationError, match="image, an uploaded video"):
         HeroFeaturedItemCreate(content_type="custom")
+
+
+def test_custom_slide_accepts_image_only():
+    item = HeroFeaturedItemCreate(
+        content_type="custom",
+        banner_key="hero/banners/x.jpg",
+        link_url="/pricing",
+    )
+    assert item.banner_key == "hero/banners/x.jpg"
+    assert item.video_key is None
+    assert item.youtube_url is None
 
 
 def test_custom_slide_title_is_optional():

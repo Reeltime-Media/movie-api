@@ -42,6 +42,17 @@ def test_custom_slide_builds_from_own_fields():
     assert slide.genres == []
 
 
+def test_image_only_custom_slide_has_no_video():
+    item = make_custom_item(title=None, description=None)
+    slide = _build_slide(item, {}, {})
+    assert slide is not None
+    assert slide.title == ""
+    assert slide.banner_key == "hero/banners/x.jpg"
+    assert slide.poster_key == "hero/banners/x.jpg"
+    assert slide.video_key is None
+    assert slide.youtube_url is None
+
+
 def test_custom_slide_without_link_has_null_watch_href():
     item = make_custom_item(link_url=None)
     slide = _build_slide(item, {}, {})
@@ -201,9 +212,20 @@ def test_video_enabled_true_keeps_trailer_fallback():
     assert slide.youtube_url == "https://youtu.be/trailer"
 
 
-def test_validate_custom_requires_video():
-    with pytest.raises(ValueError, match="video"):
+def test_validate_custom_requires_image_or_video():
+    with pytest.raises(ValueError, match="image, an uploaded video"):
         asyncio.run(validate_hero_content(None, content_type="custom", content_id=None))
+
+
+def test_validate_custom_ok_with_image_only():
+    asyncio.run(
+        validate_hero_content(
+            None,
+            content_type="custom",
+            content_id=None,
+            banner_key="hero/banners/x.jpg",
+        )
+    )
 
 
 def test_validate_custom_rejects_content_id():

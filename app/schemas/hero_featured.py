@@ -75,8 +75,10 @@ class HeroFeaturedItemCreate(BaseModel):
         if self.content_type == "custom":
             if self.content_id is not None:
                 raise ValueError("custom slides must not reference catalog content")
-            if not (self.video_key or self.youtube_url):
-                raise ValueError("custom slides require an uploaded video or a YouTube URL")
+            if not (self.banner_key or self.video_key or self.youtube_url):
+                raise ValueError(
+                    "custom slides require an image, an uploaded video, or a YouTube URL"
+                )
         elif self.content_id is None:
             raise ValueError("content_id is required for movie and series slides")
         return self
