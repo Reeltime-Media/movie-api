@@ -43,6 +43,7 @@ from app.routers import (
     ratings,
     series,
     subscriptions,
+    telegram_webhook,
     tv,
     users,
     watch_progress,
@@ -106,6 +107,7 @@ def create_app() -> FastAPI:
     app.include_router(genres.router)
     app.include_router(library.router)
     app.include_router(tv.router)
+    app.include_router(telegram_webhook.router)
     if settings.baray_enabled:
         from app.routers import webhooks
 

@@ -17,6 +17,9 @@ from app.schemas.user import (
     ResetPasswordRequest,
     TelegramAuthRequest,
     TelegramAuthStartRead,
+    TelegramBotLoginPollBody,
+    TelegramBotLoginPollRead,
+    TelegramBotLoginStartRead,
     TokenResponse,
     UserCreate,
     UserRead,
@@ -33,6 +36,7 @@ from app.services.auth import (
 )
 from app.services.device_pairing import confirm_pairing, poll_pairing, start_pairing
 from app.services.session import revoke_session
+from app.services.telegram_bot_login import poll_bot_login, start_bot_login
 from app.services.tv_access_codes import login_with_tv_access_code
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -97,6 +101,26 @@ async def login_telegram(
     if guest_id:
         clear_guest_cookie(response)
     return TokenResponse(access_token=token)
+
+
+@router.post("/telegram/bot/start", response_model=TelegramBotLoginStartRead)
+@limiter.limit("30/minute")
+async def telegram_bot_start(request: Request, db: DBSession):
+    """Phone app sign-in via the bot: open the returned link, then poll."""
+    code, url, app_url, expires_in = await start_bot_login(db)
+    return TelegramBotLoginStartRead(code=code, url=url, app_url=app_url, expires_in=expires_in)
+
+
+@router.post("/telegram/bot/poll", response_model=TelegramBotLoginPollRead)
+@limiter.limit("120/minute")
+async def telegram_bot_poll(
+    request: Request, response: Response, data: TelegramBotLoginPollBody, db: DBSession
+):
+    guest_id = get_guest_id(request)
+    result = await poll_bot_login(db, data.code, request.headers.get("user-agent"), guest_id)
+    if guest_id and result["status"] == "confirmed":
+        clear_guest_cookie(response)
+    return TelegramBotLoginPollRead(**result)
 
 
 @router.post("/logout", status_code=204)

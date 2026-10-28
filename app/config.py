@@ -216,6 +216,10 @@ class Settings(BaseSettings):
     telegram_auth_page_url: str = "https://reeltime.fun/auth/telegram"
     telegram_auth_nonce_expire_minutes: int = 10
     telegram_auth_max_age_seconds: int = 300
+    # Phone sign-in through the bot (t.me/<bot>?start=<code>). Telegram sends
+    # this value in X-Telegram-Bot-Api-Secret-Token; empty disables the webhook.
+    telegram_webhook_secret: str = ""
+    telegram_bot_login_expire_minutes: int = 5
 
     # Error alerts (ERROR logs, unhandled exceptions) → ops alert relay on
     # Cloud Run → Telegram alerts group. Leave the URL empty to disable.

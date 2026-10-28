@@ -242,13 +242,37 @@ async def authenticate_telegram(
 
     await _consume_telegram_nonce(db, data.nonce)
 
-    telegram_id = str(data.id)
+    return await login_telegram_identity(
+        db,
+        telegram_id=str(data.id),
+        first_name=data.first_name,
+        last_name=data.last_name,
+        username=data.username,
+        photo_url=data.photo_url,
+        user_agent=user_agent,
+        guest_id=guest_id,
+    )
+
+
+async def login_telegram_identity(
+    db: AsyncSession,
+    *,
+    telegram_id: str,
+    first_name: str | None,
+    last_name: str | None,
+    username: str | None,
+    photo_url: str | None = None,
+    user_agent: str | None = None,
+    guest_id: str | None = None,
+) -> tuple[User, str]:
+    """Find or create the account for a Telegram identity that Telegram has
+    already vouched for (widget hash or bot update), then open a session."""
     result = await db.execute(select(User).where(User.telegram_id == telegram_id))
     user = result.scalar_one_or_none()
 
     display_name = " ".join(
-        part for part in (data.first_name, data.last_name) if part and part.strip()
-    ).strip() or (data.username.strip() if data.username else None)
+        part for part in (first_name, last_name) if part and part.strip()
+    ).strip() or (username.strip() if username else None)
 
     if not user:
         email = telegram_synthetic_email(telegram_id)
@@ -256,7 +280,7 @@ async def authenticate_telegram(
             email=email,
             telegram_id=telegram_id,
             full_name=display_name,
-            avatar_url=data.photo_url,
+            avatar_url=photo_url,
             password_hash=None,
             is_active=True,
         )
@@ -264,8 +288,8 @@ async def authenticate_telegram(
     else:
         if display_name and not user.full_name:
             user.full_name = display_name
-        if data.photo_url:
-            user.avatar_url = data.photo_url
+        if photo_url:
+            user.avatar_url = photo_url
 
     if not user.is_active:
         raise UnauthorizedError("Account is disabled")

@@ -91,6 +91,25 @@ class TelegramAuthRequest(BaseModel):
     hash: str
 
 
+class TelegramBotLoginStartRead(BaseModel):
+    code: str
+    # https://t.me/<bot>?start=… — works with or without the Telegram app.
+    url: str
+    # tg://resolve?… — opens the Telegram app directly when installed.
+    app_url: str
+    expires_in: int
+
+
+class TelegramBotLoginPollBody(BaseModel):
+    code: str
+
+
+class TelegramBotLoginPollRead(BaseModel):
+    # pending → started (tapped Start) → confirmed (token included)
+    status: str
+    access_token: str | None = None
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"

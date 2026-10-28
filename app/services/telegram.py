@@ -65,6 +65,22 @@ async def send_telegram_message(text: str) -> None:
         logger.exception("Failed to send Telegram ops alert")
 
 
+async def call_bot_api(method: str, payload: dict) -> bool:
+    """Call a Bot API method (sendMessage, editMessageText, …). Never raises."""
+    token = settings.telegram_bot_token.strip()
+    if not token:
+        return False
+    client = _get_telegram_client()
+    try:
+        res = await client.post(f"https://api.telegram.org/bot{token}/{method}", json=payload)
+        res.raise_for_status()
+        return True
+    except httpx.HTTPError:
+        # Never log the URL: it carries the bot token.
+        logger.warning("Telegram Bot API %s failed", method)
+        return False
+
+
 async def build_payment_succeeded_message(
     db: AsyncSession,
     intent: PaymentIntent,
