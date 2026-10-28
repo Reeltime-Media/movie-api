@@ -200,9 +200,7 @@ async def admin_create_home_section_item(
         raise NotFoundError("Home section not found")
 
     try:
-        await validate_item_add(
-            db, section, item_kind=data.item_kind, ref_id=data.ref_id
-        )
+        await validate_item_add(db, section, item_kind=data.item_kind, ref_id=data.ref_id)
     except ValueError as exc:
         message = str(exc)
         if "not found" in message.lower():

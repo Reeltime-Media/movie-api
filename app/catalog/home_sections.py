@@ -13,8 +13,8 @@ from app.models.home_section import HomeSection, HomeSectionItem
 from app.models.promotion_banner import PromotionBanner
 from app.models.series import Series
 from app.models.tv_channel import TVChannel
-from app.schemas.content import ContentListItemRead
 from app.schemas.channel import TVChannelPublicRead
+from app.schemas.content import ContentListItemRead
 from app.schemas.home_section import (
     ITEM_KINDS_BY_TYPE,
     SECTION_CAPS,
@@ -40,8 +40,7 @@ async def list_sections_admin(db: AsyncSession) -> list[HomeSectionAdminRead]:
         return []
 
     counts_result = await db.execute(
-        select(HomeSectionItem.section_id, func.count())
-        .group_by(HomeSectionItem.section_id)
+        select(HomeSectionItem.section_id, func.count()).group_by(HomeSectionItem.section_id)
     )
     counts = {row[0]: int(row[1]) for row in counts_result.all()}
 
@@ -65,9 +64,7 @@ async def get_section_admin(db: AsyncSession, section_id: UUID) -> HomeSectionAd
     return read
 
 
-async def list_section_items_admin(
-    db: AsyncSession, section_id: UUID
-) -> list[HomeSectionItemRead]:
+async def list_section_items_admin(db: AsyncSession, section_id: UUID) -> list[HomeSectionItemRead]:
     result = await db.execute(
         select(HomeSectionItem)
         .where(HomeSectionItem.section_id == section_id)
