@@ -71,8 +71,26 @@ def test_add_allows_tenth_pick():
 
 def test_is_free_today_true_and_false():
     content_id = uuid.uuid4()
-    assert asyncio.run(is_free_today(FakeDb([FakeResult(scalar=uuid.uuid4())]), content_id))
-    assert not asyncio.run(is_free_today(FakeDb([FakeResult(scalar=None)]), content_id))
+    # First execute: home_sections free_today ids; second: legacy free_today_items.
+    assert asyncio.run(
+        is_free_today(
+            FakeDb([FakeResult(items=[]), FakeResult(scalar=uuid.uuid4())]),
+            content_id,
+        )
+    )
+    assert not asyncio.run(
+        is_free_today(
+            FakeDb([FakeResult(items=[]), FakeResult(scalar=None)]),
+            content_id,
+        )
+    )
+    # Listed only via home section items.
+    assert asyncio.run(
+        is_free_today(
+            FakeDb([FakeResult(items=[content_id])]),
+            content_id,
+        )
+    )
 
 
 def test_enrich_sets_movie_fields():
