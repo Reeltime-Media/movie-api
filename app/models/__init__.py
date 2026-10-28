@@ -9,6 +9,7 @@ from app.models.free_today_item import FreeTodayItem
 from app.models.genre import Genre
 from app.models.genre_rail_item import GenreRailItem
 from app.models.hero_featured_item import HeroFeaturedItem
+from app.models.home_section import HomeSection, HomeSectionItem
 from app.models.password_reset_token import PasswordResetToken
 from app.models.payment_approval import PaymentApproval
 from app.models.payment_intent import PaymentIntent
@@ -54,6 +55,8 @@ __all__ = [
     "DevicePairingCode",
     "FreeTodayItem",
     "GenreRailItem",
+    "HomeSection",
+    "HomeSectionItem",
     "PasswordResetToken",
     "PaymentApproval",
     "PromotionBanner",

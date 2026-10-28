@@ -7,6 +7,7 @@ from app.routers.admin import (
     free_today,
     genre_rails,
     hero_featured,
+    home_sections,
     movies,
     payments,
     playback,
@@ -36,3 +37,4 @@ router.include_router(hero_featured.router)
 router.include_router(free_today.router)
 router.include_router(coming_soon.router)
 router.include_router(genre_rails.router)
+router.include_router(home_sections.router)

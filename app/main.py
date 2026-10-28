@@ -33,6 +33,7 @@ from app.routers import (
     genres,
     health,
     hero_featured,
+    home_sections,
     library,
     movies,
     payments,
@@ -97,6 +98,7 @@ def create_app() -> FastAPI:
     app.include_router(free_today.router)
     app.include_router(coming_soon.router)
     app.include_router(genre_rails.router)
+    app.include_router(home_sections.router)
     app.include_router(playback.router)
     app.include_router(purchases.router)
     app.include_router(subscriptions.router)
