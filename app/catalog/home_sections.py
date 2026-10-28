@@ -466,8 +466,7 @@ async def resolve_public_sections(db: AsyncSession) -> list[HomeSectionPublicRea
                     .limit(cap or 12)
                 )
                 series_items = [
-                    SeriesListItemRead.model_validate(s)
-                    for s in series_fallback.scalars().all()
+                    SeriesListItemRead.model_validate(s) for s in series_fallback.scalars().all()
                 ]
             payload.series = series_items
             public.append(payload)
