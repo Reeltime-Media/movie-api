@@ -93,20 +93,24 @@ async def enrich_admin_items(
     banners: dict[UUID, PromotionBanner] = {}
 
     if movie_ids:
-        r = await db.execute(select(Content).where(Content.id.in_(movie_ids)))
-        movies = {m.id: m for m in r.scalars().all()}
+        movie_result = await db.execute(select(Content).where(Content.id.in_(movie_ids)))
+        movies = {m.id: m for m in movie_result.scalars().all()}
     if series_ids:
-        r = await db.execute(select(Series).where(Series.id.in_(series_ids)))
-        series_map = {s.id: s for s in r.scalars().all()}
+        series_result = await db.execute(select(Series).where(Series.id.in_(series_ids)))
+        series_map = {s.id: s for s in series_result.scalars().all()}
     if channel_ids:
-        r = await db.execute(select(TVChannel).where(TVChannel.id.in_(channel_ids)))
-        channels = {c.id: c for c in r.scalars().all()}
+        channel_result = await db.execute(select(TVChannel).where(TVChannel.id.in_(channel_ids)))
+        channels = {c.id: c for c in channel_result.scalars().all()}
     if hero_ids:
-        r = await db.execute(select(HeroFeaturedItem).where(HeroFeaturedItem.id.in_(hero_ids)))
-        heroes = {h.id: h for h in r.scalars().all()}
+        hero_result = await db.execute(
+            select(HeroFeaturedItem).where(HeroFeaturedItem.id.in_(hero_ids))
+        )
+        heroes = {h.id: h for h in hero_result.scalars().all()}
     if banner_ids:
-        r = await db.execute(select(PromotionBanner).where(PromotionBanner.id.in_(banner_ids)))
-        banners = {b.id: b for b in r.scalars().all()}
+        banner_result = await db.execute(
+            select(PromotionBanner).where(PromotionBanner.id.in_(banner_ids))
+        )
+        banners = {b.id: b for b in banner_result.scalars().all()}
 
     enriched: list[HomeSectionItemRead] = []
     for item in items:
@@ -285,7 +289,7 @@ async def resolve_public_sections(db: AsyncSession) -> list[HomeSectionPublicRea
     if movie_ids:
         from app.catalog.columns import content_list_load_options
 
-        r = await db.execute(
+        movies_result = await db.execute(
             select(Content)
             .options(content_list_load_options())
             .where(
@@ -294,34 +298,38 @@ async def resolve_public_sections(db: AsyncSession) -> list[HomeSectionPublicRea
                 Content.is_published.is_(True),
             )
         )
-        movies_by_id = {m.id: m for m in r.scalars().all()}
+        movies_by_id = {m.id: m for m in movies_result.scalars().all()}
 
     if series_ids:
         from app.catalog.columns import series_list_load_options
 
-        r = await db.execute(
+        series_result = await db.execute(
             select(Series)
             .options(series_list_load_options())
             .where(Series.id.in_(series_ids), Series.is_published.is_(True))
         )
-        series_by_id = {s.id: s for s in r.scalars().all()}
+        series_by_id = {s.id: s for s in series_result.scalars().all()}
 
     if channel_ids:
-        r = await db.execute(
+        channels_result = await db.execute(
             select(TVChannel).where(
                 TVChannel.id.in_(channel_ids),
                 TVChannel.is_published.is_(True),
             )
         )
-        channels_by_id = {c.id: c for c in r.scalars().all()}
+        channels_by_id = {c.id: c for c in channels_result.scalars().all()}
 
     if hero_ids:
-        r = await db.execute(select(HeroFeaturedItem).where(HeroFeaturedItem.id.in_(hero_ids)))
-        heroes_by_id = {h.id: h for h in r.scalars().all()}
+        heroes_result = await db.execute(
+            select(HeroFeaturedItem).where(HeroFeaturedItem.id.in_(hero_ids))
+        )
+        heroes_by_id = {h.id: h for h in heroes_result.scalars().all()}
 
     if banner_ids:
-        r = await db.execute(select(PromotionBanner).where(PromotionBanner.id.in_(banner_ids)))
-        banners_by_id = {b.id: b for b in r.scalars().all()}
+        banners_result = await db.execute(
+            select(PromotionBanner).where(PromotionBanner.id.in_(banner_ids))
+        )
+        banners_by_id = {b.id: b for b in banners_result.scalars().all()}
 
     # Hero slides need movie/series batch for _build_slide when resolving linked heroes.
     from app.catalog.hero_featured import _build_slide
@@ -337,7 +345,7 @@ async def resolve_public_sections(db: AsyncSession) -> list[HomeSectionPublicRea
     if hero_movie_ids:
         from app.catalog.columns import content_list_load_options
 
-        r = await db.execute(
+        hero_movies_result = await db.execute(
             select(Content)
             .options(content_list_load_options())
             .where(
@@ -346,16 +354,16 @@ async def resolve_public_sections(db: AsyncSession) -> list[HomeSectionPublicRea
                 Content.is_published.is_(True),
             )
         )
-        hero_movies = {m.id: m for m in r.scalars().all()}
+        hero_movies = {m.id: m for m in hero_movies_result.scalars().all()}
     if hero_series_ids:
         from app.catalog.columns import series_hero_load_options
 
-        r = await db.execute(
+        hero_series_result = await db.execute(
             select(Series)
             .options(series_hero_load_options())
             .where(Series.id.in_(hero_series_ids), Series.is_published.is_(True))
         )
-        hero_series = {s.id: s for s in r.scalars().all()}
+        hero_series = {s.id: s for s in hero_series_result.scalars().all()}
 
     public: list[HomeSectionPublicRead] = []
     for section in sections:
@@ -424,37 +432,37 @@ async def resolve_public_sections(db: AsyncSession) -> list[HomeSectionPublicRea
             continue
 
         if section.type == "series":
-            series_list = []
+            series_items: list[SeriesListItemRead] = []
             for item in rows:
                 series = series_by_id.get(item.ref_id)
                 if not series:
                     continue
-                series_list.append(SeriesListItemRead.model_validate(series))
-                if cap is not None and len(series_list) >= cap:
+                series_items.append(SeriesListItemRead.model_validate(series))
+                if cap is not None and len(series_items) >= cap:
                     break
-            payload.series = series_list
+            payload.series = series_items
             public.append(payload)
             continue
 
         # movie-bearing rails (and custom may mix — movies first then series in kind order)
-        movies: list[ContentListItemRead] = []
-        series_list: list[SeriesListItemRead] = []
+        movie_items: list[ContentListItemRead] = []
+        mixed_series: list[SeriesListItemRead] = []
         for item in rows:
             if item.item_kind == "movie":
                 movie = movies_by_id.get(item.ref_id)
                 if not movie:
                     continue
-                movies.append(ContentListItemRead.model_validate(movie))
+                movie_items.append(ContentListItemRead.model_validate(movie))
             elif item.item_kind == "series":
                 series = series_by_id.get(item.ref_id)
                 if not series:
                     continue
-                series_list.append(SeriesListItemRead.model_validate(series))
-            total = len(movies) + len(series_list)
+                mixed_series.append(SeriesListItemRead.model_validate(series))
+            total = len(movie_items) + len(mixed_series)
             if cap is not None and total >= cap:
                 break
-        payload.movies = movies
-        payload.series = series_list
+        payload.movies = movie_items
+        payload.series = mixed_series
         public.append(payload)
 
     return public
