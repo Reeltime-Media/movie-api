@@ -427,6 +427,21 @@ async def resolve_public_sections(db: AsyncSession) -> list[HomeSectionPublicRea
                 channels.append(TVChannelPublicRead.model_validate(channel))
                 if cap is not None and len(channels) >= cap:
                     break
+            if not channels:
+                # Empty CMS TV rail → live-first published channels (same as old home).
+                tv_result = await db.execute(
+                    select(TVChannel)
+                    .where(TVChannel.is_published.is_(True))
+                    .order_by(
+                        (TVChannel.status == "live").desc(),
+                        TVChannel.sort_order.asc(),
+                        TVChannel.name.asc(),
+                    )
+                    .limit(cap or 12)
+                )
+                channels = [
+                    TVChannelPublicRead.model_validate(c) for c in tv_result.scalars().all()
+                ]
             payload.channels = channels
             public.append(payload)
             continue
@@ -440,6 +455,20 @@ async def resolve_public_sections(db: AsyncSession) -> list[HomeSectionPublicRea
                 series_items.append(SeriesListItemRead.model_validate(series))
                 if cap is not None and len(series_items) >= cap:
                     break
+            if not series_items:
+                from app.catalog.columns import series_list_load_options
+
+                series_fallback = await db.execute(
+                    select(Series)
+                    .options(series_list_load_options())
+                    .where(Series.is_published.is_(True))
+                    .order_by(Series.created_at.desc())
+                    .limit(cap or 12)
+                )
+                series_items = [
+                    SeriesListItemRead.model_validate(s)
+                    for s in series_fallback.scalars().all()
+                ]
             payload.series = series_items
             public.append(payload)
             continue
@@ -461,6 +490,43 @@ async def resolve_public_sections(db: AsyncSession) -> list[HomeSectionPublicRea
             total = len(movie_items) + len(mixed_series)
             if cap is not None and total >= cap:
                 break
+
+        if not movie_items and not mixed_series:
+            if section.type == "free_today":
+                from app.catalog.free_today import resolve_free_today_movies
+
+                movie_items = [
+                    ContentListItemRead.model_validate(m)
+                    for m in await resolve_free_today_movies(db)
+                ]
+            elif section.type == "coming_soon":
+                from app.catalog.coming_soon import resolve_coming_soon_movies
+
+                movie_items = [
+                    ContentListItemRead.model_validate(m)
+                    for m in await resolve_coming_soon_movies(db)
+                ]
+            elif section.type in ("trending", "most_watched"):
+                from app.catalog.columns import content_list_load_options
+
+                catalog = await db.execute(
+                    select(Content)
+                    .options(content_list_load_options())
+                    .where(Content.type == "single", Content.is_published.is_(True))
+                    .order_by(Content.created_at.desc())
+                    .limit((cap or 12) + 10)
+                )
+                catalog_movies = list(catalog.scalars().all())
+                if section.type == "most_watched":
+                    movie_items = [
+                        ContentListItemRead.model_validate(m) for m in catalog_movies[:10]
+                    ]
+                else:
+                    movie_items = [
+                        ContentListItemRead.model_validate(m)
+                        for m in catalog_movies[10 : 10 + (cap or 12)]
+                    ]
+
         payload.movies = movie_items
         payload.series = mixed_series
         public.append(payload)
