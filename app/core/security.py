@@ -62,6 +62,20 @@ def decode_access_token(token: str) -> dict:
         raise UnauthorizedError("Could not validate credentials")
 
 
+def decode_expired_access_token(token: str) -> dict:
+    """Check the signature but not `exp`. Only for POST /auth/refresh, where the
+    server session decides whether this token may still be exchanged."""
+    try:
+        return jwt.decode(
+            token,
+            settings.secret_key,
+            algorithms=[settings.algorithm],
+            options={"verify_exp": False},
+        )
+    except PyJWTError:
+        raise UnauthorizedError("Could not validate credentials")
+
+
 def create_playback_token(content_id: UUID, expires_in: int) -> str:
     """Short-lived token scoped to a single content id, minted only after an
     entitlement check. It gates the HLS playlist endpoints so the user's main

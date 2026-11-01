@@ -57,11 +57,15 @@ class Settings(BaseSettings):
     secret_key: str
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 60  # 1 hour; logout still revokes via session
+    # How long after a session lapses POST /auth/refresh can still revive it.
+    session_refresh_grace_days: int = 30
     # Public frontend URL(s) for payment success redirects (comma-separated; falls back to CORS_ORIGINS)
     app_public_url: str = ""
 
     # Google Sign-In (OAuth client ID from Google Cloud Console)
     google_client_id: str = ""  # env: GOOGLE_CLIENT_ID
+    # Sign in with Apple audience: the iOS bundle ID (public, not a secret).
+    apple_client_id: str = "com.reeltimemedia.movieMobile"  # env: APPLE_CLIENT_ID
 
     # Database — Supabase PostgreSQL
     database_url: str  # postgresql+asyncpg://... (direct host; may be IPv6-only)

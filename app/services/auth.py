@@ -5,6 +5,7 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode
 
+import jwt
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 from sqlalchemy import delete, select
@@ -30,6 +31,8 @@ from app.services.session import create_session, revoke_all_user_sessions
 settings = get_settings()
 
 TELEGRAM_SYNTHETIC_EMAIL_DOMAIN = "users.reeltime.fun"
+APPLE_ISSUER = "https://appleid.apple.com"
+_apple_jwks = jwt.PyJWKClient(f"{APPLE_ISSUER}/auth/keys")
 
 
 async def register_user(db: AsyncSession, data: UserCreate, guest_id: str | None = None) -> User:
@@ -142,6 +145,85 @@ async def authenticate_google(
 
     if picture:
         user.avatar_url = picture
+    if name and not user.full_name:
+        user.full_name = name
+
+    await db.flush()
+    await claim_guest_purchases(db, user.id, guest_id)
+    session = await create_session(db, user.id, user_agent)
+    await db.commit()
+    await db.refresh(user)
+    token = create_access_token(user.id, user.role, session.id)
+    return user, token
+
+
+def _verify_apple_identity_token(token: str, raw_nonce: str) -> dict:
+    if not settings.apple_client_id:
+        raise UnauthorizedError("Apple sign-in is not configured")
+    try:
+        claims = jwt.decode(
+            token,
+            _apple_jwks.get_signing_key_from_jwt(token).key,
+            algorithms=["RS256"],
+            audience=settings.apple_client_id,
+            issuer=APPLE_ISSUER,
+        )
+    except jwt.PyJWTError as exc:
+        raise UnauthorizedError("Invalid Apple token") from exc
+    expected = hashlib.sha256(raw_nonce.encode()).hexdigest()
+    if not hmac.compare_digest(str(claims.get("nonce", "")), expected):
+        raise UnauthorizedError("Invalid Apple token")
+    return claims
+
+
+async def authenticate_apple(
+    db: AsyncSession,
+    identity_token: str,
+    raw_nonce: str,
+    *,
+    full_name: str | None = None,
+    user_agent: str | None = None,
+    guest_id: str | None = None,
+) -> tuple[User, str]:
+    claims = await asyncio.to_thread(_verify_apple_identity_token, identity_token, raw_nonce)
+
+    apple_sub = claims.get("sub")
+    if not apple_sub:
+        raise UnauthorizedError("Apple account is missing required profile data")
+    name = (full_name or "").strip() or None
+
+    result = await db.execute(select(User).where(User.apple_id == apple_sub))
+    user = result.scalar_one_or_none()
+
+    if not user:
+        # Apple sends the email on the first sign-in only, and as a string or
+        # a bool depending on the token.
+        email = claims.get("email")
+        if not email:
+            raise UnauthorizedError("Apple account is missing required profile data")
+        if str(claims.get("email_verified")).lower() != "true":
+            raise UnauthorizedError("Apple email is not verified")
+        email = email.lower()
+
+        result = await db.execute(select(User).where(User.email == email))
+        user = result.scalar_one_or_none()
+        if user:
+            if user.apple_id and user.apple_id != apple_sub:
+                raise ConflictError("Email is linked to a different Apple account")
+            user.apple_id = apple_sub
+        else:
+            user = User(
+                email=email,
+                apple_id=apple_sub,
+                full_name=name,
+                password_hash=None,
+                is_active=True,
+                role="user",
+            )
+            db.add(user)
+
+    if not user.is_active:
+        raise UnauthorizedError("Account is disabled")
     if name and not user.full_name:
         user.full_name = name
 

@@ -1,9 +1,11 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Form, Request, Response
+from fastapi import APIRouter, Depends, Form, Request, Response
+from fastapi.security import HTTPAuthorizationCredentials
 
 from app.core.guest import clear_guest_cookie, get_guest_id
 from app.dependencies import CurrentSessionId, CurrentUser, DBSession
+from app.dependencies.auth import bearer_scheme
 from app.rate_limit import limiter
 from app.schemas.device_pairing import (
     DevicePairingConfirmBody,
@@ -12,6 +14,7 @@ from app.schemas.device_pairing import (
 )
 from app.schemas.tv_access_code import TvAccessLoginRequest
 from app.schemas.user import (
+    AppleAuthRequest,
     ForgotPasswordRequest,
     GoogleAuthRequest,
     ResetPasswordRequest,
@@ -26,6 +29,7 @@ from app.schemas.user import (
     user_to_read,
 )
 from app.services.auth import (
+    authenticate_apple,
     authenticate_google,
     authenticate_telegram,
     authenticate_user,
@@ -35,7 +39,7 @@ from app.services.auth import (
     start_telegram_auth,
 )
 from app.services.device_pairing import confirm_pairing, poll_pairing, start_pairing
-from app.services.session import revoke_session
+from app.services.session import refresh_session, revoke_session
 from app.services.telegram_bot_login import poll_bot_login, start_bot_login
 from app.services.tv_access_codes import login_with_tv_access_code
 
@@ -82,6 +86,33 @@ async def login_google(
     if guest_id:
         clear_guest_cookie(response)
     return TokenResponse(access_token=token)
+
+
+@router.post("/apple", response_model=TokenResponse)
+@limiter.limit("20/minute")
+async def login_apple(request: Request, response: Response, data: AppleAuthRequest, db: DBSession):
+    guest_id = get_guest_id(request)
+    _, token = await authenticate_apple(
+        db,
+        data.identity_token,
+        data.nonce,
+        full_name=data.full_name,
+        user_agent=request.headers.get("user-agent"),
+        guest_id=guest_id,
+    )
+    if guest_id:
+        clear_guest_cookie(response)
+    return TokenResponse(access_token=token)
+
+
+@router.post("/refresh", response_model=TokenResponse)
+@limiter.limit("30/minute")
+async def refresh(
+    request: Request,
+    credentials: Annotated[HTTPAuthorizationCredentials, Depends(bearer_scheme)],
+    db: DBSession,
+):
+    return TokenResponse(access_token=await refresh_session(db, credentials.credentials))
 
 
 @router.post("/telegram/start", response_model=TelegramAuthStartRead)

@@ -12,6 +12,7 @@ from app.rate_limit import limiter
 from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
 from app.schemas.session import SessionRead, session_to_read
 from app.schemas.user import UserRead, UserStatusUpdate, UserUpdate, user_to_read
+from app.services.account import delete_user_account
 from app.services.pagination import paginate_query
 from app.services.session import list_active_sessions, revoke_session
 
@@ -59,6 +60,12 @@ async def list_my_sessions(
 @router.delete("/me/sessions/{session_id}", status_code=204)
 async def revoke_my_session(session_id: uuid.UUID, current_user: CurrentUser, db: DBSession):
     await revoke_session(db, current_user.id, session_id)
+
+
+@router.delete("/me", status_code=204)
+@limiter.limit("5/hour")
+async def delete_me(request: Request, current_user: CurrentUser, db: DBSession):
+    await delete_user_account(db, current_user)
 
 
 @router.get("", response_model=PaginatedResponse[UserRead])

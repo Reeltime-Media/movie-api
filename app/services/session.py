@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.core.exceptions import ForbiddenError, NotFoundError, UnauthorizedError
+from app.core.security import create_access_token, decode_expired_access_token
 from app.models.session import Session
 from app.models.user import User
 
@@ -132,6 +133,47 @@ async def revoke_session(db: AsyncSession, user_id: uuid.UUID, session_id: uuid.
         raise NotFoundError("Session not found")
     session.revoked_at = datetime.now(UTC)
     await db.commit()
+
+
+async def refresh_session(db: AsyncSession, token: str) -> str:
+    """Exchange a token whose session is still alive for a new one.
+
+    The JWT may already be expired; the session row decides. A revoked session
+    never refreshes, and one that lapsed past the grace window needs a login.
+    """
+    payload = decode_expired_access_token(token)
+    try:
+        session_id = uuid.UUID(payload.get("sid") or "")
+        user_id = uuid.UUID(payload.get("sub") or "")
+    except ValueError:
+        raise UnauthorizedError("Invalid token payload")
+
+    now = datetime.now(UTC)
+    result = await db.execute(
+        select(Session).where(Session.id == session_id, Session.revoked_at.is_(None))
+    )
+    session = result.scalar_one_or_none()
+    if not session or session.user_id != user_id:
+        raise UnauthorizedError("Session has been revoked. Please log in again.")
+    grace = timedelta(days=settings.session_refresh_grace_days)
+    if session.expires_at + grace <= now:
+        raise UnauthorizedError("Session has expired. Please log in again.")
+
+    # Locked like create_session, so a lapsed session and a new login can't
+    # both take the last device slot.
+    locked = await db.execute(select(User).where(User.id == user_id).with_for_update())
+    user = locked.scalar_one_or_none()
+    if not user or not user.is_active:
+        raise UnauthorizedError("User not found or inactive")
+    if (
+        session.expires_at <= now
+        and await _count_active_sessions(db, user_id) >= settings.max_active_sessions_per_user
+    ):
+        raise UnauthorizedError("Session has expired. Please log in again.")
+
+    session.expires_at = now + timedelta(minutes=settings.access_token_expire_minutes)
+    await db.commit()
+    return create_access_token(user.id, user.role, session.id)
 
 
 async def revoke_all_user_sessions(db: AsyncSession, user_id: uuid.UUID) -> None:

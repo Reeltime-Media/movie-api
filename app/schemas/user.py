@@ -72,6 +72,15 @@ class GoogleAuthRequest(BaseModel):
     id_token: str
 
 
+class AppleAuthRequest(BaseModel):
+    identity_token: str
+    # The value the app hashed into Apple's request; proves this token was
+    # issued for this sign-in and is not a replay.
+    nonce: str = Field(min_length=16, max_length=128)
+    # Apple only shares the name with the app, once, on the first sign-in.
+    full_name: str | None = Field(default=None, max_length=200)
+
+
 class TelegramAuthStartRead(BaseModel):
     nonce: str
     url: str

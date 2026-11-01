@@ -16,6 +16,7 @@ from app.schemas.comment import (
 )
 from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
 from app.services.comments import (
+    block_user,
     ensure_commentable_movie,
     get_comment_or_404,
     list_comment_threads,
@@ -116,3 +117,15 @@ async def report_comment_endpoint(
     comment = await get_comment_or_404(db, comment_id)
     await ensure_commentable_movie(db, comment.content_id)
     await report_comment(db, comment=comment, user_id=current_user.id)
+
+
+@router.post("/{comment_id}/block-author", status_code=204)
+@limiter.limit("10/minute")
+async def block_comment_author(
+    request: Request,
+    comment_id: uuid.UUID,
+    db: DBSession,
+    current_user: CurrentUser,
+):
+    comment = await get_comment_or_404(db, comment_id)
+    await block_user(db, blocker_id=current_user.id, blocked_id=comment.user_id)

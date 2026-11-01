@@ -4,14 +4,16 @@ from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import ConflictError, NotFoundError
+from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
 from app.models.comment import Comment
 from app.models.comment_report import CommentReport
 from app.models.comment_vote import CommentVote
 from app.models.content import Content
 from app.models.user import User
+from app.models.user_block import UserBlock
 from app.schemas.comment import CommentAuthorRead, CommentRead, CommentThreadRead
 
 MAX_REPLY_DEPTH = 8
@@ -185,20 +187,33 @@ async def load_vote_and_report_maps(
     return scores, user_votes, user_reported
 
 
+async def blocked_author_ids(db: AsyncSession, blocker_id: uuid.UUID) -> set[uuid.UUID]:
+    result = await db.execute(
+        select(UserBlock.blocked_id).where(UserBlock.blocker_id == blocker_id)
+    )
+    return set(result.scalars().all())
+
+
 async def fetch_thread_rows_for_roots(
-    db: AsyncSession, content_id: uuid.UUID, root_ids: list[uuid.UUID]
+    db: AsyncSession,
+    content_id: uuid.UUID,
+    root_ids: list[uuid.UUID],
+    *,
+    hidden_author_ids: set[uuid.UUID] | None = None,
 ) -> list[tuple[Comment, User]]:
     if not root_ids:
         return []
+
+    hidden = hidden_author_ids or set()
+    visible = [Comment.deleted_at.is_(None)]
+    if hidden:
+        visible.append(Comment.user_id.not_in(hidden))
 
     all_ids = set(root_ids)
     frontier = list(root_ids)
     while frontier:
         child_result = await db.execute(
-            select(Comment.id).where(
-                Comment.parent_id.in_(frontier),
-                Comment.deleted_at.is_(None),
-            )
+            select(Comment.id).where(Comment.parent_id.in_(frontier), *visible)
         )
         child_ids = [row[0] for row in child_result.all()]
         frontier = [cid for cid in child_ids if cid not in all_ids]
@@ -207,10 +222,7 @@ async def fetch_thread_rows_for_roots(
     result = await db.execute(
         select(Comment, User)
         .join(User, Comment.user_id == User.id)
-        .where(
-            Comment.id.in_(all_ids),
-            Comment.deleted_at.is_(None),
-        )
+        .where(Comment.id.in_(all_ids), *visible)
     )
     return list(result.all())
 
@@ -223,6 +235,7 @@ async def list_comment_threads(
     page: int,
     page_size: int,
 ) -> tuple[list[CommentThreadRead], int]:
+    hidden = await blocked_author_ids(db, current_user_id) if current_user_id else set()
     roots_stmt = (
         select(Comment.id)
         .where(
@@ -232,13 +245,15 @@ async def list_comment_threads(
         )
         .order_by(Comment.created_at.desc())
     )
+    if hidden:
+        roots_stmt = roots_stmt.where(Comment.user_id.not_in(hidden))
     count_stmt = select(func.count()).select_from(roots_stmt.subquery())
     total = await db.scalar(count_stmt) or 0
 
     root_result = await db.execute(roots_stmt.offset((page - 1) * page_size).limit(page_size))
     root_ids = [row[0] for row in root_result.all()]
 
-    rows = await fetch_thread_rows_for_roots(db, content_id, root_ids)
+    rows = await fetch_thread_rows_for_roots(db, content_id, root_ids, hidden_author_ids=hidden)
     comment_ids = [comment.id for comment, _ in rows]
     scores, user_votes, user_reported = await load_vote_and_report_maps(
         db, comment_ids, current_user_id
@@ -322,4 +337,20 @@ async def report_comment(
         raise ConflictError("Comment already reported")
 
     db.add(CommentReport(user_id=user_id, comment_id=comment.id))
+    await db.commit()
+
+
+async def block_user(
+    db: AsyncSession,
+    *,
+    blocker_id: uuid.UUID,
+    blocked_id: uuid.UUID,
+) -> None:
+    if blocker_id == blocked_id:
+        raise ForbiddenError("You cannot block yourself")
+    await db.execute(
+        insert(UserBlock)
+        .values(blocker_id=blocker_id, blocked_id=blocked_id)
+        .on_conflict_do_nothing()
+    )
     await db.commit()

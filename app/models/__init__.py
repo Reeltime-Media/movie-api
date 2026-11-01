@@ -28,6 +28,7 @@ from app.models.transcode_job import TranscodeJob
 from app.models.tv_access_code import TvAccessCode
 from app.models.tv_channel import TVChannel
 from app.models.user import User
+from app.models.user_block import UserBlock
 from app.models.watch_progress import WatchProgress
 from app.models.webhook_event import WebhookEvent
 
@@ -36,6 +37,7 @@ __all__ = [
     "CommentReport",
     "CommentVote",
     "User",
+    "UserBlock",
     "Series",
     "Content",
     "Favorite",
