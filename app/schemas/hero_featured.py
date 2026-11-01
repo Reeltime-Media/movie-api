@@ -116,6 +116,10 @@ class HeroFeaturedItemUpdate(BaseModel):
         return _validate_youtube_url(value)
 
 
+class HeroFeaturedReorder(BaseModel):
+    ids: list[UUID] = Field(min_length=1)
+
+
 class HeroFeaturedItemRead(BaseModel):
     id: UUID
     content_type: str

@@ -11,6 +11,7 @@ from app.schemas.home_section import (
     HomeSectionCreate,
     HomeSectionItemCreate,
     HomeSectionItemRead,
+    HomeSectionItemReorder,
     HomeSectionItemUpdate,
     HomeSectionReorder,
     HomeSectionUpdate,
@@ -19,6 +20,7 @@ from app.services.home_sections import (
     get_section_admin,
     list_section_items_admin,
     list_sections_admin,
+    reorder_section_items,
     reorder_sections,
     validate_item_add,
     validate_section_create,
@@ -81,6 +83,25 @@ async def admin_reorder_home_sections(
     await db.commit()
     await _invalidate()
     return await list_sections_admin(db)
+
+
+@router.put("/home-sections/{section_id}/items/reorder", response_model=HomeSectionAdminRead)
+async def admin_reorder_home_section_items(
+    section_id: uuid.UUID,
+    data: HomeSectionItemReorder,
+    db: DBSession,
+    _: AdminUser,
+):
+    section = await db.get(HomeSection, section_id)
+    if not section:
+        raise NotFoundError("Home section not found")
+    try:
+        await reorder_section_items(db, section_id, data.ids)
+    except ValueError as exc:
+        raise ConflictError(str(exc)) from exc
+    await db.commit()
+    await _invalidate()
+    return await get_section_admin(db, section_id)
 
 
 @router.patch("/home-sections/items/{item_id}", response_model=HomeSectionItemRead)

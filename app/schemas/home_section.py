@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, computed_field, model_validator
 
 from app.schemas.channel import TVChannelPublicRead
 from app.schemas.content import ContentListItemRead
@@ -65,6 +65,20 @@ SECTION_CAPS: dict[str, int] = {
     "banners": 10,
 }
 
+# With nothing picked, resolve_public_sections fills these from the catalog.
+AUTO_FILLED_TYPES = frozenset(
+    {
+        "hero",
+        "banners",
+        "tv",
+        "free_today",
+        "trending",
+        "most_watched",
+        "coming_soon",
+        "series",
+    }
+)
+
 ITEM_KINDS_BY_TYPE: dict[str, frozenset[str]] = {
     "free_today": frozenset({"movie"}),
     "trending": frozenset({"movie"}),
@@ -111,6 +125,10 @@ class HomeSectionReorder(BaseModel):
     ids: list[UUID] = Field(min_length=1)
 
 
+class HomeSectionItemReorder(BaseModel):
+    ids: list[UUID] = Field(min_length=1)
+
+
 class HomeSectionItemCreate(BaseModel):
     item_kind: ItemKind
     ref_id: UUID
@@ -149,6 +167,16 @@ class HomeSectionAdminRead(BaseModel):
     items: list[HomeSectionItemRead] = []
 
     model_config = {"from_attributes": True}
+
+    @computed_field
+    @property
+    def item_limit(self) -> int | None:
+        return SECTION_CAPS.get(self.type)
+
+    @computed_field
+    @property
+    def auto_filled(self) -> bool:
+        return self.type in AUTO_FILLED_TYPES
 
 
 class HomeSectionPublicRead(BaseModel):

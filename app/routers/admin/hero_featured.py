@@ -10,11 +10,17 @@ from app.schemas.hero_featured import (
     HeroFeaturedItemCreate,
     HeroFeaturedItemRead,
     HeroFeaturedItemUpdate,
+    HeroFeaturedReorder,
     HeroUploadStart,
     HeroUploadStartRead,
 )
 from app.services import r2_keys, storage
-from app.services.hero_featured import enrich_admin_hero_items, validate_hero_content
+from app.services.hero_featured import (
+    enrich_admin_hero_items,
+    reorder_hero_items,
+    validate_hero_content,
+)
+from app.services.response_cache import cache_delete
 
 router = APIRouter()
 
@@ -78,6 +84,22 @@ async def create_admin_hero_featured(
     await db.refresh(item)
     enriched = await enrich_admin_hero_items(db, [item])
     return enriched[0]
+
+
+@router.put("/hero-featured/reorder", status_code=204)
+async def reorder_admin_hero_featured(
+    data: HeroFeaturedReorder,
+    db: DBSession,
+    _: AdminUser,
+):
+    try:
+        placements = await reorder_hero_items(db, data.ids)
+    except ValueError as exc:
+        raise ConflictError(str(exc)) from exc
+    await db.commit()
+    for placement in placements:
+        await cache_delete(f"hero:{placement}")
+    await cache_delete("home-sections")
 
 
 @router.patch("/hero-featured/{item_id}", response_model=HeroFeaturedItemRead)

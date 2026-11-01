@@ -53,6 +53,10 @@ class PromotionBannerUpdate(BaseModel):
         return _validate_cta_href(value)
 
 
+class PromotionBannerReorder(BaseModel):
+    ids: list[UUID] = Field(min_length=1)
+
+
 class PromotionBannerRead(BaseModel):
     id: UUID
     title: str

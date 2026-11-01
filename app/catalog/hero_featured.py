@@ -14,6 +14,17 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+async def reorder_hero_items(db: AsyncSession, ids: list[UUID]) -> set[str]:
+    """Apply a slide order, or nothing if any id is wrong. Returns the placements touched."""
+    result = await db.execute(select(HeroFeaturedItem).where(HeroFeaturedItem.id.in_(ids)))
+    by_id = {item.id: item for item in result.scalars().all()}
+    if len(ids) != len(set(ids)) or set(ids) != set(by_id):
+        raise ValueError("These slides changed. Refresh and try again.")
+    for index, item_id in enumerate(ids):
+        by_id[item_id].sort_order = index
+    return {item.placement for item in by_id.values()}
+
+
 async def list_active_hero_items(
     db: AsyncSession,
     *,

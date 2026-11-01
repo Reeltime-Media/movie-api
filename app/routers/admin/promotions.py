@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import ConflictError, NotFoundError
 from app.dependencies import AdminUser, DBSession
 from app.models.promotion_banner import PromotionBanner
 from app.schemas.promotion_banner import (
@@ -11,10 +11,13 @@ from app.schemas.promotion_banner import (
     PromotionBannerImageStart,
     PromotionBannerImageStartRead,
     PromotionBannerRead,
+    PromotionBannerReorder,
     PromotionBannerUpdate,
 )
 from app.services import r2_keys, storage
 from app.services.image_process import optimize_r2_image
+from app.services.promotion_banners import reorder_promotion_banners
+from app.services.response_cache import cache_delete
 
 router = APIRouter()
 
@@ -57,6 +60,22 @@ async def create_admin_promotion_banner(
     await db.commit()
     await db.refresh(banner)
     return banner
+
+
+@router.put("/promotion-banners/reorder", status_code=204)
+async def reorder_admin_promotion_banners(
+    data: PromotionBannerReorder,
+    db: DBSession,
+    _: AdminUser,
+):
+    try:
+        placements = await reorder_promotion_banners(db, data.ids)
+    except ValueError as exc:
+        raise ConflictError(str(exc)) from exc
+    await db.commit()
+    for placement in placements:
+        await cache_delete(f"promos:{placement}")
+    await cache_delete("home-sections")
 
 
 @router.patch("/promotion-banners/{banner_id}", response_model=PromotionBannerRead)

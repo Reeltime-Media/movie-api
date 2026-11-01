@@ -239,6 +239,18 @@ async def reorder_sections(db: AsyncSession, ids: list[UUID]) -> None:
         by_id[section_id].sort_order = index
 
 
+async def reorder_section_items(db: AsyncSession, section_id: UUID, ids: list[UUID]) -> None:
+    """Apply a full rail order, or nothing if it no longer matches the rail."""
+    result = await db.execute(
+        select(HomeSectionItem).where(HomeSectionItem.section_id == section_id)
+    )
+    by_id = {item.id: item for item in result.scalars().all()}
+    if len(ids) != len(set(ids)) or set(ids) != set(by_id):
+        raise ValueError("This rail changed. Refresh and try again.")
+    for index, item_id in enumerate(ids):
+        by_id[item_id].sort_order = index
+
+
 async def free_today_content_ids_from_sections(db: AsyncSession) -> set[UUID]:
     """Content IDs on a visible free_today home section."""
     result = await db.execute(
