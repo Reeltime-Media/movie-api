@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, computed_field, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from app.schemas.channel import TVChannelPublicRead
 from app.schemas.content import ContentListItemRead
@@ -165,18 +165,16 @@ class HomeSectionAdminRead(BaseModel):
     updated_at: datetime
     item_count: int = 0
     items: list[HomeSectionItemRead] = []
+    item_limit: int | None = None
+    auto_filled: bool = False
 
     model_config = {"from_attributes": True}
 
-    @computed_field
-    @property
-    def item_limit(self) -> int | None:
-        return SECTION_CAPS.get(self.type)
-
-    @computed_field
-    @property
-    def auto_filled(self) -> bool:
-        return self.type in AUTO_FILLED_TYPES
+    @model_validator(mode="after")
+    def apply_type_rules(self) -> "HomeSectionAdminRead":
+        self.item_limit = SECTION_CAPS.get(self.type)
+        self.auto_filled = self.type in AUTO_FILLED_TYPES
+        return self
 
 
 class HomeSectionPublicRead(BaseModel):
