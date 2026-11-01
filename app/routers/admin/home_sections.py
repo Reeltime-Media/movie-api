@@ -23,6 +23,7 @@ from app.services.home_sections import (
     reorder_section_items,
     reorder_sections,
     validate_item_add,
+    validate_item_limit,
     validate_section_create,
 )
 from app.services.response_cache import cache_delete
@@ -169,6 +170,12 @@ async def admin_update_home_section(
         section.is_visible = data.is_visible
     if data.sort_order is not None:
         section.sort_order = data.sort_order
+    if "item_limit" in data.model_fields_set:
+        try:
+            await validate_item_limit(db, section, data.item_limit)
+        except ValueError as exc:
+            raise ConflictError(str(exc)) from exc
+        section.item_limit = data.item_limit
 
     await db.commit()
     await _invalidate()

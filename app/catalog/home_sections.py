@@ -17,11 +17,12 @@ from app.schemas.channel import TVChannelPublicRead
 from app.schemas.content import ContentListItemRead
 from app.schemas.home_section import (
     ITEM_KINDS_BY_TYPE,
-    SECTION_CAPS,
+    LIMIT_EDITABLE_TYPES,
     SINGLETON_TYPES,
     HomeSectionAdminRead,
     HomeSectionItemRead,
     HomeSectionPublicRead,
+    effective_item_limit,
 )
 from app.schemas.promotion_banner import PromotionBannerRead
 from app.schemas.series import SeriesListItemRead
@@ -219,15 +220,28 @@ async def validate_item_add(
     if dup.scalar_one_or_none():
         raise ValueError("Already on this section")
 
-    cap = SECTION_CAPS.get(section.type)
-    if cap is not None:
-        count_r = await db.execute(
-            select(func.count())
-            .select_from(HomeSectionItem)
-            .where(HomeSectionItem.section_id == section.id)
-        )
-        if int(count_r.scalar() or 0) >= cap:
-            raise ValueError(f"This section is limited to {cap} items")
+    cap = effective_item_limit(section.type, section.item_limit)
+    if cap is not None and await _count_section_items(db, section.id) >= cap:
+        raise ValueError(f"This section is limited to {cap} items")
+
+
+async def _count_section_items(db: AsyncSession, section_id: UUID) -> int:
+    result = await db.execute(
+        select(func.count())
+        .select_from(HomeSectionItem)
+        .where(HomeSectionItem.section_id == section_id)
+    )
+    return int(result.scalar() or 0)
+
+
+async def validate_item_limit(db: AsyncSession, section: HomeSection, limit: int | None) -> None:
+    """Refuse a limit that would leave picked items off the page without saying so."""
+    if section.type not in LIMIT_EDITABLE_TYPES:
+        raise ValueError("This section's limit can't be changed")
+    wanted = effective_item_limit(section.type, limit)
+    count = await _count_section_items(db, section.id)
+    if wanted is not None and count > wanted:
+        raise ValueError(f"This section has {count} items. Remove {count - wanted} first.")
 
 
 async def reorder_sections(db: AsyncSession, ids: list[UUID]) -> None:
@@ -379,7 +393,7 @@ async def resolve_public_sections(db: AsyncSession) -> list[HomeSectionPublicRea
 
     public: list[HomeSectionPublicRead] = []
     for section in sections:
-        cap = SECTION_CAPS.get(section.type)
+        cap = effective_item_limit(section.type, section.item_limit)
         rows = items_by_section.get(section.id, [])
         payload = HomeSectionPublicRead(
             id=section.id,
@@ -530,7 +544,7 @@ async def resolve_public_sections(db: AsyncSession) -> list[HomeSectionPublicRea
                 catalog_movies = list(catalog.scalars().all())
                 if section.type == "most_watched":
                     movie_items = [
-                        ContentListItemRead.model_validate(m) for m in catalog_movies[:10]
+                        ContentListItemRead.model_validate(m) for m in catalog_movies[: cap or 10]
                     ]
                 else:
                     movie_items = [
@@ -538,7 +552,8 @@ async def resolve_public_sections(db: AsyncSession) -> list[HomeSectionPublicRea
                         for m in catalog_movies[10 : 10 + (cap or 12)]
                     ]
 
-        payload.movies = movie_items
+        # Automatic fills use their own sizes, so a lowered limit still applies to them.
+        payload.movies = movie_items[:cap] if cap is not None else movie_items
         payload.series = mixed_series
         public.append(payload)
 

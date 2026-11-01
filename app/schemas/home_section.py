@@ -65,6 +65,12 @@ SECTION_CAPS: dict[str, int] = {
     "banners": 10,
 }
 
+# Highest limit an admin can set, which also bounds the home page payload.
+MAX_SECTION_ITEM_LIMIT = 50
+
+# Hero and banners are managed in their own screens, so their caps stay fixed.
+LIMIT_EDITABLE_TYPES = frozenset(SECTION_CAPS) - {"hero", "banners"}
+
 # With nothing picked, resolve_public_sections fills these from the catalog.
 AUTO_FILLED_TYPES = frozenset(
     {
@@ -78,6 +84,14 @@ AUTO_FILLED_TYPES = frozenset(
         "series",
     }
 )
+
+
+def effective_item_limit(section_type: str, chosen: int | None) -> int | None:
+    """The limit in force: the admin's choice if allowed here, else the default."""
+    if chosen is not None and section_type in LIMIT_EDITABLE_TYPES:
+        return chosen
+    return SECTION_CAPS.get(section_type)
+
 
 ITEM_KINDS_BY_TYPE: dict[str, frozenset[str]] = {
     "free_today": frozenset({"movie"}),
@@ -119,6 +133,8 @@ class HomeSectionUpdate(BaseModel):
     genre_name: str | None = Field(default=None, max_length=80)
     is_visible: bool | None = None
     sort_order: int | None = None
+    # Sending null puts the section back on its default.
+    item_limit: int | None = Field(default=None, ge=1, le=MAX_SECTION_ITEM_LIMIT)
 
 
 class HomeSectionReorder(BaseModel):
@@ -166,13 +182,17 @@ class HomeSectionAdminRead(BaseModel):
     item_count: int = 0
     items: list[HomeSectionItemRead] = []
     item_limit: int | None = None
+    default_item_limit: int | None = None
+    max_item_limit: int | None = None
     auto_filled: bool = False
 
     model_config = {"from_attributes": True}
 
     @model_validator(mode="after")
     def apply_type_rules(self) -> "HomeSectionAdminRead":
-        self.item_limit = SECTION_CAPS.get(self.type)
+        self.item_limit = effective_item_limit(self.type, self.item_limit)
+        self.default_item_limit = SECTION_CAPS.get(self.type)
+        self.max_item_limit = MAX_SECTION_ITEM_LIMIT if self.type in LIMIT_EDITABLE_TYPES else None
         self.auto_filled = self.type in AUTO_FILLED_TYPES
         return self
 

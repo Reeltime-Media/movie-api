@@ -9,6 +9,7 @@ from app.catalog.home_sections import (  # noqa: F401
     reorder_sections,
     resolve_public_sections,
     validate_item_add,
+    validate_item_limit,
     validate_section_create,
 )
 
@@ -21,5 +22,6 @@ __all__ = [
     "reorder_sections",
     "resolve_public_sections",
     "validate_item_add",
+    "validate_item_limit",
     "validate_section_create",
 ]
