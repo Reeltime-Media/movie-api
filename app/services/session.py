@@ -13,6 +13,10 @@ from app.models.user import User
 
 settings = get_settings()
 
+# How long the token a refresh replaced may still refresh, so a lost response
+# or two tabs refreshing together don't sign the device out.
+REFRESH_RETRY_WINDOW = timedelta(minutes=2)
+
 _OS_PATTERNS = (
     (re.compile(r"iPhone|iPad"), "iOS"),
     (re.compile(r"Android"), "Android"),
@@ -144,17 +148,26 @@ async def refresh_session(db: AsyncSession, token: str) -> str:
 
     The JWT may already be expired; the session row decides. A revoked session
     never refreshes, and one that lapsed past the grace window needs a login.
+
+    Each refresh moves the session to a new token version. Only a token at the
+    current version may refresh, so once the device refreshes, a copy of an
+    older token is useless; presenting one revokes the session.
     """
     payload = decode_expired_access_token(token)
     try:
         session_id = uuid.UUID(payload.get("sid") or "")
         user_id = uuid.UUID(payload.get("sub") or "")
-    except ValueError:
+        # Tokens issued before rotation carry no version; sessions start at 0.
+        version = int(payload.get("ver", 0))
+    except (TypeError, ValueError):
         raise UnauthorizedError("Invalid token payload")
 
     now = datetime.now(UTC)
+    # Locked so two refreshes of the same token see each other's version bump.
     result = await db.execute(
-        select(Session).where(Session.id == session_id, Session.revoked_at.is_(None))
+        select(Session)
+        .where(Session.id == session_id, Session.revoked_at.is_(None))
+        .with_for_update()
     )
     session = result.scalar_one_or_none()
     if not session or session.user_id != user_id:
@@ -162,6 +175,22 @@ async def refresh_session(db: AsyncSession, token: str) -> str:
     cutoff = _refresh_cutoff(now)
     if cutoff is not None and session.expires_at <= cutoff:
         raise UnauthorizedError("Session has expired. Please log in again.")
+
+    current = session.token_version
+    if version == current:
+        next_version = current + 1
+    elif (
+        version == current - 1
+        and session.refreshed_at is not None
+        and now - session.refreshed_at < REFRESH_RETRY_WINDOW
+    ):
+        # The same token refreshed moments ago: a lost response, or two tabs
+        # at once. Hand back the current token rather than signing out.
+        next_version = current
+    else:
+        session.revoked_at = now
+        await db.commit()
+        raise UnauthorizedError("Session has been revoked. Please log in again.")
 
     # Locked like create_session, so a lapsed session and a new login can't
     # both take the last device slot.
@@ -175,9 +204,12 @@ async def refresh_session(db: AsyncSession, token: str) -> str:
     ):
         raise UnauthorizedError("Session has expired. Please log in again.")
 
+    if next_version != current:
+        session.token_version = next_version
+        session.refreshed_at = now
     session.expires_at = now + timedelta(minutes=settings.access_token_expire_minutes)
     await db.commit()
-    return create_access_token(user.id, user.role, session.id)
+    return create_access_token(user.id, user.role, session.id, next_version)
 
 
 async def revoke_all_user_sessions(db: AsyncSession, user_id: uuid.UUID) -> None:

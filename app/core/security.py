@@ -44,12 +44,14 @@ def hash_reset_token(raw_token: str) -> str:
     return hashlib.sha256(raw_token.encode()).hexdigest()
 
 
-def create_access_token(user_id: UUID, role: str, session_id: UUID) -> str:
+def create_access_token(user_id: UUID, role: str, session_id: UUID, version: int = 0) -> str:
+    """`version` is the session's token_version; POST /auth/refresh checks it."""
     expire = datetime.now(UTC) + timedelta(minutes=settings.access_token_expire_minutes)
     payload = {
         "sub": str(user_id),
         "role": role,
         "sid": str(session_id),
+        "ver": version,
         "exp": expire,
     }
     return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)

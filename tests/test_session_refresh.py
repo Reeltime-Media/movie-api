@@ -50,7 +50,7 @@ class _Db:
         self.committed = True
 
 
-def _token(*, user_id, session_id, expires_in=timedelta(hours=-2), secret=None):
+def _token(*, user_id, session_id, expires_in=timedelta(hours=-2), secret=None, ver=None):
     settings = security.settings
     payload = {
         "sub": str(user_id),
@@ -58,10 +58,19 @@ def _token(*, user_id, session_id, expires_in=timedelta(hours=-2), secret=None):
         "sid": str(session_id),
         "exp": datetime.now(UTC) + expires_in,
     }
+    if ver is not None:
+        payload["ver"] = ver
     return jwt.encode(payload, secret or settings.secret_key, algorithm=settings.algorithm)
 
 
-def _pair(*, session_expires_in=timedelta(hours=-2), revoked=False, is_active=True):
+def _pair(
+    *,
+    session_expires_in=timedelta(hours=-2),
+    revoked=False,
+    is_active=True,
+    token_version=0,
+    refreshed_ago=None,
+):
     user = User(id=uuid.uuid4(), email="v@example.com", role="user", is_active=is_active)
     session = Session(
         id=uuid.uuid4(),
@@ -69,6 +78,8 @@ def _pair(*, session_expires_in=timedelta(hours=-2), revoked=False, is_active=Tr
         device_label="Phone",
         expires_at=datetime.now(UTC) + session_expires_in,
         revoked_at=datetime.now(UTC) if revoked else None,
+        token_version=token_version,
+        refreshed_at=datetime.now(UTC) - refreshed_ago if refreshed_ago is not None else None,
     )
     return user, session
 
@@ -84,6 +95,58 @@ def test_expired_token_on_a_live_session_gets_a_new_token():
     assert claims["sub"] == str(user.id)
     assert session.expires_at > datetime.now(UTC)
     assert db.committed is True
+
+
+def test_refresh_moves_the_session_to_a_new_token_version():
+    user, session = _pair(token_version=3)
+    db = _Db(session=session, user=user)
+
+    fresh = asyncio.run(refresh_session(db, _token(user_id=user.id, session_id=session.id, ver=3)))
+
+    assert decode_access_token(fresh)["ver"] == 4
+    assert session.token_version == 4
+    assert session.refreshed_at is not None
+
+
+def test_token_from_before_rotation_refreshes_a_fresh_session():
+    user, session = _pair(token_version=0)
+    db = _Db(session=session, user=user)
+
+    fresh = asyncio.run(refresh_session(db, _token(user_id=user.id, session_id=session.id)))
+
+    assert decode_access_token(fresh)["ver"] == 1
+
+
+def test_replaced_token_retried_moments_later_gets_the_current_token():
+    user, session = _pair(token_version=4, refreshed_ago=timedelta(seconds=20))
+    db = _Db(session=session, user=user)
+
+    fresh = asyncio.run(refresh_session(db, _token(user_id=user.id, session_id=session.id, ver=3)))
+
+    assert decode_access_token(fresh)["ver"] == 4
+    assert session.token_version == 4
+    assert session.revoked_at is None
+
+
+def test_replaced_token_used_after_the_retry_window_revokes_the_session():
+    user, session = _pair(token_version=4, refreshed_ago=timedelta(minutes=10))
+    db = _Db(session=session, user=user)
+
+    with pytest.raises(UnauthorizedError):
+        asyncio.run(refresh_session(db, _token(user_id=user.id, session_id=session.id, ver=3)))
+
+    assert session.revoked_at is not None
+    assert db.committed is True
+
+
+def test_much_older_token_revokes_the_session():
+    user, session = _pair(token_version=4, refreshed_ago=timedelta(seconds=5))
+    db = _Db(session=session, user=user)
+
+    with pytest.raises(UnauthorizedError):
+        asyncio.run(refresh_session(db, _token(user_id=user.id, session_id=session.id, ver=1)))
+
+    assert session.revoked_at is not None
 
 
 def test_revoked_session_cannot_refresh():
