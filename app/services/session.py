@@ -109,17 +109,21 @@ async def get_active_session(db: AsyncSession, session_id: uuid.UUID) -> Session
     return result.scalar_one_or_none()
 
 
+def _refresh_cutoff(now: datetime) -> datetime | None:
+    """Sessions that lapsed at or before this can no longer refresh; None means never."""
+    if settings.session_refresh_grace_days is None:
+        return None
+    return now - timedelta(days=settings.session_refresh_grace_days)
+
+
 async def list_active_sessions(db: AsyncSession, user_id: uuid.UUID) -> list[Session]:
-    now = datetime.now(UTC)
-    result = await db.execute(
-        select(Session)
-        .where(
-            Session.user_id == user_id,
-            Session.revoked_at.is_(None),
-            Session.expires_at > now,
-        )
-        .order_by(Session.created_at.desc())
-    )
+    """Every session that can still be used, including idle ones that only need
+    POST /auth/refresh, so a device left signed in can always be revoked."""
+    stmt = select(Session).where(Session.user_id == user_id, Session.revoked_at.is_(None))
+    cutoff = _refresh_cutoff(datetime.now(UTC))
+    if cutoff is not None:
+        stmt = stmt.where(Session.expires_at > cutoff)
+    result = await db.execute(stmt.order_by(Session.created_at.desc()))
     return list(result.scalars())
 
 
@@ -155,8 +159,8 @@ async def refresh_session(db: AsyncSession, token: str) -> str:
     session = result.scalar_one_or_none()
     if not session or session.user_id != user_id:
         raise UnauthorizedError("Session has been revoked. Please log in again.")
-    grace = timedelta(days=settings.session_refresh_grace_days)
-    if session.expires_at + grace <= now:
+    cutoff = _refresh_cutoff(now)
+    if cutoff is not None and session.expires_at <= cutoff:
         raise UnauthorizedError("Session has expired. Please log in again.")
 
     # Locked like create_session, so a lapsed session and a new login can't

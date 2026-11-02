@@ -58,7 +58,8 @@ class Settings(BaseSettings):
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 60  # 1 hour; logout still revokes via session
     # How long after a session lapses POST /auth/refresh can still revive it.
-    session_refresh_grace_days: int = 30
+    # None: no limit, so a login lasts until logout or revoke.
+    session_refresh_grace_days: int | None = None
     # Public frontend URL(s) for payment success redirects (comma-separated; falls back to CORS_ORIGINS)
     app_public_url: str = ""
 

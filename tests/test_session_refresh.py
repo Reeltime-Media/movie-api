@@ -96,12 +96,51 @@ def test_revoked_session_cannot_refresh():
     assert db.committed is False
 
 
-def test_session_past_the_grace_window_cannot_refresh():
+def test_long_idle_session_still_refreshes_by_default():
+    user, session = _pair(session_expires_in=timedelta(days=-400))
+    db = _Db(session=session, user=user)
+
+    token = asyncio.run(refresh_session(db, _token(user_id=user.id, session_id=session.id)))
+
+    assert decode_access_token(token)["sid"] == str(session.id)
+
+
+def test_session_past_a_configured_grace_window_cannot_refresh(monkeypatch):
+    monkeypatch.setattr(session_service.settings, "session_refresh_grace_days", 30)
     user, session = _pair(session_expires_in=timedelta(days=-31))
     db = _Db(session=session, user=user)
 
     with pytest.raises(UnauthorizedError):
         asyncio.run(refresh_session(db, _token(user_id=user.id, session_id=session.id)))
+
+
+def _listed_sql(monkeypatch, grace_days):
+    monkeypatch.setattr(session_service.settings, "session_refresh_grace_days", grace_days)
+    seen = []
+
+    class _ListDb:
+        async def execute(self, stmt):
+            seen.append(str(stmt.compile(dialect=postgresql.dialect())).lower())
+            return _Rows()
+
+    class _Rows:
+        def scalars(self):
+            return []
+
+    asyncio.run(session_service.list_active_sessions(_ListDb(), uuid.uuid4()))
+    return seen[0]
+
+
+def test_device_list_includes_idle_sessions_that_can_refresh(monkeypatch):
+    sql = _listed_sql(monkeypatch, None)
+
+    where = sql.split("where", 1)[1].split("order by")[0]
+    assert "revoked_at is null" in where
+    assert "expires_at" not in where
+
+
+def test_device_list_drops_sessions_past_a_configured_grace_window(monkeypatch):
+    assert "expires_at >" in _listed_sql(monkeypatch, 30)
 
 
 def test_token_signed_with_another_key_cannot_refresh():
