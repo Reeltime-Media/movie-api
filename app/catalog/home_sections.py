@@ -303,13 +303,11 @@ async def resolve_public_sections(db: AsyncSession) -> list[HomeSectionPublicRea
     movie_ids = [i.ref_id for i in all_items if i.item_kind == "movie"]
     series_ids = [i.ref_id for i in all_items if i.item_kind == "series"]
     channel_ids = [i.ref_id for i in all_items if i.item_kind == "tv_channel"]
-    hero_ids = [i.ref_id for i in all_items if i.item_kind == "hero_slide"]
     banner_ids = [i.ref_id for i in all_items if i.item_kind == "banner"]
 
     movies_by_id: dict[UUID, Content] = {}
     series_by_id: dict[UUID, Series] = {}
     channels_by_id: dict[UUID, TVChannel] = {}
-    heroes_by_id: dict[UUID, HeroFeaturedItem] = {}
     banners_by_id: dict[UUID, PromotionBanner] = {}
 
     if movie_ids:
@@ -345,51 +343,11 @@ async def resolve_public_sections(db: AsyncSession) -> list[HomeSectionPublicRea
         )
         channels_by_id = {c.id: c for c in channels_result.scalars().all()}
 
-    if hero_ids:
-        heroes_result = await db.execute(
-            select(HeroFeaturedItem).where(HeroFeaturedItem.id.in_(hero_ids))
-        )
-        heroes_by_id = {h.id: h for h in heroes_result.scalars().all()}
-
     if banner_ids:
         banners_result = await db.execute(
             select(PromotionBanner).where(PromotionBanner.id.in_(banner_ids))
         )
         banners_by_id = {b.id: b for b in banners_result.scalars().all()}
-
-    # Hero slides need movie/series batch for _build_slide when resolving linked heroes.
-    from app.catalog.hero_featured import _build_slide
-
-    hero_movie_ids = [
-        h.content_id for h in heroes_by_id.values() if h.content_type == "movie" and h.content_id
-    ]
-    hero_series_ids = [
-        h.content_id for h in heroes_by_id.values() if h.content_type == "series" and h.content_id
-    ]
-    hero_movies: dict[UUID, Content] = {}
-    hero_series: dict[UUID, Series] = {}
-    if hero_movie_ids:
-        from app.catalog.columns import content_list_load_options
-
-        hero_movies_result = await db.execute(
-            select(Content)
-            .options(content_list_load_options())
-            .where(
-                Content.id.in_(hero_movie_ids),
-                Content.type == "single",
-                Content.is_published.is_(True),
-            )
-        )
-        hero_movies = {m.id: m for m in hero_movies_result.scalars().all()}
-    if hero_series_ids:
-        from app.catalog.columns import series_hero_load_options
-
-        hero_series_result = await db.execute(
-            select(Series)
-            .options(series_hero_load_options())
-            .where(Series.id.in_(hero_series_ids), Series.is_published.is_(True))
-        )
-        hero_series = {s.id: s for s in hero_series_result.scalars().all()}
 
     public: list[HomeSectionPublicRead] = []
     for section in sections:
@@ -408,21 +366,13 @@ async def resolve_public_sections(db: AsyncSession) -> list[HomeSectionPublicRea
             continue
 
         if section.type == "hero":
-            slides = []
-            for item in rows:
-                hero = heroes_by_id.get(item.ref_id)
-                if not hero:
-                    continue
-                slide = _build_slide(hero, hero_movies, hero_series)
-                if slide:
-                    slides.append(slide)
-                if cap is not None and len(slides) >= cap:
-                    break
-            if not slides:
-                from app.catalog.hero_featured import resolve_hero_slides
+            # Slides are managed in the admin's Hero carousel screen, which never links them to
+            # this section (only a one-time migration did), so a slide added later was missing
+            # here. Show the active slides of that screen: its order, schedule and active flag.
+            from app.catalog.hero_featured import resolve_hero_slides
 
-                slides = await resolve_hero_slides(db, placement="home")
-            payload.hero_slides = slides[: cap or len(slides)]
+            slides = await resolve_hero_slides(db, placement="home")
+            payload.hero_slides = slides[:cap] if cap else slides
             public.append(payload)
             continue
 
