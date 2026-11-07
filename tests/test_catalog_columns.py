@@ -2,6 +2,8 @@
 
 from app.models.content import Content
 from app.models.series import Series
+from app.schemas.content import ContentListItemRead
+from app.schemas.series import SeriesListItemRead
 from app.services.catalog_columns import (
     CONTENT_LIST_COLUMNS,
     SERIES_HERO_COLUMNS,
@@ -41,6 +43,19 @@ def test_series_hero_columns_include_description_and_trailer():
     names = {col.key for col in SERIES_HERO_COLUMNS}
     assert "description" in names
     assert "trailer_url" in names
+
+
+def test_list_dto_fields_backed_by_columns_are_all_projected():
+    """A DTO field whose column isn't loaded triggers a lazy load while the
+    response is serialized (MissingGreenlet -> HTTP 500 on every catalog list)."""
+    for dto, model, columns in (
+        (ContentListItemRead, Content, CONTENT_LIST_COLUMNS),
+        (SeriesListItemRead, Series, SERIES_LIST_COLUMNS),
+    ):
+        projected = {col.key for col in columns}
+        mapped = {col.key for col in model.__table__.columns}
+        missing = (set(dto.model_fields) & mapped) - projected
+        assert not missing, f"{dto.__name__} fields not in load_only: {sorted(missing)}"
 
 
 def test_load_options_target_correct_entities():

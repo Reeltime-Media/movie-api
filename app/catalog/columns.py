@@ -28,6 +28,7 @@ CONTENT_LIST_COLUMNS = (
     Content.runtime,
     Content.release_year,
     Content.is_free,
+    Content.sort_order,
     Content.trailer_url,
     Content.updated_at,
 )
@@ -44,6 +45,7 @@ SERIES_LIST_COLUMNS = (
     Series.banner_key,
     Series.monthly_price_usd,
     Series.is_short_movie,
+    Series.sort_order,
     Series.updated_at,
 )
 
