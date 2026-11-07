@@ -128,4 +128,3 @@ async def cache_delete_prefix(prefix: str) -> None:
         if k.startswith(prefix):
             _CACHE.pop(k, None)
     await shared_cache.cache_delete_pattern(f"{_REDIS_KEY_PREFIX}{prefix}*")
-

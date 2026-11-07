@@ -207,4 +207,3 @@ class EpisodeAssetUploadComplete(BaseModel):
 
 class SeriesReorder(BaseModel):
     ids: list[UUID]
-

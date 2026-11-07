@@ -229,4 +229,3 @@ def test_movie_reorder_assigns_sequential_sort_order_and_clears_cache(client_for
     assert movie_1.sort_order == 1
     assert db.commits == 1
     assert "movies:" in client.cleared
-
