@@ -128,3 +128,7 @@ class SeasonRead(BaseModel):
 
 class MovieReorder(BaseModel):
     ids: list[UUID]
+
+
+class PodcastReorder(BaseModel):
+    ids: list[UUID]

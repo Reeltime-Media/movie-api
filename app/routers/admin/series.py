@@ -9,11 +9,30 @@ from app.models.content import Content
 from app.models.series import Series
 from app.schemas.content import SeasonRead
 from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
-from app.schemas.series import SeriesRead
+from app.schemas.series import SeriesRead, SeriesReorder
 from app.services.content_delete import delete_series_and_dependencies
 from app.services.pagination import paginate_query
+from app.services.response_cache import cache_delete_prefix
 
 router = APIRouter()
+
+
+@router.put("/series/reorder", status_code=204)
+async def reorder_admin_series(
+    data: SeriesReorder,
+    db: DBSession,
+    _: AdminUser,
+):
+    """Assign sequential sort_order (0, 1, 2...) to series by id."""
+    if not data.ids:
+        return
+    result = await db.execute(select(Series).where(Series.id.in_(data.ids)))
+    by_id = {s.id: s for s in result.scalars().all()}
+    for index, series_id in enumerate(data.ids):
+        if series_id in by_id:
+            by_id[series_id].sort_order = index
+    await db.commit()
+    await cache_delete_prefix("series:")
 
 
 @router.get("/series", response_model=PaginatedResponse[SeriesRead])
@@ -22,7 +41,7 @@ async def list_admin_series(
     _: AdminUser,
     pagination: PaginationDep,
 ):
-    stmt = select(Series).order_by(Series.created_at.desc())
+    stmt = select(Series).order_by(Series.sort_order.asc(), Series.created_at.desc())
     items, total = await paginate_query(
         db, stmt, page=pagination.page, page_size=pagination.page_size
     )

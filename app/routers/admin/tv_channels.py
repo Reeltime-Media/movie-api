@@ -13,12 +13,14 @@ from app.schemas.channel import (
     TVChannelLogoUploadStart,
     TVChannelLogoUploadStartRead,
     TVChannelRead,
+    TVChannelReorder,
     TVChannelUpdate,
 )
 from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
 from app.services import live_client, r2_keys, storage
 from app.services.content_slug import slugify
 from app.services.pagination import paginate_query
+from app.services.response_cache import cache_delete_prefix
 
 router = APIRouter(prefix="/tv-channels")
 logger = logging.getLogger(__name__)
@@ -50,12 +52,31 @@ async def create_channel(data: TVChannelCreate, db: DBSession, _: AdminUser):
         description=data.description,
         source_url=data.source_url,
         is_free=data.is_free,
+        sort_order=data.sort_order,
         status="offline",
     )
     db.add(channel)
     await db.commit()
     await db.refresh(channel)
     return channel
+
+
+@router.put("/reorder", status_code=204)
+async def reorder_admin_tv_channels(
+    data: TVChannelReorder,
+    db: DBSession,
+    _: AdminUser,
+):
+    """Assign sequential sort_order (0, 1, 2...) to TV channels by id."""
+    if not data.ids:
+        return
+    result = await db.execute(select(TVChannel).where(TVChannel.id.in_(data.ids)))
+    by_id = {c.id: c for c in result.scalars().all()}
+    for index, channel_id in enumerate(data.ids):
+        if channel_id in by_id:
+            by_id[channel_id].sort_order = index
+    await db.commit()
+    await cache_delete_prefix("tv:")
 
 
 @router.get("", response_model=PaginatedResponse[TVChannelRead])

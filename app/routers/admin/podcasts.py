@@ -17,7 +17,7 @@ from app.schemas.admin import (
     PodcastAssetUploadStart,
     PodcastAssetUploadStartRead,
 )
-from app.schemas.content import AdminContentRead, ContentRead, ContentUpdate
+from app.schemas.content import AdminContentRead, ContentRead, ContentUpdate, PodcastReorder
 from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
 from app.services import r2_keys, storage
 from app.services.admin.helpers import purchase_counts_for_content, watch_counts_for_content
@@ -26,6 +26,7 @@ from app.services.content_publish import ensure_podcast_publishable
 from app.services.content_slug import unique_content_slug
 from app.services.image_process import optimize_r2_image
 from app.services.pagination import paginate_query
+from app.services.response_cache import cache_delete_prefix
 from app.services.runtime import apply_runtime_minutes
 
 router = APIRouter()
@@ -78,13 +79,37 @@ async def create_admin_podcast_draft(data: AdminPodcastCreate, db: DBSession, _:
     return podcast
 
 
+@router.put("/podcasts/reorder", status_code=204)
+async def reorder_admin_podcasts(
+    data: PodcastReorder,
+    db: DBSession,
+    _: AdminUser,
+):
+    """Assign sequential sort_order (0, 1, 2...) to podcasts by id."""
+    if not data.ids:
+        return
+    result = await db.execute(
+        select(Content).where(Content.id.in_(data.ids), Content.type == "podcast")
+    )
+    by_id = {p.id: p for p in result.scalars().all()}
+    for index, podcast_id in enumerate(data.ids):
+        if podcast_id in by_id:
+            by_id[podcast_id].sort_order = index
+    await db.commit()
+    await cache_delete_prefix("podcasts:")
+
+
 @router.get("/podcasts", response_model=PaginatedResponse[AdminContentRead])
 async def list_admin_podcasts(
     db: DBSession,
     _: AdminUser,
     pagination: PaginationDep,
 ):
-    stmt = select(Content).where(Content.type == "podcast").order_by(Content.created_at.desc())
+    stmt = (
+        select(Content)
+        .where(Content.type == "podcast")
+        .order_by(Content.sort_order.asc(), Content.created_at.desc())
+    )
     items, total = await paginate_query(
         db, stmt, page=pagination.page, page_size=pagination.page_size
     )

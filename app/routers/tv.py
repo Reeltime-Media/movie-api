@@ -55,7 +55,7 @@ async def list_channels(db: DBSession):
         result = await db.execute(
             select(TVChannel)
             .where(TVChannel.is_published.is_(True))
-            .order_by(TVChannel.sort_order, TVChannel.name)
+            .order_by(TVChannel.sort_order, TVChannel.created_at.desc())
         )
         channels = result.scalars().all()
         return [
@@ -67,6 +67,7 @@ async def list_channels(db: DBSession):
                 logo_key=channel.logo_key,
                 status=_public_status(channel.status),
                 is_free=channel.is_free,
+                sort_order=channel.sort_order,
             )
             for channel in channels
         ]

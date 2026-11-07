@@ -14,7 +14,17 @@ from app.models.content import Content  # noqa: E402
 from app.models.hero_featured_item import HeroFeaturedItem  # noqa: E402
 from app.models.home_section import HomeSection, HomeSectionItem  # noqa: E402
 from app.models.promotion_banner import PromotionBanner  # noqa: E402
-from app.routers.admin import hero_featured, home_sections, movies, promotions  # noqa: E402
+from app.models.series import Series  # noqa: E402
+from app.models.tv_channel import TVChannel  # noqa: E402
+from app.routers.admin import (  # noqa: E402
+    hero_featured,
+    home_sections,
+    movies,
+    podcasts,
+    promotions,
+    series,
+    tv_channels,
+)
 
 
 class FakeResult:
@@ -67,7 +77,8 @@ def client_for(monkeypatch):
 
     for module in (home_sections, hero_featured, promotions):
         monkeypatch.setattr(module, "cache_delete", fake_cache_delete)
-    monkeypatch.setattr(movies, "cache_delete_prefix", fake_cache_delete)
+    for module in (movies, series, podcasts, tv_channels):
+        monkeypatch.setattr(module, "cache_delete_prefix", fake_cache_delete)
     monkeypatch.setattr(home_sections, "get_section_admin", fake_section)
 
     def build(db, *, admin=True):
@@ -76,6 +87,9 @@ def client_for(monkeypatch):
         app.include_router(hero_featured.router, prefix="/admin")
         app.include_router(promotions.router, prefix="/admin")
         app.include_router(movies.router, prefix="/admin")
+        app.include_router(series.router, prefix="/admin")
+        app.include_router(podcasts.router, prefix="/admin")
+        app.include_router(tv_channels.router, prefix="/admin")
 
         async def override_db():
             yield db
@@ -190,6 +204,9 @@ def test_banner_reorder_saves_and_clears_each_placement(client_for):
         "/admin/hero-featured/reorder",
         "/admin/promotion-banners/reorder",
         "/admin/movies/reorder",
+        "/admin/series/reorder",
+        "/admin/podcasts/reorder",
+        "/admin/tv-channels/reorder",
     ],
 )
 def test_reorder_requires_an_admin(client_for, path):
@@ -229,3 +246,57 @@ def test_movie_reorder_assigns_sequential_sort_order_and_clears_cache(client_for
     assert movie_1.sort_order == 1
     assert db.commits == 1
     assert "movies:" in client.cleared
+
+
+def test_series_reorder_assigns_sequential_sort_order_and_clears_cache(client_for):
+    series_1 = Series(id=uuid.uuid4(), title="Series 1", slug="s-1", sort_order=10)
+    series_2 = Series(id=uuid.uuid4(), title="Series 2", slug="s-2", sort_order=20)
+    db = FakeDb([series_1, series_2])
+    client = client_for(db)
+
+    response = client.put(
+        "/admin/series/reorder",
+        json={"ids": [str(series_2.id), str(series_1.id)]},
+    )
+
+    assert response.status_code == 204
+    assert series_2.sort_order == 0
+    assert series_1.sort_order == 1
+    assert db.commits == 1
+    assert "series:" in client.cleared
+
+
+def test_podcast_reorder_assigns_sequential_sort_order_and_clears_cache(client_for):
+    pod_1 = Content(id=uuid.uuid4(), type="podcast", title="Pod 1", slug="p-1", sort_order=10)
+    pod_2 = Content(id=uuid.uuid4(), type="podcast", title="Pod 2", slug="p-2", sort_order=20)
+    db = FakeDb([pod_1, pod_2])
+    client = client_for(db)
+
+    response = client.put(
+        "/admin/podcasts/reorder",
+        json={"ids": [str(pod_2.id), str(pod_1.id)]},
+    )
+
+    assert response.status_code == 204
+    assert pod_2.sort_order == 0
+    assert pod_1.sort_order == 1
+    assert db.commits == 1
+    assert "podcasts:" in client.cleared
+
+
+def test_tv_channel_reorder_assigns_sequential_sort_order_and_clears_cache(client_for):
+    ch_1 = TVChannel(id=uuid.uuid4(), name="Ch 1", slug="c-1", source_url="http://a", sort_order=10)
+    ch_2 = TVChannel(id=uuid.uuid4(), name="Ch 2", slug="c-2", source_url="http://b", sort_order=20)
+    db = FakeDb([ch_1, ch_2])
+    client = client_for(db)
+
+    response = client.put(
+        "/admin/tv-channels/reorder",
+        json={"ids": [str(ch_2.id), str(ch_1.id)]},
+    )
+
+    assert response.status_code == 204
+    assert ch_2.sort_order == 0
+    assert ch_1.sort_order == 1
+    assert db.commits == 1
+    assert "tv:" in client.cleared

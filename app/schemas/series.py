@@ -111,6 +111,7 @@ class CreateSeriesBody(BaseModel):
     is_short_movie: bool = False
     status: str = "draft"
     publish_at: datetime | None = None
+    sort_order: int = 0
 
     @field_validator("title_km")
     @classmethod

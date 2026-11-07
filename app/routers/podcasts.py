@@ -30,7 +30,7 @@ async def list_podcasts(
     stmt = (
         select(Content)
         .where(Content.type == "podcast", Content.is_published.is_(True))
-        .order_by(Content.created_at.desc())
+        .order_by(Content.sort_order.asc(), Content.created_at.desc())
     )
     if search and search.strip():
         term = f"%{search.strip()}%"

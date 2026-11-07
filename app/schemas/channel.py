@@ -9,6 +9,7 @@ class TVChannelCreate(BaseModel):
     description: str | None = None
     source_url: str = Field(..., description="Origin TV HLS (.m3u8) source URL")
     is_free: bool = True
+    sort_order: int = 0
 
 
 class TVChannelUpdate(BaseModel):
@@ -51,8 +52,13 @@ class TVChannelPublicRead(BaseModel):
     logo_key: str | None
     status: str
     is_free: bool
+    sort_order: int = 0
 
     model_config = {"from_attributes": True}
+
+
+class TVChannelReorder(BaseModel):
+    ids: list[UUID]
 
 
 class TVChannelLogoUploadStart(BaseModel):
