@@ -35,6 +35,7 @@ class Series(Base):
     # When status=scheduled: UTC go-live time. Cleared once published.
     publish_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_short_movie: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     search_vector: Mapped[str | None] = mapped_column(
         TSVECTOR,
         Computed(_SEARCH_VECTOR_SQL, persisted=True),

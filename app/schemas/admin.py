@@ -133,6 +133,7 @@ class AdminMovieCreate(BaseModel):
     runtime_minutes: int | None = Field(default=None, gt=0)
     price_usd: Decimal = Decimal("0")
     trailer_url: str | None = None
+    sort_order: int = 0
 
     @field_validator("title")
     @classmethod

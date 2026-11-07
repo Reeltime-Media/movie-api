@@ -10,10 +10,11 @@ pytest.importorskip("PIL")  # admin promotions imports image processing
 
 from app.dependencies.auth import require_admin  # noqa: E402
 from app.dependencies.db import get_db  # noqa: E402
+from app.models.content import Content  # noqa: E402
 from app.models.hero_featured_item import HeroFeaturedItem  # noqa: E402
 from app.models.home_section import HomeSection, HomeSectionItem  # noqa: E402
 from app.models.promotion_banner import PromotionBanner  # noqa: E402
-from app.routers.admin import hero_featured, home_sections, promotions  # noqa: E402
+from app.routers.admin import hero_featured, home_sections, movies, promotions  # noqa: E402
 
 
 class FakeResult:
@@ -66,6 +67,7 @@ def client_for(monkeypatch):
 
     for module in (home_sections, hero_featured, promotions):
         monkeypatch.setattr(module, "cache_delete", fake_cache_delete)
+    monkeypatch.setattr(movies, "cache_delete_prefix", fake_cache_delete)
     monkeypatch.setattr(home_sections, "get_section_admin", fake_section)
 
     def build(db, *, admin=True):
@@ -73,6 +75,7 @@ def client_for(monkeypatch):
         app.include_router(home_sections.router, prefix="/admin")
         app.include_router(hero_featured.router, prefix="/admin")
         app.include_router(promotions.router, prefix="/admin")
+        app.include_router(movies.router, prefix="/admin")
 
         async def override_db():
             yield db
@@ -186,6 +189,7 @@ def test_banner_reorder_saves_and_clears_each_placement(client_for):
         f"/admin/home-sections/{uuid.uuid4()}/items/reorder",
         "/admin/hero-featured/reorder",
         "/admin/promotion-banners/reorder",
+        "/admin/movies/reorder",
     ],
 )
 def test_reorder_requires_an_admin(client_for, path):
@@ -206,3 +210,23 @@ def test_reorder_rejects_an_empty_list(client_for, path):
     db = FakeDb([])
 
     assert client_for(db).put(path, json={"ids": []}).status_code == 422
+
+
+def test_movie_reorder_assigns_sequential_sort_order_and_clears_cache(client_for):
+    movie_1 = Content(id=uuid.uuid4(), type="single", title="Movie 1", slug="m-1", sort_order=10)
+    movie_2 = Content(id=uuid.uuid4(), type="single", title="Movie 2", slug="m-2", sort_order=20)
+    db = FakeDb([movie_1, movie_2])
+    client = client_for(db)
+
+    # Reorder movie_2 first, then movie_1
+    response = client.put(
+        "/admin/movies/reorder",
+        json={"ids": [str(movie_2.id), str(movie_1.id)]},
+    )
+
+    assert response.status_code == 204
+    assert movie_2.sort_order == 0
+    assert movie_1.sort_order == 1
+    assert db.commits == 1
+    assert "movies:" in client.cleared
+

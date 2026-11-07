@@ -28,6 +28,7 @@ class SeriesUpdate(BaseModel):
     is_published: bool | None = None
     publish_at: datetime | None = None
     is_short_movie: bool | None = None
+    sort_order: int | None = None
     trailer_url: str | None = None
     poster_key: str | None = None  # set after uploading poster via /poster/start
     banner_key: str | None = None  # set after uploading banner via /banner/start
@@ -62,6 +63,7 @@ class SeriesRead(BaseModel):
     is_published: bool
     publish_at: datetime | None = None
     is_short_movie: bool
+    sort_order: int = 0
     created_at: datetime
     updated_at: datetime
 
@@ -86,6 +88,7 @@ class SeriesListItemRead(BaseModel):
     banner_key: str | None
     monthly_price_usd: Decimal
     is_short_movie: bool
+    sort_order: int = 0
     # Published free episodes — catalog cards label "Free Ep N" from this.
     free_episode_count: int = 0
     # Region code from the episodes (e.g. "CH", "KR") — powers the nav region filters.
@@ -200,3 +203,8 @@ class EpisodeAssetUploadStartRead(BaseModel):
 class EpisodeAssetUploadComplete(BaseModel):
     source_key: str | None = None
     poster_key: str | None = None
+
+
+class SeriesReorder(BaseModel):
+    ids: list[UUID]
+

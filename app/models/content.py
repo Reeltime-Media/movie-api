@@ -50,6 +50,7 @@ class Content(Base):
     # When status=scheduled: UTC go-live time. Cleared once published.
     publish_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_free: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     transcode_status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
     search_vector: Mapped[str | None] = mapped_column(
         TSVECTOR,

@@ -120,3 +120,12 @@ async def cache_delete(key: str) -> None:
     """Drop L1 + Redis so the next public read rebuilds from the DB."""
     _CACHE.pop(key, None)
     await shared_cache.cache_delete_bytes(_REDIS_KEY_PREFIX + key)
+
+
+async def cache_delete_prefix(prefix: str) -> None:
+    """Drop all L1 and Redis keys starting with prefix."""
+    for k in list(_CACHE.keys()):
+        if k.startswith(prefix):
+            _CACHE.pop(k, None)
+    await shared_cache.cache_delete_pattern(f"{_REDIS_KEY_PREFIX}{prefix}*")
+

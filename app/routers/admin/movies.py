@@ -14,7 +14,7 @@ from app.schemas.admin import (
     MovieAssetUploadStart,
     MovieAssetUploadStartRead,
 )
-from app.schemas.content import AdminContentRead, ContentRead, ContentUpdate
+from app.schemas.content import AdminContentRead, ContentRead, ContentUpdate, MovieReorder
 from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
 from app.services import r2_keys, storage
 from app.services.admin.helpers import purchase_counts_for_content, watch_counts_for_content
@@ -23,6 +23,7 @@ from app.services.content_publish import apply_movie_publish_state, ensure_movie
 from app.services.content_slug import unique_content_slug
 from app.services.image_process import optimize_r2_image
 from app.services.pagination import paginate_query
+from app.services.response_cache import cache_delete_prefix
 from app.services.runtime import apply_runtime_minutes
 
 router = APIRouter()
@@ -45,6 +46,7 @@ async def create_admin_movie_draft(data: AdminMovieCreate, db: DBSession, _: Adm
         rating=data.rating,
         price_usd=data.price_usd,
         trailer_url=data.trailer_url,
+        sort_order=data.sort_order,
         status="draft",
         is_published=False,
         transcode_status="pending",
@@ -53,7 +55,28 @@ async def create_admin_movie_draft(data: AdminMovieCreate, db: DBSession, _: Adm
     db.add(movie)
     await db.commit()
     await db.refresh(movie)
+    await cache_delete_prefix("movies:")
     return movie
+
+
+@router.put("/movies/reorder", status_code=204)
+async def reorder_admin_movies(
+    data: MovieReorder,
+    db: DBSession,
+    _: AdminUser,
+):
+    """Sequentially assign sort_order (0, 1, 2, ...) to the given movie IDs."""
+    if not data.ids:
+        return
+    result = await db.execute(
+        select(Content).where(Content.id.in_(data.ids), Content.type == "single")
+    )
+    by_id = {m.id: m for m in result.scalars().all()}
+    for index, movie_id in enumerate(data.ids):
+        if movie_id in by_id:
+            by_id[movie_id].sort_order = index
+    await db.commit()
+    await cache_delete_prefix("movies:")
 
 
 @router.get("/movies", response_model=PaginatedResponse[AdminContentRead])
@@ -62,7 +85,11 @@ async def list_admin_movies(
     _: AdminUser,
     pagination: PaginationDep,
 ):
-    stmt = select(Content).where(Content.type == "single").order_by(Content.created_at.desc())
+    stmt = (
+        select(Content)
+        .where(Content.type == "single")
+        .order_by(Content.sort_order.asc(), Content.created_at.desc())
+    )
     items, total = await paginate_query(
         db, stmt, page=pagination.page, page_size=pagination.page_size
     )
@@ -144,6 +171,7 @@ async def update_admin_movie(
 
     await db.commit()
     await db.refresh(movie)
+    await cache_delete_prefix("movies:")
     return movie
 
 
@@ -298,3 +326,4 @@ async def delete_admin_movie(movie_id: uuid.UUID, db: DBSession, _: AdminUser):
     await delete_content_dependencies(db, movie_id)
     await db.delete(movie)
     await db.commit()
+    await cache_delete_prefix("movies:")

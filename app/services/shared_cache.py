@@ -82,6 +82,20 @@ async def cache_delete_bytes(key: str) -> None:
         logger.warning("shared_cache delete failed key=%s: %s", key[:48], exc)
 
 
+async def cache_delete_pattern(pattern: str) -> None:
+    client = _client()
+    if client is None:
+        return
+    try:
+        keys: list[str] = []
+        async for key in client.scan_iter(match=pattern):
+            keys.append(key)
+        if keys:
+            await client.delete(*keys)
+    except Exception as exc:
+        logger.warning("shared_cache delete_pattern failed pattern=%s: %s", pattern[:48], exc)
+
+
 async def close_shared_cache() -> None:
     global _redis, _redis_failed
     client = _redis

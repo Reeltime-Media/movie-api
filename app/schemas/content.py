@@ -33,6 +33,7 @@ class ContentUpdate(BaseModel):
     price_usd: Decimal | None = None
     season_number: int | None = None
     episode_number: int | None = None
+    sort_order: int | None = None
 
     @field_validator("title_km")
     @classmethod
@@ -78,6 +79,7 @@ class ContentRead(BaseModel):
     is_published: bool
     publish_at: datetime | None = None
     is_free: bool
+    sort_order: int = 0
     # True while the movie is in the admin-curated "Free movies today" list.
     is_free_today: bool = False
     transcode_status: str
@@ -103,6 +105,7 @@ class ContentListItemRead(BaseModel):
     runtime: str | None
     release_year: int | None
     is_free: bool
+    sort_order: int = 0
     # Lets catalog cards offer a trailer preview without a detail fetch.
     trailer_url: str | None = None
     # Lets catalog cards cache-bust poster/banner URLs after a re-upload.
@@ -121,3 +124,8 @@ class AdminContentRead(ContentRead):
 class SeasonRead(BaseModel):
     season_number: int
     episodes: list[ContentRead]
+
+
+class MovieReorder(BaseModel):
+    ids: list[UUID]
+
