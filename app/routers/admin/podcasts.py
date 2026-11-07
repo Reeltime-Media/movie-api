@@ -4,7 +4,7 @@ import asyncio
 import uuid
 from decimal import Decimal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select
 
 from app.core.content_status import validate_content_status
@@ -26,7 +26,7 @@ from app.services.content_publish import ensure_podcast_publishable
 from app.services.content_slug import unique_content_slug
 from app.services.image_process import optimize_r2_image
 from app.services.pagination import paginate_query
-from app.services.response_cache import cache_delete_prefix
+from app.services.response_cache import cache_delete, cache_delete_prefix
 from app.services.runtime import apply_runtime_minutes
 
 router = APIRouter()
@@ -76,6 +76,7 @@ async def create_admin_podcast_draft(data: AdminPodcastCreate, db: DBSession, _:
     db.add(podcast)
     await db.commit()
     await db.refresh(podcast)
+    await cache_delete_prefix("podcasts:")
     return podcast
 
 
@@ -104,12 +105,16 @@ async def list_admin_podcasts(
     db: DBSession,
     _: AdminUser,
     pagination: PaginationDep,
+    search: str | None = Query(default=None, description="Search by title"),
 ):
     stmt = (
         select(Content)
         .where(Content.type == "podcast")
         .order_by(Content.sort_order.asc(), Content.created_at.desc())
     )
+    if search and search.strip():
+        term = f"%{search.strip()}%"
+        stmt = stmt.where(Content.title.ilike(term) | Content.title_km.ilike(term))
     items, total = await paginate_query(
         db, stmt, page=pagination.page, page_size=pagination.page_size
     )
@@ -189,6 +194,7 @@ async def update_admin_podcast(
 
     await db.commit()
     await db.refresh(podcast)
+    await cache_delete_prefix("podcasts:")
     return podcast
 
 
@@ -283,6 +289,7 @@ async def complete_admin_podcast_asset_upload(
 
     await db.commit()
     await db.refresh(podcast)
+    await cache_delete_prefix("podcasts:")
     return podcast
 
 
@@ -297,3 +304,5 @@ async def delete_admin_podcast(podcast_id: uuid.UUID, db: DBSession, _: AdminUse
     await delete_content_dependencies(db, podcast_id)
     await db.delete(podcast)
     await db.commit()
+    await cache_delete_prefix("podcasts:")
+    await cache_delete("home-sections")

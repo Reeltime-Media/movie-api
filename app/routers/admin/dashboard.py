@@ -331,6 +331,9 @@ async def list_top_titles(
                 purchase_count=row.purchase_count,
                 watch_count=row.watch_count,
                 completion_count=row.completion_count,
+                completion_rate=round((row.completion_count / row.watch_count * 100), 2)
+                if row.watch_count
+                else 0.0,
             )
             for row in rows
         ],

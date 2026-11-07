@@ -12,6 +12,7 @@ from app.schemas.free_today import (
     FreeTodayItemUpdate,
 )
 from app.services.free_today import enrich_admin_free_today, validate_free_today_add
+from app.services.response_cache import cache_delete
 
 router = APIRouter()
 
@@ -46,6 +47,8 @@ async def create_admin_free_today(
     db.add(item)
     await db.commit()
     await db.refresh(item)
+    await cache_delete("free-today")
+    await cache_delete("home-sections")
     enriched = await enrich_admin_free_today(db, [item])
     return enriched[0]
 
@@ -65,6 +68,8 @@ async def update_admin_free_today(
     item.sort_order = data.sort_order
     await db.commit()
     await db.refresh(item)
+    await cache_delete("free-today")
+    await cache_delete("home-sections")
     enriched = await enrich_admin_free_today(db, [item])
     return enriched[0]
 
@@ -81,3 +86,5 @@ async def delete_admin_free_today(
         raise NotFoundError("Free today item not found")
     await db.delete(item)
     await db.commit()
+    await cache_delete("free-today")
+    await cache_delete("home-sections")

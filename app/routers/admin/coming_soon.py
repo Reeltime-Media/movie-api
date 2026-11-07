@@ -12,6 +12,7 @@ from app.schemas.coming_soon import (
     ComingSoonItemUpdate,
 )
 from app.services.coming_soon import enrich_admin_coming_soon, validate_coming_soon_add
+from app.services.response_cache import cache_delete
 
 router = APIRouter()
 
@@ -46,6 +47,8 @@ async def create_admin_coming_soon(
     db.add(item)
     await db.commit()
     await db.refresh(item)
+    await cache_delete("coming-soon")
+    await cache_delete("home-sections")
     enriched = await enrich_admin_coming_soon(db, [item])
     return enriched[0]
 
@@ -65,6 +68,8 @@ async def update_admin_coming_soon(
     item.sort_order = data.sort_order
     await db.commit()
     await db.refresh(item)
+    await cache_delete("coming-soon")
+    await cache_delete("home-sections")
     enriched = await enrich_admin_coming_soon(db, [item])
     return enriched[0]
 
@@ -81,3 +86,5 @@ async def delete_admin_coming_soon(
         raise NotFoundError("Coming Soon item not found")
     await db.delete(item)
     await db.commit()
+    await cache_delete("coming-soon")
+    await cache_delete("home-sections")

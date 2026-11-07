@@ -48,6 +48,7 @@ from app.services.content_upload import (
     verify_storage_objects_exist,
 )
 from app.services.image_process import optimize_r2_image
+from app.services.response_cache import cache_delete, cache_delete_prefix
 from app.services.runtime import apply_runtime_minutes
 
 router = APIRouter(prefix="/movies", tags=["movies"])
@@ -179,6 +180,8 @@ async def complete_movie_upload(data: MovieUploadComplete, db: DBSession, _: Adm
 
     await db.commit()
     await db.refresh(movie)
+    await cache_delete_prefix("movies:")
+    await cache_delete("home-sections")
     return movie
 
 
@@ -272,6 +275,8 @@ async def update_movie(slug: str, data: ContentUpdate, db: DBSession, _: AdminUs
 
     await db.commit()
     await db.refresh(movie)
+    await cache_delete_prefix("movies:")
+    await cache_delete("home-sections")
     return movie
 
 
@@ -284,3 +289,5 @@ async def delete_movie(slug: str, db: DBSession, _: AdminUser):
     await delete_content_dependencies(db, movie.id)
     await db.delete(movie)
     await db.commit()
+    await cache_delete_prefix("movies:")
+    await cache_delete("home-sections")

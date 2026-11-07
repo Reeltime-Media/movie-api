@@ -23,13 +23,13 @@ from app.services.content_publish import apply_movie_publish_state, ensure_movie
 from app.services.content_slug import unique_content_slug
 from app.services.image_process import optimize_r2_image
 from app.services.pagination import paginate_query
-from app.services.response_cache import cache_delete_prefix
+from app.services.response_cache import cache_delete, cache_delete_prefix
 from app.services.runtime import apply_runtime_minutes
 
 router = APIRouter()
 
 
-@router.post("/movies", response_model=ContentRead, status_code=201)
+@router.post("/movies", response_model=AdminContentRead, status_code=201)
 async def create_admin_movie_draft(data: AdminMovieCreate, db: DBSession, _: AdminUser):
     """Create a movie record without video (draft). Upload assets later from movie edit."""
     slug = await unique_content_slug(data.title, db)
@@ -56,7 +56,11 @@ async def create_admin_movie_draft(data: AdminMovieCreate, db: DBSession, _: Adm
     await db.commit()
     await db.refresh(movie)
     await cache_delete_prefix("movies:")
-    return movie
+    return AdminContentRead(
+        **ContentRead.model_validate(movie).model_dump(),
+        watch_count=0,
+        purchase_count=0,
+    )
 
 
 @router.put("/movies/reorder", status_code=204)
@@ -312,6 +316,7 @@ async def complete_admin_movie_asset_upload(
 
     await db.commit()
     await db.refresh(movie)
+    await cache_delete_prefix("movies:")
     return movie
 
 
@@ -327,3 +332,4 @@ async def delete_admin_movie(movie_id: uuid.UUID, db: DBSession, _: AdminUser):
     await db.delete(movie)
     await db.commit()
     await cache_delete_prefix("movies:")
+    await cache_delete("home-sections")

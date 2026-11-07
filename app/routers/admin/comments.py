@@ -65,7 +65,7 @@ async def update_admin_comment(
     await ensure_commentable_movie(db, comment.content_id, allow_unpublished=True)
 
     author_result = await db.execute(select(User).where(User.id == comment.user_id))
-    author = author_result.scalar_one()
+    author = author_result.scalar_one_or_none()
     comment = await update_comment_body(db, comment, data.body)
     return to_comment_read(comment, author)
 

@@ -19,6 +19,7 @@ router = APIRouter()
 
 async def _bust_public_genre_rails_cache() -> None:
     await cache_delete("genre-rails")
+    await cache_delete("home-sections")
 
 
 @router.get("/genre-rails", response_model=list[GenreRailItemRead])

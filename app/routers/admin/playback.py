@@ -152,11 +152,16 @@ async def admin_rebuild_source_from_hls(
 @router.get("/content/{content_id}/rebuild-source-from-hls/{export_id}")
 async def admin_rebuild_source_from_hls_status(
     content_id: uuid.UUID,
-    export_id: uuid.UUID,
+    export_id: str,
     db: DBSession,
     _: AdminUser,
 ):
     """Poll HLS→MP4 remux progress (export jobs live on the transcoder)."""
+    if not export_id or export_id in ("null", "undefined"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A valid export_id is required",
+        )
     # Ensure the content still exists / caller is authorized as admin.
     await _load_content(db, content_id)
-    return await get_hls_export(str(export_id))
+    return await get_hls_export(export_id)

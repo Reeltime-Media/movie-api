@@ -58,6 +58,8 @@ async def list_admin_payments(
             or_(
                 User.full_name.ilike(pattern),
                 User.email.ilike(pattern),
+                PaymentIntent.intent_id.ilike(pattern),
+                PaymentIntent.order_id.ilike(pattern),
             )
         )
 
@@ -133,7 +135,14 @@ async def admin_fulfill_payment(
     intent = result.scalar_one_or_none()
     if not intent:
         raise NotFoundError("Payment intent not found")
-    if intent.status not in ("pending", "succeeded"):
+    if intent.status == "succeeded":
+        return AdminPaymentFulfillRead(
+            intent_id=intent.intent_id,
+            order_id=intent.order_id,
+            status=intent.status,
+            resolved_at=intent.resolved_at,
+        )
+    if intent.status != "pending":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Cannot fulfill intent in status={intent.status}",

@@ -1,7 +1,5 @@
 """HTTP routes for `/payments/*` — thin handlers over billing domain services."""
 
-from __future__ import annotations
-
 import secrets
 import uuid
 

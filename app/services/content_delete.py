@@ -3,12 +3,16 @@ import uuid
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.coming_soon_item import ComingSoonItem
 from app.models.content import Content
 from app.models.favorite import Favorite
 from app.models.free_today_item import FreeTodayItem
+from app.models.genre_rail_item import GenreRailItem
 from app.models.hero_featured_item import HeroFeaturedItem
+from app.models.home_section import HomeSectionItem
 from app.models.payment_intent import PaymentIntent
 from app.models.purchase import Purchase
+from app.models.series_purchase import SeriesPurchase
 from app.models.transcode_job import TranscodeJob
 from app.models.watch_progress import WatchProgress
 
@@ -30,6 +34,10 @@ async def delete_content_dependencies(db: AsyncSession, content_id: uuid.UUID) -
     await db.execute(delete(Purchase).where(Purchase.content_id == content_id))
     await db.execute(delete(Favorite).where(Favorite.content_id == content_id))
     await db.execute(delete(FreeTodayItem).where(FreeTodayItem.content_id == content_id))
+    await db.execute(delete(ComingSoonItem).where(ComingSoonItem.content_id == content_id))
+    await db.execute(delete(GenreRailItem).where(GenreRailItem.content_id == content_id))
+    await db.execute(delete(HeroFeaturedItem).where(HeroFeaturedItem.content_id == content_id))
+    await db.execute(delete(HomeSectionItem).where(HomeSectionItem.ref_id == content_id))
     await db.execute(delete(WatchProgress).where(WatchProgress.content_id == content_id))
     await db.execute(
         update(PaymentIntent).where(PaymentIntent.content_id == content_id).values(content_id=None)
@@ -43,7 +51,12 @@ async def delete_content_dependencies_for_series(db: AsyncSession, series_id: uu
     so a series with many episodes doesn't cost 5x round trips per episode."""
     episode_ids = select(Content.id).where(Content.series_id == series_id)
     await db.execute(delete(Purchase).where(Purchase.content_id.in_(episode_ids)))
+    await db.execute(delete(Favorite).where(Favorite.content_id.in_(episode_ids)))
     await db.execute(delete(FreeTodayItem).where(FreeTodayItem.content_id.in_(episode_ids)))
+    await db.execute(delete(ComingSoonItem).where(ComingSoonItem.content_id.in_(episode_ids)))
+    await db.execute(delete(GenreRailItem).where(GenreRailItem.content_id.in_(episode_ids)))
+    await db.execute(delete(HeroFeaturedItem).where(HeroFeaturedItem.content_id.in_(episode_ids)))
+    await db.execute(delete(HomeSectionItem).where(HomeSectionItem.ref_id.in_(episode_ids)))
     await db.execute(delete(WatchProgress).where(WatchProgress.content_id.in_(episode_ids)))
     await db.execute(
         update(PaymentIntent)
@@ -54,8 +67,12 @@ async def delete_content_dependencies_for_series(db: AsyncSession, series_id: uu
 
 
 async def delete_series_and_dependencies(db: AsyncSession, series_id: uuid.UUID) -> None:
-    """Remove episode dependencies, hero picks, and episode rows before deleting the series."""
+    """Remove episode dependencies, hero picks, purchases, and episode rows before deleting the series."""
     await delete_content_dependencies_for_series(db, series_id)
+    await db.execute(delete(SeriesPurchase).where(SeriesPurchase.series_id == series_id))
+    await db.execute(
+        update(PaymentIntent).where(PaymentIntent.series_id == series_id).values(series_id=None)
+    )
     await db.execute(delete(Favorite).where(Favorite.content_id == series_id))
     await db.execute(
         delete(HeroFeaturedItem).where(
@@ -63,4 +80,5 @@ async def delete_series_and_dependencies(db: AsyncSession, series_id: uuid.UUID)
             HeroFeaturedItem.content_type == "series",
         )
     )
+    await db.execute(delete(HomeSectionItem).where(HomeSectionItem.ref_id == series_id))
     await db.execute(delete(Content).where(Content.series_id == series_id))

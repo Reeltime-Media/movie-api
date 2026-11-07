@@ -59,6 +59,8 @@ async def create_admin_promotion_banner(
     db.add(banner)
     await db.commit()
     await db.refresh(banner)
+    await cache_delete(f"promos:{banner.placement}")
+    await cache_delete("home-sections")
     return banner
 
 
@@ -98,6 +100,8 @@ async def update_admin_promotion_banner(
 
     await db.commit()
     await db.refresh(banner)
+    await cache_delete(f"promos:{banner.placement}")
+    await cache_delete("home-sections")
     return banner
 
 
@@ -111,8 +115,11 @@ async def delete_admin_promotion_banner(
     banner = result.scalar_one_or_none()
     if not banner:
         raise NotFoundError("Promotion banner not found")
+    placement = banner.placement
     await db.delete(banner)
     await db.commit()
+    await cache_delete(f"promos:{placement}")
+    await cache_delete("home-sections")
 
 
 @router.post(

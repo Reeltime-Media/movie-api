@@ -19,7 +19,9 @@ from app.schemas.comment import CommentAuthorRead, CommentRead, CommentThreadRea
 MAX_REPLY_DEPTH = 8
 
 
-def author_display_name(user: User) -> str:
+def author_display_name(user: User | None) -> str:
+    if not user:
+        return "Deleted User"
     if user.full_name and user.full_name.strip():
         return user.full_name.strip()
     local = user.email.split("@", 1)[0]
@@ -28,7 +30,7 @@ def author_display_name(user: User) -> str:
 
 def to_comment_read(
     comment: Comment,
-    author: User,
+    author: User | None,
     *,
     score: int = 0,
     user_vote: int | None = None,
@@ -42,7 +44,7 @@ def to_comment_read(
         created_at=comment.created_at,
         updated_at=comment.updated_at,
         author=CommentAuthorRead(
-            id=author.id,
+            id=author.id if author else comment.user_id,
             display_name=author_display_name(author),
         ),
         score=score,

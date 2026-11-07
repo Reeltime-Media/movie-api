@@ -17,6 +17,7 @@ from app.services.content_publish import (
     promote_scheduled_movie_to_published,
 )
 from app.services.distributed_lock import HeldLock, try_acquire
+from app.services.response_cache import cache_delete, cache_delete_prefix
 from app.services.series_publish import (
     promote_scheduled_series_to_published,
     series_is_publishable,
@@ -68,6 +69,8 @@ async def sweep_due_scheduled_movies(*, limit: int = 25) -> int:
 
         if promoted:
             await db.commit()
+            await cache_delete_prefix("movies:")
+            await cache_delete("home-sections")
         else:
             await db.rollback()
 
@@ -111,6 +114,8 @@ async def sweep_due_scheduled_series(*, limit: int = 25) -> int:
 
         if promoted:
             await db.commit()
+            await cache_delete_prefix("series:")
+            await cache_delete("home-sections")
         else:
             await db.rollback()
 

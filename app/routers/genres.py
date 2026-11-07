@@ -6,7 +6,7 @@ from sqlalchemy import select
 from app.dependencies import AdminUser, DBSession
 from app.models.genre import Genre
 from app.schemas.genre import GenreCreate, GenreRead
-from app.services.response_cache import cache_get_or_set
+from app.services.response_cache import cache_delete, cache_get_or_set
 
 router = APIRouter(prefix="/genres", tags=["genres"])
 
@@ -31,6 +31,7 @@ async def create_genre(body: GenreCreate, _admin: AdminUser, db: DBSession):
     db.add(genre)
     await db.commit()
     await db.refresh(genre)
+    await cache_delete("genres")
     return genre
 
 
@@ -42,3 +43,4 @@ async def delete_genre(genre_id: uuid.UUID, _admin: AdminUser, db: DBSession):
         raise HTTPException(status_code=404, detail="Genre not found")
     await db.delete(genre)
     await db.commit()
+    await cache_delete("genres")

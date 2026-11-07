@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 
 from app.core.exceptions import NotFoundError
 from app.dependencies import AdminUser, DBSession
+from app.models.content import Content
 from app.models.transcode_job import TranscodeJob
 from app.schemas.admin import TranscodeJobRead
 from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
@@ -87,6 +88,11 @@ async def retry_transcode_job(job_id: uuid.UUID, db: DBSession, _: AdminUser):
         raise NotFoundError("Transcode job not found")
     job.status = "queued"
     job.error = None
+    if job.content_id:
+        content_res = await db.execute(select(Content).where(Content.id == job.content_id))
+        content = content_res.scalar_one_or_none()
+        if content:
+            content.transcode_status = "pending"
     await db.commit()
     row = (await db.execute(transcode_jobs_select().where(TranscodeJob.id == job_id))).one()
     return transcode_job_row_to_read(row)

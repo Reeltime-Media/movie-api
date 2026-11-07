@@ -24,6 +24,7 @@ LOCAL_DEV_CORS_ORIGINS: tuple[str, ...] = (
 PRODUCTION_CORS_ORIGINS: tuple[str, ...] = (
     "https://reeltime.fun",
     "https://www.reeltime.fun",
+    "https://admin.reeltime.fun",
 )
 
 _SECRET_KEY_PLACEHOLDERS = frozenset(

@@ -120,6 +120,7 @@ class TopTitleReportRead(BaseModel):
     purchase_count: int
     watch_count: int
     completion_count: int
+    completion_rate: float = 0.0
 
 
 class AdminMovieCreate(BaseModel):

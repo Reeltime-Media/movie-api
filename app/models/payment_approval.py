@@ -15,7 +15,7 @@ class PaymentApproval(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     intent_id: Mapped[str] = mapped_column(
-        Text, ForeignKey("payment_intents.intent_id"), nullable=False, index=True
+        Text, ForeignKey("payment_intents.intent_id"), nullable=False, unique=True, index=True
     )
     admin_user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True

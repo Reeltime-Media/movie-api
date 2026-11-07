@@ -82,6 +82,8 @@ async def create_admin_hero_featured(
             raise ConflictError("This title is already featured for this placement") from exc
         raise
     await db.refresh(item)
+    await cache_delete(f"hero:{item.placement}")
+    await cache_delete("home-sections")
     enriched = await enrich_admin_hero_items(db, [item])
     return enriched[0]
 
@@ -150,6 +152,8 @@ async def update_admin_hero_featured(
             raise ConflictError("This title is already featured for this placement") from exc
         raise
     await db.refresh(item)
+    await cache_delete(f"hero:{item.placement}")
+    await cache_delete("home-sections")
     enriched = await enrich_admin_hero_items(db, [item])
     return enriched[0]
 
@@ -164,8 +168,11 @@ async def delete_admin_hero_featured(
     item = result.scalar_one_or_none()
     if not item:
         raise NotFoundError("Hero featured item not found")
+    placement = item.placement
     await db.delete(item)
     await db.commit()
+    await cache_delete(f"hero:{placement}")
+    await cache_delete("home-sections")
 
 
 @router.post("/hero-featured/uploads/start", response_model=HeroUploadStartRead)

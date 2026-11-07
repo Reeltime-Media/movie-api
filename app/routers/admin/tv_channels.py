@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import uuid
 
@@ -58,6 +59,7 @@ async def create_channel(data: TVChannelCreate, db: DBSession, _: AdminUser):
     db.add(channel)
     await db.commit()
     await db.refresh(channel)
+    await cache_delete_prefix("tv:")
     return channel
 
 
@@ -103,6 +105,7 @@ async def update_channel(channel_id: uuid.UUID, data: TVChannelUpdate, db: DBSes
         setattr(channel, field, value)
     await db.commit()
     await db.refresh(channel)
+    await cache_delete_prefix("tv:")
     return channel
 
 
@@ -123,6 +126,7 @@ async def delete_channel(channel_id: uuid.UUID, db: DBSession, _: AdminUser):
             )
     await db.delete(channel)
     await db.commit()
+    await cache_delete_prefix("tv:")
 
 
 @router.post("/{channel_id}/start", response_model=TVChannelRead)
@@ -134,6 +138,7 @@ async def start_channel(channel_id: uuid.UUID, db: DBSession, _: AdminUser):
     channel.status_error = result.get("error")
     await db.commit()
     await db.refresh(channel)
+    await cache_delete_prefix("tv:")
     return channel
 
 
@@ -145,6 +150,7 @@ async def stop_channel(channel_id: uuid.UUID, db: DBSession, _: AdminUser):
     channel.status_error = None
     await db.commit()
     await db.refresh(channel)
+    await cache_delete_prefix("tv:")
     return channel
 
 
@@ -159,6 +165,7 @@ async def refresh_channel_status(channel_id: uuid.UUID, db: DBSession, _: AdminU
     channel.status_error = result.get("error")
     await db.commit()
     await db.refresh(channel)
+    await cache_delete_prefix("tv:")
     return channel
 
 
@@ -179,7 +186,11 @@ async def complete_channel_logo_upload(
     channel = await _get_channel_or_404(db, channel_id)
     if not r2_keys.is_tv_channel_asset_key(channel.slug, data.logo_key):
         raise HTTPException(status_code=422, detail="logo_key does not match channel")
+    exists = await asyncio.to_thread(storage.object_exists, data.logo_key)
+    if not exists:
+        raise HTTPException(status_code=409, detail="Logo upload is not available in storage yet")
     channel.logo_key = data.logo_key
     await db.commit()
     await db.refresh(channel)
+    await cache_delete_prefix("tv:")
     return channel
