@@ -13,7 +13,7 @@ Only the entry fetch is gated by the channel playback token; everything the
 rewritten playlist points at is a plain HTTPS URL on the origin/CDN.
 """
 
-import threading
+import asyncio
 import time
 from urllib.parse import urljoin
 
@@ -27,14 +27,23 @@ _live_playback_client: httpx.AsyncClient | None = None
 # the origin server for the same channel's entry playlist.
 _PLAYLIST_CACHE_TTL = 1  # seconds — live playlists roll off in ~10s
 _playlist_cache: dict[str, tuple[str, float]] = {}
-_cache_lock = threading.Lock()
+_cache_lock = asyncio.Lock()
 
 
 def _get_client() -> httpx.AsyncClient:
+    if _live_playback_client is None:
+        raise RuntimeError(
+            "live_playback HTTP client is not initialised — "
+            "ensure setup_http_client() is called in the app lifespan."
+        )
+    return _live_playback_client
+
+
+async def setup_http_client() -> None:
+    """Initialise the shared AsyncClient. Call once from the app lifespan."""
     global _live_playback_client
     if _live_playback_client is None:
         _live_playback_client = httpx.AsyncClient(timeout=_FETCH_TIMEOUT_SECONDS)
-    return _live_playback_client
 
 
 async def close_http_client() -> None:
@@ -62,7 +71,7 @@ def _secure_media_url(url: str, *, allow_insecure: bool) -> str:
 
 async def _fetch_playlist_text(hls_url: str) -> str:
     now = time.monotonic()
-    with _cache_lock:
+    async with _cache_lock:
         cached = _playlist_cache.get(hls_url)
         if cached and cached[1] > now:
             return cached[0]
@@ -78,7 +87,7 @@ async def _fetch_playlist_text(hls_url: str) -> str:
         ) from exc
     text = response.text
 
-    with _cache_lock:
+    async with _cache_lock:
         _playlist_cache[hls_url] = (text, now + _PLAYLIST_CACHE_TTL)
 
     return text

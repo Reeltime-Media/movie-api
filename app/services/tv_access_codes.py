@@ -73,10 +73,12 @@ async def _unique_code(db: AsyncSession, preferred: str | None) -> str:
             raise ConflictError("This TV ID is already in use")
         return preferred
 
-    for _ in range(12):
-        candidate = _generate_code()
-        existing = await db.execute(select(TvAccessCode.id).where(TvAccessCode.code == candidate))
-        if existing.scalar_one_or_none() is None:
+    # Generate all candidates up-front, then eliminate taken ones in one query.
+    candidates = [_generate_code() for _ in range(12)]
+    result = await db.execute(select(TvAccessCode.code).where(TvAccessCode.code.in_(candidates)))
+    taken = set(result.scalars())
+    for candidate in candidates:
+        if candidate not in taken:
             return candidate
     raise ConflictError("Could not generate a unique TV ID. Try again.")
 
@@ -140,10 +142,14 @@ async def update_tv_access_code(
     row = await _get_row(db, code_id)
     payload = data.model_dump(exclude_unset=True)
 
-    if "label" in payload:
-        row.label = payload["label"]
+    # Fetch the linked user once upfront if any user-touching field is being updated.
+    user: User | None = None
+    if "label" in payload or "is_active" in payload:
         user_result = await db.execute(select(User).where(User.id == row.user_id))
         user = user_result.scalar_one_or_none()
+
+    if "label" in payload:
+        row.label = payload["label"]
         if user:
             user.full_name = row.label or f"TV {row.code}"
 
@@ -170,8 +176,6 @@ async def update_tv_access_code(
             )
             .values(status=status)
         )
-        user_result = await db.execute(select(User).where(User.id == row.user_id))
-        user = user_result.scalar_one_or_none()
         if user:
             user.is_active = row.is_active
 
@@ -193,6 +197,7 @@ async def delete_tv_access_code(db: AsyncSession, code_id: uuid.UUID) -> None:
 
 
 async def _revoke_all_sessions(db: AsyncSession, user_id: uuid.UUID) -> None:
+    """Mark all active sessions as revoked. Caller is responsible for committing."""
     now = _utcnow()
     await db.execute(
         update(Session)
@@ -202,7 +207,6 @@ async def _revoke_all_sessions(db: AsyncSession, user_id: uuid.UUID) -> None:
         )
         .values(revoked_at=now)
     )
-    await db.commit()
 
 
 async def login_with_tv_access_code(
@@ -235,9 +239,9 @@ async def login_with_tv_access_code(
             current_period_end=_ensure_aware(row.expires_at),
         )
     )
-    await db.commit()
 
     # One active TV box per ID — re-login on a new TV kicks the previous one.
+    # _revoke_all_sessions accumulates the UPDATE; we commit everything at once below.
     await _revoke_all_sessions(db, user.id)
     session = await create_session(db, user.id, user_agent or "REELTIME TV")
     await db.commit()

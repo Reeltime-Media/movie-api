@@ -69,6 +69,11 @@ async def app_lifespan(app: FastAPI):
     else:
         logger.info("Publish sweeper disabled")
 
+    from app.services.live_playback import setup_http_client as setup_live_playback_http_client
+
+    await setup_live_playback_http_client()
+    logger.info("Live playback HTTP client initialised")
+
     yield
 
     await stop_publish_sweeper()
@@ -78,7 +83,12 @@ async def app_lifespan(app: FastAPI):
     from app.services.bakong import close_http_client as close_bakong_http_client
     from app.services.email import close_http_client as close_email_http_client
     from app.services.live_client import close_http_client as close_live_http_client
-    from app.services.live_playback import close_http_client as close_live_playback_http_client
+    from app.services.live_playback import (
+        close_http_client as close_live_playback_http_client,
+    )
+    from app.services.live_playback import (
+        setup_http_client as setup_live_playback_http_client,
+    )
     from app.services.payment import close_http_client as close_payment_http_client
     from app.services.storage import reset_client as reset_storage_client
     from app.services.telegram import close_http_client as close_telegram_http_client
