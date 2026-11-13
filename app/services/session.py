@@ -151,7 +151,10 @@ async def refresh_session(db: AsyncSession, token: str) -> str:
 
     Each refresh moves the session to a new token version. Only a token at the
     current version may refresh, so once the device refreshes, a copy of an
-    older token is useless; presenting one revokes the session.
+    older token is useless; presenting one revokes the session. The one
+    exception is the token a refresh just replaced when its successor never
+    reached the server: the device lost that response (app killed, network
+    dropped), so the old token is still its own and gets the current one back.
     """
     payload = decode_expired_access_token(token)
     try:
@@ -179,13 +182,13 @@ async def refresh_session(db: AsyncSession, token: str) -> str:
     current = session.token_version
     if version == current:
         next_version = current + 1
-    elif (
-        version == current - 1
-        and session.refreshed_at is not None
-        and now - session.refreshed_at < REFRESH_RETRY_WINDOW
+    elif version == current - 1 and (
+        session.token_used_at is None
+        or (session.refreshed_at is not None and now - session.refreshed_at < REFRESH_RETRY_WINDOW)
     ):
-        # The same token refreshed moments ago: a lost response, or two tabs
-        # at once. Hand back the current token rather than signing out.
+        # The same token refreshed moments ago (two tabs at once), or its
+        # successor was never used (the response was lost). Hand back the
+        # current token rather than signing out.
         next_version = current
     else:
         session.revoked_at = now
@@ -207,6 +210,7 @@ async def refresh_session(db: AsyncSession, token: str) -> str:
     if next_version != current:
         session.token_version = next_version
         session.refreshed_at = now
+        session.token_used_at = None
     session.expires_at = now + timedelta(minutes=settings.access_token_expire_minutes)
     await db.commit()
     return create_access_token(user.id, user.role, session.id, next_version)
@@ -225,11 +229,17 @@ async def revoke_all_user_sessions(db: AsyncSession, user_id: uuid.UUID) -> None
     )
 
 
-async def require_active_session(db: AsyncSession, session_id_raw: str | None) -> uuid.UUID:
+async def require_active_session(
+    db: AsyncSession, session_id_raw: str | None, version: int | None = None
+) -> uuid.UUID:
     """Validate the 'sid' claim from a decoded access token against the DB.
     Raising here (rather than just trusting the JWT) is what makes logout
     and the device limit take effect immediately instead of waiting up to
-    ACCESS_TOKEN_EXPIRE_MINUTES for the token to expire on its own."""
+    ACCESS_TOKEN_EXPIRE_MINUTES for the token to expire on its own.
+
+    [version] is the token's 'ver' claim: the first request carrying the
+    session's current version records that the device has that token, which
+    is what lets refresh tell a lost response from a copied token."""
     if not session_id_raw:
         raise UnauthorizedError("Invalid token payload")
     try:
@@ -240,4 +250,17 @@ async def require_active_session(db: AsyncSession, session_id_raw: str | None) -
     session = await get_active_session(db, session_id)
     if not session:
         raise UnauthorizedError("Session has been revoked. Please log in again.")
+    if version == session.token_version and session.token_used_at is None:
+        # Once per refresh, and before the handler runs, so nothing else is
+        # pending in this transaction yet.
+        await db.execute(
+            update(Session)
+            .where(
+                Session.id == session_id,
+                Session.token_version == version,
+                Session.token_used_at.is_(None),
+            )
+            .values(token_used_at=datetime.now(UTC))
+        )
+        await db.commit()
     return session_id

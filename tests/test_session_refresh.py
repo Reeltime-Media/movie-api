@@ -15,7 +15,7 @@ from app.main import app
 from app.models.session import Session
 from app.models.user import User
 from app.services import session as session_service
-from app.services.session import refresh_session
+from app.services.session import refresh_session, require_active_session
 
 
 class _Result:
@@ -35,9 +35,13 @@ class _Db:
         self.user = user
         self.active_count = active_count
         self.committed = False
+        self.updates = []
 
     async def execute(self, stmt):
         sql = str(stmt.compile(dialect=postgresql.dialect())).lower()
+        if sql.startswith("update sessions"):
+            self.updates.append(sql)
+            return _Result(None)
         if "count(" in sql:
             return _Result(self.active_count)
         if "from sessions" in sql:
@@ -70,6 +74,7 @@ def _pair(
     is_active=True,
     token_version=0,
     refreshed_ago=None,
+    token_used_ago=None,
 ):
     user = User(id=uuid.uuid4(), email="v@example.com", role="user", is_active=is_active)
     session = Session(
@@ -80,6 +85,7 @@ def _pair(
         revoked_at=datetime.now(UTC) if revoked else None,
         token_version=token_version,
         refreshed_at=datetime.now(UTC) - refreshed_ago if refreshed_ago is not None else None,
+        token_used_at=datetime.now(UTC) - token_used_ago if token_used_ago is not None else None,
     )
     return user, session
 
@@ -108,6 +114,15 @@ def test_refresh_moves_the_session_to_a_new_token_version():
     assert session.refreshed_at is not None
 
 
+def test_a_new_token_starts_out_unused():
+    user, session = _pair(token_version=3, token_used_ago=timedelta(minutes=30))
+    db = _Db(session=session, user=user)
+
+    asyncio.run(refresh_session(db, _token(user_id=user.id, session_id=session.id, ver=3)))
+
+    assert session.token_used_at is None
+
+
 def test_token_from_before_rotation_refreshes_a_fresh_session():
     user, session = _pair(token_version=0)
     db = _Db(session=session, user=user)
@@ -128,8 +143,14 @@ def test_replaced_token_retried_moments_later_gets_the_current_token():
     assert session.revoked_at is None
 
 
-def test_replaced_token_used_after_the_retry_window_revokes_the_session():
-    user, session = _pair(token_version=4, refreshed_ago=timedelta(minutes=10))
+def test_replaced_token_after_the_window_revokes_once_its_successor_was_used():
+    # The device used the new token, so whoever still holds the old one
+    # copied it.
+    user, session = _pair(
+        token_version=4,
+        refreshed_ago=timedelta(minutes=10),
+        token_used_ago=timedelta(minutes=9),
+    )
     db = _Db(session=session, user=user)
 
     with pytest.raises(UnauthorizedError):
@@ -137,6 +158,20 @@ def test_replaced_token_used_after_the_retry_window_revokes_the_session():
 
     assert session.revoked_at is not None
     assert db.committed is True
+
+
+def test_replaced_token_after_the_window_recovers_when_its_successor_never_arrived():
+    # The device never got (or never kept) the token the refresh issued — the
+    # app was killed or the response was lost — so the old token is still its
+    # own. Hand back the current one instead of signing the device out.
+    user, session = _pair(token_version=4, refreshed_ago=timedelta(hours=6))
+    db = _Db(session=session, user=user)
+
+    fresh = asyncio.run(refresh_session(db, _token(user_id=user.id, session_id=session.id, ver=3)))
+
+    assert decode_access_token(fresh)["ver"] == 4
+    assert session.token_version == 4
+    assert session.revoked_at is None
 
 
 def test_much_older_token_revokes_the_session():
@@ -261,3 +296,37 @@ def test_live_session_at_the_device_limit_can_still_refresh():
 
 def test_refresh_route_is_registered():
     assert "post" in app.openapi()["paths"]["/auth/refresh"]
+
+
+def _live_pair(**kwargs):
+    return _pair(session_expires_in=timedelta(minutes=30), **kwargs)
+
+
+def test_request_with_the_newest_token_records_that_it_arrived():
+    user, session = _live_pair(token_version=4)
+    db = _Db(session=session, user=user)
+
+    asyncio.run(require_active_session(db, str(session.id), version=4))
+
+    assert len(db.updates) == 1
+    assert "token_used_at" in db.updates[0]
+    assert db.committed is True
+
+
+def test_request_with_an_older_token_does_not_mark_the_newest_used():
+    user, session = _live_pair(token_version=4)
+    db = _Db(session=session, user=user)
+
+    asyncio.run(require_active_session(db, str(session.id), version=3))
+
+    assert db.updates == []
+
+
+def test_newest_token_is_marked_used_only_once():
+    user, session = _live_pair(token_version=4, token_used_ago=timedelta(minutes=1))
+    db = _Db(session=session, user=user)
+
+    asyncio.run(require_active_session(db, str(session.id), version=4))
+
+    assert db.updates == []
+    assert db.committed is False

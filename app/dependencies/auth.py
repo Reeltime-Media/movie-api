@@ -15,6 +15,14 @@ bearer_scheme = HTTPBearer()
 optional_bearer_scheme = HTTPBearer(auto_error=False)
 
 
+def _token_version(payload: dict) -> int | None:
+    """The token's 'ver' claim; tokens from before rotation carry none (0)."""
+    try:
+        return int(payload.get("ver", 0))
+    except (TypeError, ValueError):
+        return None
+
+
 async def get_current_user(
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(bearer_scheme)],
     db: DBSession,
@@ -26,7 +34,7 @@ async def get_current_user(
     # Checking the session on every request (rather than trusting the JWT
     # alone) is what makes logout / the device limit take effect
     # immediately instead of waiting up to ACCESS_TOKEN_EXPIRE_MINUTES.
-    await require_active_session(db, payload.get("sid"))
+    await require_active_session(db, payload.get("sid"), _token_version(payload))
     result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
     user = result.scalar_one_or_none()
     if not user or not user.is_active:
@@ -42,7 +50,7 @@ async def get_current_session_id(
     db: DBSession,
 ) -> uuid.UUID:
     payload = decode_access_token(credentials.credentials)
-    return await require_active_session(db, payload.get("sid"))
+    return await require_active_session(db, payload.get("sid"), _token_version(payload))
 
 
 CurrentSessionId = Annotated[uuid.UUID, Depends(get_current_session_id)]
@@ -56,7 +64,7 @@ async def get_current_user_optional(
         return None
     try:
         payload = decode_access_token(credentials.credentials)
-        await require_active_session(db, payload.get("sid"))
+        await require_active_session(db, payload.get("sid"), _token_version(payload))
     except UnauthorizedError:
         return None
     user_id: str | None = payload.get("sub")

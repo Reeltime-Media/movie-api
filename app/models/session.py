@@ -31,3 +31,6 @@ class Session(Base):
         Integer, nullable=False, default=0, server_default="0"
     )
     refreshed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # When the device first sent the current-version token; cleared by each
+    # refresh. Still null means the device never got (or kept) that token.
+    token_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
