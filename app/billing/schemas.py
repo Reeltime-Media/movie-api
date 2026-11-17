@@ -1,8 +1,9 @@
 from datetime import datetime
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl
 
 
 class PaymentIntentCreate(BaseModel):
@@ -68,3 +69,33 @@ class CatalogPricingRead(BaseModel):
 
     series_unlock_usd: Decimal
     min_paid_usd: Decimal
+    # True once PAYPAL_CLIENT_ID/SECRET are set: clients show the PayPal button only then.
+    paypal_enabled: bool = False
+
+
+class PaypalIntentCreate(BaseModel):
+    """Optional hints for where the buyer lands again after PayPal."""
+
+    # Same-site path to open after payment, e.g. "/watch/my-movie". Validated server-side.
+    return_path: str | None = Field(default=None, max_length=300)
+    # "web" = the website; "app" = the mobile app (return page shows "back to the app").
+    client: Literal["web", "app"] = "web"
+    # Web origin the buyer started on; honoured only if it is on the CORS allow-list.
+    return_origin: str | None = Field(default=None, max_length=200)
+
+
+class PaypalIntentRead(BaseModel):
+    intent_id: str
+    order_id: str
+    # Open this URL (full-page redirect on web, in-app browser on mobile) to pay on PayPal.
+    approve_url: str
+    amount_usd: Decimal
+    status: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PaypalCaptureRequest(BaseModel):
+    # PayPal's order id: the "token" query parameter PayPal adds to the return URL.
+    order_id: str = Field(min_length=5, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")

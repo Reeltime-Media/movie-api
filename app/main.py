@@ -8,6 +8,8 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.billing.paypal_router import router as paypal_router
+from app.billing.paypal_router import webhook_router as paypal_webhook_router
 from app.config import get_settings
 from app.db_connect import verify_database_connection  # noqa: F401 — patched in tests
 from app.exception_handlers.database import (
@@ -93,6 +95,8 @@ def create_app() -> FastAPI:
     app.include_router(movies.router)
     app.include_router(podcasts.router)
     app.include_router(payments.router)
+    app.include_router(paypal_router)
+    app.include_router(paypal_webhook_router)
     app.include_router(promotions.router)
     app.include_router(hero_featured.router)
     app.include_router(free_today.router)

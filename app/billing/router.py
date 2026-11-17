@@ -43,6 +43,7 @@ def get_catalog_pricing():
     return CatalogPricingRead(
         series_unlock_usd=SERIES_UNLOCK_PRICE_USD,
         min_paid_usd=MIN_PAID_USD,
+        paypal_enabled=get_settings().paypal_enabled,
     )
 
 

@@ -19,7 +19,8 @@ class PaymentIntent(Base):
     )
     # Anonymous checkout identity (rt_guest_id cookie token) when there's no user_id.
     guest_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Payment provider: 'baray' (redirect + webhook) | 'bakong' (inline QR + poll).
+    # Payment provider: 'baray' (redirect + webhook) | 'bakong' (inline QR + poll) |
+    # 'paypal' (redirect to PayPal, capture on return + webhook).
     method: Mapped[str] = mapped_column(
         Text, nullable=False, default="baray", server_default="baray"
     )
@@ -37,6 +38,9 @@ class PaymentIntent(Base):
     bakong_qr_created_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # PayPal Orders v2 id and the id of the captured payment (method='paypal' only).
+    paypal_order_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    paypal_capture_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     kind: Mapped[str] = mapped_column(Text, nullable=False)  # 'single' | 'sub' | 'series'
     content_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("content.id"), nullable=True

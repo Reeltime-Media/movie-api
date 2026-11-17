@@ -111,6 +111,31 @@ pytest -q
 
 Also runs in CI on every push/PR to `main` (see `.github/workflows/deploy.yml`).
 
+## PayPal checkout
+
+PayPal sits next to Bakong as a second way to pay (movies, series unlocks, subscription
+periods). It is off until `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET` are set;
+`GET /payments/pricing` reports `paypal_enabled` and the web/mobile clients only show the
+button when it is true.
+
+Flow (Orders v2, redirect): `POST /payments/paypal/{movies/<id>/intent | series/<slug>/unlock-intent
+| subscription-intent}` creates a `method='paypal'` intent and a PayPal order and returns an
+`approve_url` -> the buyer pays on paypal.com -> PayPal sends them to
+`<web>/pay/paypal/return?intent=..&token=<order id>` -> that page calls
+`POST /payments/paypal/capture {order_id}` -> the intent is fulfilled exactly like a Bakong one.
+`POST /webhooks/paypal` repeats the capture/fulfil (CHECKOUT.ORDER.APPROVED,
+PAYMENT.CAPTURE.COMPLETED) so a buyer who closes the tab is still unlocked; it is verified with
+PayPal's signature API and de-duplicated by event id. Refunds/reversals only send a Telegram alert.
+
+Safety rules: the price is always the server-side price; a capture unlocks only when amount,
+currency and `custom_id` match the intent; capture is idempotent; a buyer who already owns the
+title is not charged twice. See `tests/test_paypal*.py`.
+
+Go live: (1) apply migration `0064`; (2) in the PayPal developer dashboard create the Live REST
+app + webhook (URL `https://<api host>/webhooks/paypal`); (3) set `PAYPAL_CLIENT_ID`,
+`PAYPAL_CLIENT_SECRET`, `PAYPAL_WEBHOOK_ID`, `PAYPAL_MODE=live` on the VM `.env` and redeploy.
+Test first with the Sandbox app and a sandbox buyer account (`PAYPAL_MODE=sandbox`).
+
 ## Bakong background worker (optional)
 
 By default the API can own sweeper/health loops (single-owner Redis lock, or

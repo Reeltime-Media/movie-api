@@ -148,12 +148,15 @@ async def admin_fulfill_payment(
             detail=f"Cannot fulfill intent in status={intent.status}",
         )
 
-    await fulfill_payment_intent(db, intent, bank="manual_bakong")
+    manual_label = (
+        "manual_paypal" if getattr(intent, "method", None) == "paypal" else "manual_bakong"
+    )
+    await fulfill_payment_intent(db, intent, bank=manual_label)
     db.add(
         PaymentApproval(
             intent_id=intent.intent_id,
             admin_user_id=admin.id,
-            bank="manual_bakong",
+            bank=manual_label,
         )
     )
     await commit_with_telegram(db)

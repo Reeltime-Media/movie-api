@@ -152,6 +152,20 @@ class Settings(BaseSettings):
     # Public URL of this API — must be reachable by Baray to deliver webhooks
     api_public_url: str = ""
 
+    # PayPal Checkout (Orders v2, redirect flow). Off until both PAYPAL_CLIENT_ID and
+    # PAYPAL_CLIENT_SECRET are set; the web/mobile clients only show the PayPal button
+    # when GET /payments/pricing says paypal_enabled.
+    paypal_client_id: str = ""
+    paypal_client_secret: str = ""
+    # 'sandbox' (default, test money) or 'live' (real money).
+    paypal_mode: str = "sandbox"
+    # ID of the webhook registered in the PayPal developer dashboard. Without it the
+    # /webhooks/paypal endpoint rejects every call (nothing is trusted unverified).
+    paypal_webhook_id: str = ""
+    # Public web origin the buyer returns to after PayPal (the /pay/paypal/return page).
+    # Empty = first APP_PUBLIC_URL entry.
+    paypal_return_base_url: str = ""
+
     # Bakong KHQR — prefer BAKONG_SERVICE_URL (Cambodia payment-bakong gateway).
     # Local BAKONG_* credentials are only needed when the service URL is empty.
     bakong_service_url: str = ""  # e.g. http://payment-bakong:8010 or https://pay.example.kh
@@ -235,10 +249,35 @@ class Settings(BaseSettings):
     # Concurrent device sessions allowed per account before login is rejected
     max_active_sessions_per_user: int = 5
 
+    @property
+    def paypal_enabled(self) -> bool:
+        return bool(self.paypal_client_id.strip() and self.paypal_client_secret.strip())
+
+    @property
+    def paypal_api_base(self) -> str:
+        if self.paypal_mode.strip().lower() == "live":
+            return "https://api-m.paypal.com"
+        return "https://api-m.sandbox.paypal.com"
+
+    @model_validator(mode="after")
+    def validate_paypal_settings(self) -> Self:
+        mode = self.paypal_mode.strip().lower()
+        if mode not in ("sandbox", "live"):
+            raise ValueError("PAYPAL_MODE must be 'sandbox' or 'live'")
+        if bool(self.paypal_client_id.strip()) != bool(self.paypal_client_secret.strip()):
+            raise ValueError("PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET must be set together")
+        return self
+
     @model_validator(mode="after")
     def validate_non_debug_settings(self) -> Self:
         if self.debug:
             return self
+
+        if self.paypal_enabled:
+            if not self.paypal_webhook_id.strip():
+                raise ValueError(
+                    "PAYPAL_WEBHOOK_ID is required when PayPal is configured (DEBUG is false)"
+                )
 
         key = self.secret_key.strip()
         if len(key) < 32:

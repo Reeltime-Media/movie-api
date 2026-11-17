@@ -80,6 +80,7 @@ async def app_lifespan(app: FastAPI):
     await stop_bakong_health_monitor()
     await stop_bakong_sweeper()
 
+    from app.billing.paypal import close_http_client as close_paypal_http_client
     from app.services.bakong import close_http_client as close_bakong_http_client
     from app.services.email import close_http_client as close_email_http_client
     from app.services.live_client import close_http_client as close_live_http_client
@@ -97,6 +98,7 @@ async def app_lifespan(app: FastAPI):
     # BARAY DISABLED — payment (Baray) HTTP client still cleaned up if used in future.
     await close_payment_http_client()
     await close_bakong_http_client()
+    await close_paypal_http_client()
     await close_transcode_http_client()
     await close_live_http_client()
     await close_live_playback_http_client()
