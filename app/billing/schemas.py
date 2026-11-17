@@ -82,6 +82,9 @@ class PaypalIntentCreate(BaseModel):
     client: Literal["web", "app"] = "web"
     # Web origin the buyer started on; honoured only if it is on the CORS allow-list.
     return_origin: str | None = Field(default=None, max_length=200)
+    # "paypal" = PayPal login page; "card" = ask PayPal for its Visa/Mastercard page for
+    # buyers without a PayPal account (still paid on paypal.com; PayPal may ignore it).
+    funding: Literal["paypal", "card"] = "paypal"
 
 
 class PaypalIntentRead(BaseModel):

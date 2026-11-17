@@ -77,6 +77,7 @@ async def create_movie_intent(
         return_path=data.return_path,
         client=data.client,
         origin=data.return_origin,
+        card_first=data.funding == "card",
     )
     return _read(intent, url)
 
@@ -105,6 +106,7 @@ async def create_series_intent(
         return_path=data.return_path,
         client=data.client,
         origin=data.return_origin,
+        card_first=data.funding == "card",
     )
     return _read(intent, url)
 
@@ -130,6 +132,7 @@ async def create_subscription_intent(
         return_path=data.return_path,
         client=data.client,
         origin=data.return_origin,
+        card_first=data.funding == "card",
     )
     return _read(intent, url)
 

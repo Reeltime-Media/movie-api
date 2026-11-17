@@ -207,6 +207,11 @@ def build_return_urls(
     return f"{base}?{query}", f"{base}?{query}&cancelled=1"
 
 
+# PayPal's page for buyers without a PayPal account: card number first ("guest checkout").
+# Whether PayPal shows it still depends on the merchant account and the buyer's country.
+CARD_LANDING_PAGE = "GUEST_CHECKOUT"
+
+
 def order_payload(
     *,
     intent_id: str,
@@ -215,8 +220,9 @@ def order_payload(
     description: str,
     return_url: str,
     cancel_url: str,
+    landing_page: str | None = None,
 ) -> dict[str, Any]:
-    return {
+    payload: dict[str, Any] = {
         "intent": "CAPTURE",
         "purchase_units": [
             {
@@ -241,6 +247,9 @@ def order_payload(
             }
         },
     }
+    if landing_page:
+        payload["payment_source"]["paypal"]["experience_context"]["landing_page"] = landing_page
+    return payload
 
 
 def approve_url(order: dict[str, Any]) -> str | None:
@@ -258,18 +267,40 @@ async def create_order(
     description: str,
     return_url: str,
     cancel_url: str,
+    card_first: bool = False,
 ) -> dict[str, Any]:
+    """Create the PayPal order. ``card_first`` asks PayPal to open on its card form.
+
+    That hint is optional: if PayPal rejects it (unknown value, unsupported account) the
+    order is created again without it, so the buyer still gets the normal PayPal page
+    and never an error because of a nicety.
+    """
+    common = {
+        "intent_id": intent_id,
+        "order_id": order_id,
+        "amount_usd": amount_usd,
+        "description": description,
+        "return_url": return_url,
+        "cancel_url": cancel_url,
+    }
+    if card_first:
+        try:
+            return await _request(
+                "POST",
+                "/v2/checkout/orders",
+                json_body=order_payload(**common, landing_page=CARD_LANDING_PAGE),
+                request_id=f"create-{intent_id}-card",
+            )
+        except PaypalApiError as exc:
+            if exc.status_code not in (400, 422):
+                raise
+            logger.warning(
+                "PayPal refused the card-first hint (%s); creating a normal order", exc.issue
+            )
     return await _request(
         "POST",
         "/v2/checkout/orders",
-        json_body=order_payload(
-            intent_id=intent_id,
-            order_id=order_id,
-            amount_usd=amount_usd,
-            description=description,
-            return_url=return_url,
-            cancel_url=cancel_url,
-        ),
+        json_body=order_payload(**common),
         # Same intent => same PayPal order if this call is retried.
         request_id=f"create-{intent_id}",
     )

@@ -250,3 +250,38 @@ def test_a_failing_event_is_a_5xx_so_paypal_retries(enabled, monkeypatch):
     )
     response = _client(FakeDb()).post("/webhooks/paypal", json=_EVENT)
     assert response.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_card_choice_reaches_paypal_as_the_card_first_hint(enabled, monkeypatch):
+    movie = _movie("2.99")
+    db = FakeDb(movie=movie)
+    create = AsyncMock(
+        return_value={
+            "id": "ORDER-8",
+            "links": [{"rel": "payer-action", "href": "https://paypal.example/pay"}],
+        }
+    )
+    monkeypatch.setattr(paypal, "create_order", create)
+
+    for card in (True, False):
+        await paypal_intents.create_movie_paypal_intent(
+            db,
+            content_id=movie.id,
+            user=None,
+            guest_id="g",
+            return_path=None,
+            client="web",
+            origin=None,
+            card_first=card,
+        )
+        assert create.await_args.kwargs["card_first"] is card
+
+
+def test_funding_field_only_accepts_paypal_or_card():
+    from app.billing.schemas import PaypalIntentCreate
+
+    assert PaypalIntentCreate().funding == "paypal"
+    assert PaypalIntentCreate(funding="card").funding == "card"
+    with pytest.raises(ValueError):
+        PaypalIntentCreate(funding="bitcoin")

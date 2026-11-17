@@ -92,6 +92,7 @@ async def _start_paypal_order(
     return_path: str | None,
     client: str,
     origin: str | None,
+    card_first: bool = False,
 ) -> tuple[PaymentIntent, str]:
     """Create the PayPal order for a saved intent. On failure the intent is closed."""
     try:
@@ -105,6 +106,7 @@ async def _start_paypal_order(
             description=description,
             return_url=return_url,
             cancel_url=cancel_url,
+            card_first=card_first,
         )
         link = paypal.approve_url(order)
         if not order.get("id") or not link:
@@ -144,6 +146,7 @@ async def create_movie_paypal_intent(
     return_path: str | None,
     client: str,
     origin: str | None,
+    card_first: bool = False,
 ) -> tuple[PaymentIntent, str]:
     _ensure_configured()
     owner = Purchase.user_id == user.id if user is not None else Purchase.guest_id == guest_id
@@ -180,6 +183,7 @@ async def create_movie_paypal_intent(
         return_path=return_path,
         client=client,
         origin=origin,
+        card_first=card_first,
     )
 
 
@@ -192,6 +196,7 @@ async def create_series_paypal_intent(
     return_path: str | None,
     client: str,
     origin: str | None,
+    card_first: bool = False,
 ) -> tuple[PaymentIntent, str]:
     _ensure_configured()
     if user and await user_has_active_subscription(db, user.id):
@@ -217,6 +222,7 @@ async def create_series_paypal_intent(
         return_path=return_path,
         client=client,
         origin=origin,
+        card_first=card_first,
     )
 
 
@@ -228,6 +234,7 @@ async def create_subscription_paypal_intent(
     return_path: str | None,
     client: str,
     origin: str | None,
+    card_first: bool = False,
 ) -> tuple[PaymentIntent, str]:
     _ensure_configured()
     plan = await resolve_active_plan(db, plan_code)
@@ -249,6 +256,7 @@ async def create_subscription_paypal_intent(
         return_path=return_path,
         client=client,
         origin=origin,
+        card_first=card_first,
     )
 
 

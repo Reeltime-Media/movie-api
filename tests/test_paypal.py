@@ -251,3 +251,102 @@ async def test_webhook_is_rejected_when_paypal_cannot_be_asked(mock_paypal):
 async def test_webhook_is_rejected_without_a_webhook_id(settings_factory):
     settings_factory(debug=True, paypal_client_id="a", paypal_client_secret="b")
     assert await paypal.verify_webhook_signature(_HEADERS, {"id": "x"}) is False
+
+
+# --- card-first hint (buyers without a PayPal account) -----------------------------
+
+
+def _order_kwargs(**extra):
+    return {
+        "intent_id": "pp-1",
+        "order_id": "movie-abc",
+        "amount_usd": Decimal("2.99"),
+        "description": "REELTIME - A Movie",
+        "return_url": "https://shop.example/pay/paypal/return?intent=pp-1",
+        "cancel_url": "https://shop.example/pay/paypal/return?intent=pp-1&cancelled=1",
+        **extra,
+    }
+
+
+def _created(request):
+    return httpx.Response(
+        201,
+        json={"id": "ORDER-1", "links": [{"rel": "payer-action", "href": "https://paypal.com/x"}]},
+    )
+
+
+def test_payload_has_no_landing_page_by_default():
+    payload = paypal.order_payload(**_order_kwargs())
+    assert "landing_page" not in payload["payment_source"]["paypal"]["experience_context"]
+
+
+def test_payload_can_ask_for_the_card_page():
+    payload = paypal.order_payload(**_order_kwargs(), landing_page=paypal.CARD_LANDING_PAGE)
+    context = payload["payment_source"]["paypal"]["experience_context"]
+    assert context["landing_page"] == "GUEST_CHECKOUT"
+
+
+@pytest.mark.asyncio
+async def test_card_first_order_asks_paypal_for_the_card_page(mock_paypal):
+    calls, handlers = mock_paypal
+    handlers["POST /v2/checkout/orders"] = _created
+    order = await paypal.create_order(**_order_kwargs(), card_first=True)
+
+    assert order["id"] == "ORDER-1"
+    order_calls = [c for c in calls if c.url.path == "/v2/checkout/orders"]
+    assert len(order_calls) == 1
+    body = json.loads(order_calls[0].content)
+    assert (
+        body["payment_source"]["paypal"]["experience_context"]["landing_page"] == "GUEST_CHECKOUT"
+    )
+    assert order_calls[0].headers["paypal-request-id"] == "create-pp-1-card"
+
+
+@pytest.mark.asyncio
+async def test_rejected_card_hint_falls_back_to_a_normal_order(mock_paypal):
+    calls, handlers = mock_paypal
+    seen = []
+
+    def handler(request):
+        body = json.loads(request.content)
+        seen.append(body)
+        if "landing_page" in body["payment_source"]["paypal"]["experience_context"]:
+            return httpx.Response(
+                422,
+                json={
+                    "name": "UNPROCESSABLE_ENTITY",
+                    "details": [{"issue": "INVALID_ENUM_VALUE", "description": "bad"}],
+                },
+            )
+        return _created(request)
+
+    handlers["POST /v2/checkout/orders"] = handler
+    order = await paypal.create_order(**_order_kwargs(), card_first=True)
+
+    assert order["id"] == "ORDER-1"
+    assert len(seen) == 2
+    assert "landing_page" in seen[0]["payment_source"]["paypal"]["experience_context"]
+    assert "landing_page" not in seen[1]["payment_source"]["paypal"]["experience_context"]
+    order_calls = [c for c in calls if c.url.path == "/v2/checkout/orders"]
+    assert order_calls[1].headers["paypal-request-id"] == "create-pp-1"
+
+
+@pytest.mark.asyncio
+async def test_a_paypal_outage_is_not_retried_as_a_normal_order(mock_paypal):
+    calls, handlers = mock_paypal
+    handlers["POST /v2/checkout/orders"] = httpx.Response(
+        500, json={"name": "INTERNAL_SERVICE_ERROR"}
+    )
+    with pytest.raises(paypal.PaypalApiError):
+        await paypal.create_order(**_order_kwargs(), card_first=True)
+    assert len([c for c in calls if c.url.path == "/v2/checkout/orders"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_normal_order_without_the_hint_is_unchanged(mock_paypal):
+    calls, handlers = mock_paypal
+    handlers["POST /v2/checkout/orders"] = _created
+    await paypal.create_order(**_order_kwargs())
+    order_calls = [c for c in calls if c.url.path == "/v2/checkout/orders"]
+    assert len(order_calls) == 1
+    assert order_calls[0].headers["paypal-request-id"] == "create-pp-1"
