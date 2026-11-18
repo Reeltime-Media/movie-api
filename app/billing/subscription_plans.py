@@ -9,13 +9,18 @@ async def list_subscription_plans(
     db: AsyncSession,
     *,
     active_only: bool = False,
+    audience: str | None = None,
 ) -> list[SubscriptionPlan]:
+    """Plans in display order. ``audience`` ("app" or "tv") narrows to one storefront;
+    None returns every plan (the admin list)."""
     stmt = select(SubscriptionPlan).order_by(
         SubscriptionPlan.sort_order.asc(),
         SubscriptionPlan.created_at.asc(),
     )
     if active_only:
         stmt = stmt.where(SubscriptionPlan.is_active.is_(True))
+    if audience is not None:
+        stmt = stmt.where(SubscriptionPlan.audience == audience)
     result = await db.execute(stmt)
     return list(result.scalars().all())
 
@@ -38,9 +43,10 @@ async def resolve_active_plan(
             raise NotFoundError("Subscription plan not found")
         return plan
 
+    # The default plan is a phone/web plan; TV packages are only bought by naming them.
     result = await db.execute(
         select(SubscriptionPlan)
-        .where(SubscriptionPlan.is_active.is_(True))
+        .where(SubscriptionPlan.is_active.is_(True), SubscriptionPlan.audience == "app")
         .order_by(SubscriptionPlan.sort_order.asc(), SubscriptionPlan.created_at.asc())
         .limit(1)
     )

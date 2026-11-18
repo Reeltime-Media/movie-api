@@ -6,7 +6,7 @@ tables so concurrent fulfillers cannot double-grant.
 
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +20,7 @@ from app.models.purchase import Purchase
 from app.models.series_purchase import SeriesPurchase
 from app.models.subscription import Subscription
 from app.models.subscription_payment import SubscriptionPayment
+from app.models.tv_access_code import TvAccessCode
 from app.models.user import User
 from app.services.telegram import notify_payment_succeeded
 
@@ -49,7 +50,8 @@ async def _resolve_plan_for_subscription_intent(
         if plan and plan.is_active:
             return plan
 
-    plans = await list_subscription_plans(db, active_only=True)
+    # Legacy rows without a plan code: guess among the phone/web plans only.
+    plans = await list_subscription_plans(db, active_only=True, audience="app")
     amount_matches = [p for p in plans if p.price_usd == intent.amount_usd]
     if len(amount_matches) == 1:
         return amount_matches[0]
@@ -220,6 +222,18 @@ async def fulfill_payment_intent(
         if subscription.current_period_end <= now:
             subscription.current_period_start = now
         subscription.current_period_end = period_end
+
+    # A TV box signs in with its TV ID, whose own expiry date is checked by the admin
+    # screen and the TV ID's validity: a top-up must move it forward too, or the box
+    # would look expired again right after paying.
+    await db.execute(
+        update(TvAccessCode)
+        .where(
+            TvAccessCode.user_id == intent.user_id,
+            TvAccessCode.expires_at < period_end,
+        )
+        .values(expires_at=period_end)
+    )
 
     if isinstance(intent, PaymentIntent):
         await db.execute(

@@ -158,10 +158,7 @@ async def update_tv_access_code(
         row.expires_at = expires_at
         await db.execute(
             update(Subscription)
-            .where(
-                Subscription.user_id == row.user_id,
-                Subscription.plan == _TV_PLAN,
-            )
+            .where(Subscription.user_id == row.user_id)
             .values(current_period_end=expires_at)
         )
 
@@ -169,12 +166,7 @@ async def update_tv_access_code(
         row.is_active = bool(payload["is_active"])
         status = "active" if row.is_active and not _is_expired(row) else "cancelled"
         await db.execute(
-            update(Subscription)
-            .where(
-                Subscription.user_id == row.user_id,
-                Subscription.plan == _TV_PLAN,
-            )
-            .values(status=status)
+            update(Subscription).where(Subscription.user_id == row.user_id).values(status=status)
         )
         if user:
             user.is_active = row.is_active
@@ -219,21 +211,19 @@ async def login_with_tv_access_code(
     row = result.scalar_one_or_none()
     if not row or not row.is_active:
         raise UnauthorizedError("Invalid or inactive TV ID")
-    if _is_expired(row):
-        raise UnauthorizedError("This TV ID has expired. Ask admin for a new one.")
+    # An expired TV ID may still sign in: it unlocks nothing (the subscription has
+    # ended) but it lets the person top up on the TV itself.
 
     user_result = await db.execute(select(User).where(User.id == row.user_id))
     user = user_result.scalar_one_or_none()
     if not user or not user.is_active:
         raise UnauthorizedError("Invalid or inactive TV ID")
 
-    # Keep subscription end in sync if admin extended expiry after cancel.
+    # Keep subscription end in sync if admin extended expiry after cancel. The TV user
+    # owns exactly one subscription; a paid top-up renames its plan, so match on the user.
     await db.execute(
         update(Subscription)
-        .where(
-            Subscription.user_id == user.id,
-            Subscription.plan == _TV_PLAN,
-        )
+        .where(Subscription.user_id == user.id)
         .values(
             status="active",
             current_period_end=_ensure_aware(row.expires_at),

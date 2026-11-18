@@ -26,6 +26,7 @@ SEED_PLANS: list[dict] = [
         "billing_interval_days": 14,
         "is_active": True,
         "sort_order": 0,
+        "audience": "app",
     },
     {
         "code": "value_1m",
@@ -35,6 +36,7 @@ SEED_PLANS: list[dict] = [
         "billing_interval_days": 30,
         "is_active": True,
         "sort_order": 1,
+        "audience": "app",
     },
     {
         "code": "best_value_3m",
@@ -44,6 +46,7 @@ SEED_PLANS: list[dict] = [
         "billing_interval_days": 90,
         "is_active": True,
         "sort_order": 2,
+        "audience": "app",
     },
     {
         "code": "premium_5m",
@@ -53,6 +56,7 @@ SEED_PLANS: list[dict] = [
         "billing_interval_days": 150,
         "is_active": True,
         "sort_order": 3,
+        "audience": "app",
     },
     {
         "code": "testing_1m",
@@ -62,6 +66,38 @@ SEED_PLANS: list[dict] = [
         "billing_interval_days": 30,
         "is_active": True,
         "sort_order": 4,
+        "audience": "app",
+    },
+    # The TV app's own packages (3 / 6 / 12 months). Sold only on TV, see audience.
+    {
+        "code": "tv_3m",
+        "name": "TV 3 Months",
+        "description": f"3 months. {PLAN_ACCESS_DESCRIPTION}",
+        "price_usd": Decimal("6.99"),
+        "billing_interval_days": 90,
+        "is_active": True,
+        "sort_order": 10,
+        "audience": "tv",
+    },
+    {
+        "code": "tv_6m",
+        "name": "TV 6 Months",
+        "description": f"6 months. {PLAN_ACCESS_DESCRIPTION}",
+        "price_usd": Decimal("12.99"),
+        "billing_interval_days": 180,
+        "is_active": True,
+        "sort_order": 11,
+        "audience": "tv",
+    },
+    {
+        "code": "tv_12m",
+        "name": "TV 12 Months",
+        "description": f"12 months. {PLAN_ACCESS_DESCRIPTION}",
+        "price_usd": Decimal("22.99"),
+        "billing_interval_days": 365,
+        "is_active": True,
+        "sort_order": 12,
+        "audience": "tv",
     },
 ]
 
@@ -72,6 +108,7 @@ _PLAN_FIELDS = (
     "billing_interval_days",
     "is_active",
     "sort_order",
+    "audience",
 )
 
 

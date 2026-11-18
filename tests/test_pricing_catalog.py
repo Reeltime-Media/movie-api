@@ -21,7 +21,7 @@ def test_catalog_prices():
 
 
 def test_seed_plans_match_card():
-    by_code = {p["code"]: p for p in SEED_PLANS}
+    by_code = {p["code"]: p for p in SEED_PLANS if p["audience"] == "app"}
     assert list(by_code) == [
         "basic_2w",
         "value_1m",
@@ -55,7 +55,26 @@ def test_legacy_codes_are_distinct():
         "best_value_3m",
         "premium_5m",
         "testing_1m",
+        "tv_3m",
+        "tv_6m",
+        "tv_12m",
     }
+
+
+def test_tv_plans_are_3_6_12_months_and_tv_only():
+    tv = {p["code"]: p for p in SEED_PLANS if p["audience"] == "tv"}
+    assert list(tv) == ["tv_3m", "tv_6m", "tv_12m"]
+    assert [p["billing_interval_days"] for p in tv.values()] == [90, 180, 365]
+    assert [p["price_usd"] for p in tv.values()] == [
+        Decimal("6.99"),
+        Decimal("12.99"),
+        Decimal("22.99"),
+    ]
+    # Longer packages are cheaper per month.
+    monthly = [p["price_usd"] / months for p, months in zip(tv.values(), (3, 6, 12))]
+    assert monthly == sorted(monthly, reverse=True)
+    # Phone/web plans never carry the TV audience.
+    assert all(p["audience"] == "app" for p in SEED_PLANS if p["code"] not in tv)
 
 
 def test_free_movies_are_not_overwritten():
@@ -71,6 +90,7 @@ class _Plan:
         self.billing_interval_days = 30
         self.is_active = False
         self.sort_order = 9
+        self.audience = "tv"
 
 
 def test_apply_plan_fields_updates_existing():

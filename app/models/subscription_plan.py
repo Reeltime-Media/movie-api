@@ -20,6 +20,9 @@ class SubscriptionPlan(Base):
     billing_interval_days: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Who the plan is sold to: "app" = phone/web (the default list), "tv" = the TV app's
+    # own packages. TV plans never appear in the phone/web plan list.
+    audience: Mapped[str] = mapped_column(Text, nullable=False, default="app", server_default="app")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

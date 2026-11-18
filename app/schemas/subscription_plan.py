@@ -1,10 +1,13 @@
 from datetime import datetime
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
 from app.core.money import validate_usd_price
+
+PlanAudience = Literal["app", "tv"]
 
 
 class SubscriptionPlanCreate(BaseModel):
@@ -21,6 +24,7 @@ class SubscriptionPlanCreate(BaseModel):
     billing_interval_days: int = Field(default=30, ge=1, le=365)
     is_active: bool = True
     sort_order: int = 0
+    audience: PlanAudience = "app"
 
 
 class SubscriptionPlanUpdate(BaseModel):
@@ -38,6 +42,7 @@ class SubscriptionPlanUpdate(BaseModel):
     billing_interval_days: int | None = Field(default=None, ge=1, le=365)
     is_active: bool | None = None
     sort_order: int | None = None
+    audience: PlanAudience | None = None
 
 
 class SubscriptionPlanRead(BaseModel):
@@ -49,6 +54,7 @@ class SubscriptionPlanRead(BaseModel):
     billing_interval_days: int
     is_active: bool
     sort_order: int
+    audience: PlanAudience
     created_at: datetime
     updated_at: datetime
 

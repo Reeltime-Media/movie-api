@@ -7,15 +7,17 @@ from app.core.exceptions import NotFoundError
 from app.dependencies import CurrentUser, DBSession
 from app.models.subscription import Subscription
 from app.schemas.subscription import SubscriptionRead
-from app.schemas.subscription_plan import SubscriptionPlanRead
+from app.schemas.subscription_plan import PlanAudience, SubscriptionPlanRead
 from app.services.subscription_plans import list_subscription_plans
 
 router = APIRouter(prefix="/subscriptions", tags=["subscriptions"])
 
 
 @router.get("/plans", response_model=list[SubscriptionPlanRead])
-async def list_public_subscription_plans(db: DBSession):
-    return await list_subscription_plans(db, active_only=True)
+async def list_public_subscription_plans(db: DBSession, audience: PlanAudience = "app"):
+    """Plans on sale. Phones and the web get the default ``app`` list; the TV app asks
+    for ``?audience=tv`` and gets its own 3/6/12-month packages."""
+    return await list_subscription_plans(db, active_only=True, audience=audience)
 
 
 @router.get("/me", response_model=list[SubscriptionRead])
