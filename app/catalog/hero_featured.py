@@ -4,11 +4,19 @@ from uuid import UUID
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.apps import REELTIME
+from app.core.apps import REELTIME, TV5
 from app.models.content import Content
 from app.models.hero_featured_item import HeroFeaturedItem
 from app.models.series import Series
 from app.schemas.hero_featured import HeroFeaturedItemRead, HeroFeaturedSlideRead
+
+#: Home banner of the TV5 Entertainment app. Placements starting with "tv5" are
+#: TV5's: their slides may only feature TV5 titles, and Reeltime's only Reeltime's.
+TV5_HOME_PLACEMENT = "tv5_home"
+
+
+def app_for_placement(placement: str) -> str:
+    return TV5 if placement.startswith("tv5") else REELTIME
 
 
 def _utc_now() -> datetime:
@@ -54,6 +62,7 @@ async def resolve_hero_slides(
     items = await list_active_hero_items(db, placement=placement)
     if not items:
         return []
+    app = app_for_placement(placement)
 
     # Batch-load all referenced movies and series in two queries (not per-item).
     movie_ids = [item.content_id for item in items if item.content_type == "movie"]
@@ -71,7 +80,7 @@ async def resolve_hero_slides(
             .where(
                 Content.id.in_(movie_ids),
                 Content.type == "single",
-                Content.app == REELTIME,
+                Content.app == app,
                 Content.is_published.is_(True),
             )
         )
@@ -86,7 +95,7 @@ async def resolve_hero_slides(
             .where(
                 Series.id.in_(series_ids),
                 Series.is_published.is_(True),
-                Series.app == REELTIME,
+                Series.app == app,
             )
         )
         series_by_id = {row.id: row for row in result.scalars().all()}
@@ -237,7 +246,9 @@ async def validate_hero_content(
     video_key: str | None = None,
     youtube_url: str | None = None,
     banner_key: str | None = None,
+    placement: str = "home",
 ) -> None:
+    app = app_for_placement(placement)
     if content_type == "custom":
         if content_id is not None:
             raise ValueError("custom slides must not reference catalog content")
@@ -254,7 +265,7 @@ async def validate_hero_content(
             select(Content.id).where(
                 Content.id == content_id,
                 Content.type == "single",
-                Content.app == REELTIME,
+                Content.app == app,
             )
         )
         if not result.scalar_one_or_none():
@@ -263,7 +274,7 @@ async def validate_hero_content(
 
     if content_type == "series":
         result = await db.execute(
-            select(Series.id).where(Series.id == content_id, Series.app == REELTIME)
+            select(Series.id).where(Series.id == content_id, Series.app == app)
         )
         if not result.scalar_one_or_none():
             raise ValueError("Series not found")

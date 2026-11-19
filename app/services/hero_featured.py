@@ -1,7 +1,9 @@
 """Shim — hero featured lives in ``app.catalog.hero_featured``."""
 
 from app.catalog.hero_featured import (  # noqa: F401
+    TV5_HOME_PLACEMENT,
     _build_slide,
+    app_for_placement,
     enrich_admin_hero_items,
     list_active_hero_items,
     reorder_hero_items,
@@ -10,7 +12,9 @@ from app.catalog.hero_featured import (  # noqa: F401
 )
 
 __all__ = [
+    "TV5_HOME_PLACEMENT",
     "_build_slide",
+    "app_for_placement",
     "enrich_admin_hero_items",
     "list_active_hero_items",
     "reorder_hero_items",

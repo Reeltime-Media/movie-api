@@ -19,12 +19,15 @@ from app.models.content import Content
 from app.models.match_details import MatchDetails
 from app.rate_limit import limiter
 from app.schemas.content import ContentRead
+from app.schemas.hero_featured import HeroFeaturedSlideRead
 from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
 from app.schemas.series import SeriesListItemRead, SeriesRead
 from app.schemas.subscription_plan import SubscriptionPlanRead
 from app.schemas.tv5 import Tv5MatchListItemRead
 from app.services.content_access import can_access_content, user_has_active_subscription
+from app.services.hero_featured import TV5_HOME_PLACEMENT, resolve_hero_slides
 from app.services.pagination import paginate_query
+from app.services.response_cache import cache_get_or_set
 from app.services.subscription_plans import list_subscription_plans
 
 router = APIRouter(prefix="/tv5", tags=["tv5"])
@@ -34,6 +37,16 @@ _published_matches = (
     .join(MatchDetails, MatchDetails.content_id == Content.id)
     .where(Content.app == TV5, Content.type == "single", Content.is_published.is_(True))
 )
+
+
+@router.get("/hero", response_model=list[HeroFeaturedSlideRead])
+async def list_tv5_hero(db: DBSession):
+    """The TV5 home banner: slides an admin set up for TV5, in order. An empty list
+    means none are set, and the app falls back to its newest titles."""
+    return await cache_get_or_set(
+        f"hero:{TV5_HOME_PLACEMENT}",
+        lambda: resolve_hero_slides(db, placement=TV5_HOME_PLACEMENT),
+    )
 
 
 @router.get("/series", response_model=PaginatedResponse[SeriesListItemRead])

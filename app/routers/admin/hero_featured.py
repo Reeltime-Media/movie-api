@@ -16,6 +16,7 @@ from app.schemas.hero_featured import (
 )
 from app.services import r2_keys, storage
 from app.services.hero_featured import (
+    app_for_placement,
     enrich_admin_hero_items,
     reorder_hero_items,
     validate_hero_content,
@@ -67,6 +68,7 @@ async def create_admin_hero_featured(
             video_key=data.video_key,
             youtube_url=data.youtube_url,
             banner_key=data.banner_key,
+            placement=data.placement,
         )
     except ValueError as exc:
         raise NotFoundError(str(exc)) from exc
@@ -122,6 +124,10 @@ async def update_admin_hero_featured(
     video_key = updates.get("video_key", item.video_key)
     youtube_url = updates.get("youtube_url", item.youtube_url)
     banner_key = updates.get("banner_key", item.banner_key)
+    placement = updates.get("placement") or item.placement
+    if app_for_placement(placement) != app_for_placement(item.placement):
+        # A slide's title belongs to one app; re-create it for the other app instead.
+        raise ConflictError("A slide can't move between Reeltime and TV5")
     if content_type == "custom":
         # Switching to custom drops any catalog reference.
         content_id = None
@@ -136,6 +142,7 @@ async def update_admin_hero_featured(
                 video_key=video_key,
                 youtube_url=youtube_url,
                 banner_key=banner_key,
+                placement=placement,
             )
         except ValueError as exc:
             raise NotFoundError(str(exc)) from exc
