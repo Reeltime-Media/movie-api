@@ -185,8 +185,8 @@ async def test_tv_top_up_extends_from_the_current_end_and_moves_the_tv_id(monkey
         code="tv_6m",
         app="reeltime",
         is_active=True,
-        billing_interval_days=180,
-        price_usd=Decimal("12.99"),
+        billing_interval_days=210,
+        price_usd=Decimal("27.00"),
     )
 
     db = await _fulfill(monkeypatch, plan, subscription)
@@ -218,8 +218,8 @@ async def test_tv_top_up_after_expiry_starts_from_now(monkeypatch):
         code="tv_12m",
         app="reeltime",
         is_active=True,
-        billing_interval_days=365,
-        price_usd=Decimal("22.99"),
+        billing_interval_days=425,
+        price_usd=Decimal("50.00"),
     )
 
     await _fulfill(monkeypatch, plan, subscription)
