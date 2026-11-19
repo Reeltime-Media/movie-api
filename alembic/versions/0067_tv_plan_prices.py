@@ -4,11 +4,11 @@
 free $50 (14 months of access). ``bonus_days`` records the free part (it is already
 inside ``billing_interval_days``) so the TV can show "6 months + 1 month free".
 
-Each value is only changed while it still has the default migration 0065 created, so
+Follows 0066 (TV5 app scope). Each value is only changed while it still has the default migration 0065 created, so
 anything already edited in the admin screen is left alone.
 
-Revision ID: 0066
-Revises: 0065
+Revision ID: 0067
+Revises: 0066
 Create Date: 2026-11-19
 """
 
@@ -16,8 +16,8 @@ from typing import Sequence, Union
 
 from alembic import op
 
-revision: str = "0066"
-down_revision: Union[str, None] = "0065"
+revision: str = "0067"
+down_revision: Union[str, None] = "0066"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
