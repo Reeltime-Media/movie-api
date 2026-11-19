@@ -1,8 +1,9 @@
 import uuid
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from sqlalchemy import select
 
+from app.core.apps import REELTIME, AppName
 from app.core.exceptions import NotFoundError
 from app.dependencies import AdminUser, DBSession
 from app.models.content import Content
@@ -40,8 +41,13 @@ async def list_admin_series(
     db: DBSession,
     _: AdminUser,
     pagination: PaginationDep,
+    app: AppName = Query(default=REELTIME),
 ):
-    stmt = select(Series).order_by(Series.sort_order.asc(), Series.created_at.desc())
+    stmt = (
+        select(Series)
+        .where(Series.app == app)
+        .order_by(Series.sort_order.asc(), Series.created_at.desc())
+    )
     items, total = await paginate_query(
         db, stmt, page=pagination.page, page_size=pagination.page_size
     )

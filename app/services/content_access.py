@@ -7,6 +7,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.apps import REELTIME
 from app.core.exceptions import ForbiddenError, NotFoundError
 from app.models.content import Content
 from app.models.purchase import Purchase
@@ -34,12 +35,16 @@ async def get_published_content_or_404(
     return content
 
 
-async def user_has_active_subscription(db: AsyncSession, user_id: UUID) -> bool:
+async def user_has_active_subscription(
+    db: AsyncSession, user_id: UUID, *, app: str = REELTIME
+) -> bool:
+    """Whether the user's plan for ``app`` is current. Each app is paid for separately."""
     now = datetime.now(UTC)
     result = await db.execute(
         select(Subscription.id)
         .where(
             Subscription.user_id == user_id,
+            Subscription.app == app,
             Subscription.status == "active",
             Subscription.current_period_end > now,
         )
@@ -106,6 +111,13 @@ async def can_access_content(
         return False
     if content.is_free:
         return True
+    content_app = content.app or REELTIME  # unsaved rows get the column default on insert
+    if content_app != REELTIME:
+        # TV5 is subscription-only: no price, purchase or Free-today rule applies,
+        # so an unpriced title is not free unless an admin marked it free.
+        if not user:
+            return False
+        return await user_has_active_subscription(db, user.id, app=content_app)
     if content.type == "single":
         if _movie_is_free(content):
             return True

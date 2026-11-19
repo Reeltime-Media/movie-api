@@ -50,6 +50,7 @@ class _FakeDb:
 @pytest.mark.asyncio
 async def test_fulfill_sub_uses_snapshotted_interval_days(monkeypatch):
     plan = SimpleNamespace(
+        app="reeltime",
         code="premium_5m",
         is_active=True,
         billing_interval_days=150,

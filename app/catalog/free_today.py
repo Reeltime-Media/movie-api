@@ -5,6 +5,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.apps import REELTIME
 from app.models.content import Content
 from app.models.free_today_item import FreeTodayItem
 from app.models.home_section import HomeSection, HomeSectionItem
@@ -73,6 +74,7 @@ async def resolve_free_today_movies(db: AsyncSession) -> list[Content]:
                     HomeSectionItem.section_id == section.id,
                     HomeSectionItem.item_kind == "movie",
                     Content.type == "single",
+                    Content.app == REELTIME,
                     Content.is_published.is_(True),
                 )
                 .order_by(
@@ -88,7 +90,7 @@ async def resolve_free_today_movies(db: AsyncSession) -> list[Content]:
         select(Content)
         .options(content_list_load_options())
         .join(FreeTodayItem, FreeTodayItem.content_id == Content.id)
-        .where(Content.type == "single", Content.is_published.is_(True))
+        .where(Content.type == "single", Content.app == REELTIME, Content.is_published.is_(True))
         .order_by(FreeTodayItem.sort_order.asc(), FreeTodayItem.created_at.desc())
         .limit(FREE_TODAY_MAX)
     )
@@ -119,7 +121,9 @@ async def enrich_admin_free_today(
 
 async def validate_free_today_add(db: AsyncSession, content_id: UUID) -> None:
     result = await db.execute(
-        select(Content.id).where(Content.id == content_id, Content.type == "single")
+        select(Content.id).where(
+            Content.id == content_id, Content.type == "single", Content.app == REELTIME
+        )
     )
     if not result.scalar_one_or_none():
         raise ValueError("Movie not found")

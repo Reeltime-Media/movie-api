@@ -34,6 +34,7 @@ CONTENT_LIST_COLUMNS = (
 )
 
 SERIES_LIST_COLUMNS = (
+    Series.app,
     Series.id,
     Series.slug,
     Series.title,

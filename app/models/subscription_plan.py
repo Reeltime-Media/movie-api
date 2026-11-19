@@ -14,6 +14,10 @@ class SubscriptionPlan(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     code: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    # 'reeltime' | 'tv5' — see app/core/apps.py.
+    app: Mapped[str] = mapped_column(
+        Text, nullable=False, default="reeltime", server_default="reeltime"
+    )
     name: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     price_usd: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)

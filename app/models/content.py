@@ -1,12 +1,16 @@
 import uuid
 from datetime import datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, Computed, DateTime, ForeignKey, Integer, Numeric, Text, func
 from sqlalchemy.dialects.postgresql import ARRAY, TSVECTOR, UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+
+if TYPE_CHECKING:
+    from app.models.match_details import MatchDetails
 
 _STATUS = {"draft", "review", "scheduled", "published"}
 
@@ -21,6 +25,10 @@ class Content(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     type: Mapped[str] = mapped_column(Text, nullable=False)  # 'single' | 'episode' | 'podcast'
+    # 'reeltime' | 'tv5' — see app/core/apps.py.
+    app: Mapped[str] = mapped_column(
+        Text, nullable=False, default="reeltime", server_default="reeltime"
+    )
     series_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("series.id", ondelete="CASCADE"),
@@ -64,4 +72,9 @@ class Content(Base):
         nullable=False,
         server_default=func.now(),
         onupdate=func.now(),
+    )
+
+    # Fight card for TV5 Kun Khmer matches. Not loaded unless a query asks for it.
+    match: Mapped["MatchDetails | None"] = relationship(
+        "MatchDetails", lazy="noload", uselist=False, passive_deletes=True
     )

@@ -1,6 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.apps import REELTIME
 from app.core.exceptions import NotFoundError
 from app.models.subscription_plan import SubscriptionPlan
 
@@ -9,14 +10,17 @@ async def list_subscription_plans(
     db: AsyncSession,
     *,
     active_only: bool = False,
+    app: str | None = REELTIME,
     audience: str | None = None,
 ) -> list[SubscriptionPlan]:
-    """Plans in display order. ``audience`` ("app" or "tv") narrows to one storefront;
-    None returns every plan (the admin list)."""
+    """Plans in display order for one app (None lists every app's plans, for the admin).
+    ``audience`` ("app" or "tv") narrows to one storefront; None returns both."""
     stmt = select(SubscriptionPlan).order_by(
         SubscriptionPlan.sort_order.asc(),
         SubscriptionPlan.created_at.asc(),
     )
+    if app is not None:
+        stmt = stmt.where(SubscriptionPlan.app == app)
     if active_only:
         stmt = stmt.where(SubscriptionPlan.is_active.is_(True))
     if audience is not None:
@@ -36,7 +40,10 @@ async def get_subscription_plan_by_code(
 async def resolve_active_plan(
     db: AsyncSession,
     plan_code: str | None = None,
+    *,
+    app: str = REELTIME,
 ) -> SubscriptionPlan:
+    """The plan a checkout is for: by code, else ``app``'s first active plan."""
     if plan_code:
         plan = await get_subscription_plan_by_code(db, plan_code)
         if not plan or not plan.is_active:
@@ -46,7 +53,11 @@ async def resolve_active_plan(
     # The default plan is a phone/web plan; TV packages are only bought by naming them.
     result = await db.execute(
         select(SubscriptionPlan)
-        .where(SubscriptionPlan.is_active.is_(True), SubscriptionPlan.audience == "app")
+        .where(
+            SubscriptionPlan.is_active.is_(True),
+            SubscriptionPlan.app == app,
+            SubscriptionPlan.audience == "app",
+        )
         .order_by(SubscriptionPlan.sort_order.asc(), SubscriptionPlan.created_at.asc())
         .limit(1)
     )

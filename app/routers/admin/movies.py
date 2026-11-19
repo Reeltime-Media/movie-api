@@ -1,12 +1,15 @@
 import asyncio
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
+from app.core.apps import REELTIME, TV5, AppName
 from app.core.exceptions import NotFoundError
 from app.dependencies import AdminUser, DBSession
 from app.models.content import Content
+from app.models.match_details import MatchDetails
 from app.models.transcode_job import TranscodeJob
 from app.schemas.admin import (
     AdminMovieCreate,
@@ -15,6 +18,7 @@ from app.schemas.admin import (
     MovieAssetUploadStartRead,
 )
 from app.schemas.content import AdminContentRead, ContentRead, ContentUpdate, MovieReorder
+from app.schemas.match import MatchDetailsWrite
 from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
 from app.services import r2_keys, storage
 from app.services.admin.helpers import purchase_counts_for_content, watch_counts_for_content
@@ -27,6 +31,27 @@ from app.services.response_cache import cache_delete, cache_delete_prefix
 from app.services.runtime import apply_runtime_minutes
 
 router = APIRouter()
+
+
+async def _get_movie_with_match(db: DBSession, movie_id: uuid.UUID) -> Content | None:
+    result = await db.execute(
+        select(Content)
+        .options(selectinload(Content.match))
+        .where(Content.id == movie_id, Content.type == "single")
+        # The title may already be in this session with its fight card unloaded.
+        .execution_options(populate_existing=True)
+    )
+    return result.scalar_one_or_none()
+
+
+async def _save_match(db: DBSession, movie: Content, match: MatchDetailsWrite) -> None:
+    values = match.model_dump()
+    existing = await db.get(MatchDetails, movie.id)
+    if existing is None:
+        db.add(MatchDetails(content_id=movie.id, **values))
+        return
+    for field, value in values.items():
+        setattr(existing, field, value)
 
 
 @router.post("/movies", response_model=AdminContentRead, status_code=201)
@@ -47,14 +72,18 @@ async def create_admin_movie_draft(data: AdminMovieCreate, db: DBSession, _: Adm
         price_usd=data.price_usd,
         trailer_url=data.trailer_url,
         sort_order=data.sort_order,
+        app=data.app,
         status="draft",
         is_published=False,
         transcode_status="pending",
     )
     apply_runtime_minutes(movie, data.runtime_minutes)
     db.add(movie)
+    if data.match is not None:
+        await db.flush()
+        await _save_match(db, movie, data.match)
     await db.commit()
-    await db.refresh(movie)
+    movie = await _get_movie_with_match(db, movie.id)
     await cache_delete_prefix("movies:")
     return AdminContentRead(
         **ContentRead.model_validate(movie).model_dump(),
@@ -88,10 +117,12 @@ async def list_admin_movies(
     db: DBSession,
     _: AdminUser,
     pagination: PaginationDep,
+    app: AppName = Query(default=REELTIME),
 ):
     stmt = (
         select(Content)
-        .where(Content.type == "single")
+        .options(selectinload(Content.match))
+        .where(Content.type == "single", Content.app == app)
         .order_by(Content.sort_order.asc(), Content.created_at.desc())
     )
     items, total = await paginate_query(
@@ -117,10 +148,7 @@ async def list_admin_movies(
 
 @router.get("/movies/{movie_id}", response_model=AdminContentRead)
 async def get_admin_movie(movie_id: uuid.UUID, db: DBSession, _: AdminUser):
-    result = await db.execute(
-        select(Content).where(Content.id == movie_id, Content.type == "single")
-    )
-    movie = result.scalar_one_or_none()
+    movie = await _get_movie_with_match(db, movie_id)
     if not movie:
         raise NotFoundError("Movie not found")
     watch_counts = await watch_counts_for_content(db, [movie.id])
@@ -147,6 +175,7 @@ async def update_admin_movie(
         raise NotFoundError("Movie not found")
 
     updates = data.model_dump(exclude_unset=True)
+    updates.pop("match", None)
     runtime_minutes = updates.pop("runtime_minutes", None)
     status = updates.pop("status", None)
     publish_at_set = "publish_at" in updates
@@ -170,13 +199,19 @@ async def update_admin_movie(
             publish_at_set=publish_at_set,
         )
 
+    if "match" in data.model_fields_set:
+        if movie.app != TV5:
+            raise HTTPException(status_code=422, detail="Only TV5 titles have a fight card")
+        if data.match is None:
+            raise HTTPException(status_code=422, detail="A TV5 match needs both fighters")
+        await _save_match(db, movie, data.match)
+
     if movie.status == "published":
         await ensure_movie_publishable(db, movie)
 
     await db.commit()
-    await db.refresh(movie)
     await cache_delete_prefix("movies:")
-    return movie
+    return await _get_movie_with_match(db, movie.id)
 
 
 @router.post("/movies/{movie_id}/assets/start", response_model=MovieAssetUploadStartRead)

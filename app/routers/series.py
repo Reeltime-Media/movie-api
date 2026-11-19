@@ -25,8 +25,14 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from sqlalchemy import select
 
 from app.catalog.content_slug import unique_content_slug, unique_series_slug
-from app.catalog.listing import get_series_detail, list_published_series, list_related_series
+from app.catalog.listing import (
+    get_series_detail,
+    list_published_series,
+    list_related_series,
+    list_series_episodes,
+)
 from app.catalog.series import get_series_or_404
+from app.core.apps import REELTIME
 from app.core.content_status import validate_content_status
 from app.core.exceptions import NotFoundError
 from app.core.guest import get_guest_id
@@ -36,7 +42,7 @@ from app.models.series import Series
 from app.models.transcode_job import TranscodeJob
 from app.rate_limit import limiter
 from app.schemas.content import ContentRead, ContentUpdate
-from app.schemas.pagination import PaginatedResponse, PaginationDep, build_paginated_response
+from app.schemas.pagination import PaginatedResponse, PaginationDep
 from app.schemas.series import (
     CreateSeriesBody,
     EpisodeAssetUploadComplete,
@@ -69,7 +75,6 @@ from app.services.content_upload import (
     verify_storage_objects_exist,
 )
 from app.services.image_process import optimize_r2_image
-from app.services.pagination import paginate_query
 from app.services.series_publish import (
     apply_legacy_is_published,
     apply_series_publish_state,
@@ -153,6 +158,7 @@ async def create_series(data: CreateSeriesBody, db: DBSession, _: AdminUser):
         monthly_price_usd=data.monthly_price_usd,
         trailer_url=data.trailer_url,
         is_short_movie=bool(data.is_short_movie),
+        app=data.app,
         status=data.status,
         publish_at=data.publish_at,
     )
@@ -257,19 +263,7 @@ async def list_episodes(
     pagination: PaginationDep,
 ):
     """Published episodes for a series (paginated, ordered by season/episode)."""
-    series = await get_series_or_404(db, slug, published_only=True)
-
-    stmt = (
-        select(Content)
-        .where(Content.series_id == series.id, Content.is_published.is_(True))
-        .order_by(Content.season_number, Content.episode_number)
-    )
-    episodes, total = await paginate_query(
-        db,
-        stmt,
-        page=pagination.page,
-        page_size=pagination.page_size,
-    )
+    series = await get_series_or_404(db, slug, published_only=True, app=REELTIME)
 
     is_admin = current_user is not None and current_user.role == "admin"
     entitled = False
@@ -282,16 +276,11 @@ async def list_episodes(
         if guest_id:
             entitled = await has_series_purchase(db, series.id, guest_id=guest_id)
 
-    items: list[ContentRead] = []
-    for ep in episodes:
-        data = ContentRead.model_validate(ep)
-        if not (is_admin or ep.is_free or entitled):
-            data.hls_master_key = None
-        items.append(data)
-
-    return build_paginated_response(
-        items,
-        total=total,
+    return await list_series_episodes(
+        db,
+        series,
+        entitled=entitled,
+        is_admin=is_admin,
         page=pagination.page,
         page_size=pagination.page_size,
     )
@@ -374,6 +363,8 @@ async def complete_episode_upload(
     episode = Content(
         id=data.content_id,
         type="episode",
+        # Episodes belong to their series' app, which decides who can watch them.
+        app=series.app,
         series_id=series.id,
         season_number=data.season_number,
         episode_number=data.episode_number,

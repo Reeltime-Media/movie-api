@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.catalog.columns import content_list_load_options, series_list_load_options
+from app.core.apps import REELTIME
 from app.models.content import Content
 from app.models.series import Series
 
@@ -22,6 +23,7 @@ async def related_movies(
         .options(content_list_load_options())
         .where(
             Content.type == "single",
+            Content.app == REELTIME,
             Content.is_published.is_(True),
             Content.id != movie.id,
         )
@@ -34,6 +36,7 @@ async def related_movies(
             .options(content_list_load_options())
             .where(
                 Content.type == "single",
+                Content.app == REELTIME,
                 Content.is_published.is_(True),
                 Content.id != movie.id,
                 Content.genres.overlap(genres),
@@ -53,6 +56,7 @@ async def related_movies(
         .options(content_list_load_options())
         .where(
             Content.type == "single",
+            Content.app == REELTIME,
             Content.is_published.is_(True),
             Content.id.not_in(existing_ids),
         )
@@ -74,6 +78,7 @@ async def related_series(
         .options(series_list_load_options())
         .where(
             Series.is_published.is_(True),
+            Series.app == REELTIME,
             Series.id != series.id,
         )
         .order_by(Series.created_at.desc())
@@ -85,6 +90,7 @@ async def related_series(
             .options(series_list_load_options())
             .where(
                 Series.is_published.is_(True),
+                Series.app == REELTIME,
                 Series.id != series.id,
                 Series.genres.overlap(genres),
             )
@@ -103,6 +109,7 @@ async def related_series(
         .options(series_list_load_options())
         .where(
             Series.is_published.is_(True),
+            Series.app == REELTIME,
             Series.id.not_in(existing_ids),
         )
         .order_by(Series.created_at.desc())

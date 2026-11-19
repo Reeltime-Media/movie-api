@@ -15,6 +15,7 @@ from app.catalog.series import (
     get_series_or_404,
     regions_by_series,
 )
+from app.core.apps import REELTIME
 from app.core.exceptions import NotFoundError
 from app.models.content import Content
 from app.models.series import Series
@@ -36,9 +37,10 @@ async def list_published_series(
     genre: str | None = None,
     free: bool | None = None,
     short: bool | None = None,
+    app: str = REELTIME,
 ):
     cache_key = (
-        f"series:search={search}:genre={genre}:free={free}:short={short}:"
+        f"series:app={app}:search={search}:genre={genre}:free={free}:short={short}:"
         f"page={page}:page_size={page_size}"
     )
     cached = await cache_get_async(cache_key)
@@ -48,7 +50,7 @@ async def list_published_series(
     stmt = (
         select(Series)
         .options(series_list_load_options())
-        .where(Series.is_published.is_(True))
+        .where(Series.is_published.is_(True), Series.app == app)
         .order_by(Series.sort_order.asc(), Series.created_at.desc())
     )
     stmt = apply_catalog_search(stmt, Series, search=search)
@@ -94,7 +96,7 @@ async def list_related_series(
     slug: str,
     limit: int = 8,
 ) -> list[SeriesListItemRead]:
-    series = await get_series_or_404(db, slug, published_only=True)
+    series = await get_series_or_404(db, slug, published_only=True, app=REELTIME)
     items = await related_series(db, series=series, limit=limit)
     ids = [item.id for item in items]
     counts = await free_episode_counts_by_series(db, ids)
@@ -115,9 +117,10 @@ async def get_series_detail(
     *,
     slug: str,
     current_user: User | None,
+    app: str = REELTIME,
 ) -> Series:
     published_only = not current_user or current_user.role != "admin"
-    return await get_series_or_404(db, slug, published_only=published_only)
+    return await get_series_or_404(db, slug, published_only=published_only, app=app)
 
 
 async def list_published_movies(
@@ -139,7 +142,7 @@ async def list_published_movies(
     stmt = (
         select(Content)
         .options(content_list_load_options())
-        .where(Content.type == "single", Content.is_published.is_(True))
+        .where(Content.type == "single", Content.app == REELTIME, Content.is_published.is_(True))
         .order_by(Content.sort_order.asc(), Content.created_at.desc())
     )
     stmt = apply_catalog_search(stmt, Content, search=search)
@@ -166,6 +169,7 @@ async def list_related_movies(
     stmt = select(Content).where(
         Content.slug == slug,
         Content.type == "single",
+        Content.app == REELTIME,
         Content.is_published.is_(True),
     )
     result = await db.execute(stmt)
@@ -183,7 +187,9 @@ async def get_movie_detail(
     current_user: User | None,
     guest_id: str | None,
 ) -> ContentRead:
-    stmt = select(Content).where(Content.slug == slug, Content.type == "single")
+    stmt = select(Content).where(
+        Content.slug == slug, Content.type == "single", Content.app == REELTIME
+    )
     result = await db.execute(stmt)
     movie = result.scalar_one_or_none()
     if not movie:
@@ -201,3 +207,28 @@ async def get_movie_detail(
     ):
         data.hls_master_key = None
     return data
+
+
+async def list_series_episodes(
+    db: AsyncSession,
+    series: Series,
+    *,
+    entitled: bool,
+    is_admin: bool,
+    page: int,
+    page_size: int,
+):
+    """Published episodes in season order, with stream keys only for viewers who can watch."""
+    stmt = (
+        select(Content)
+        .where(Content.series_id == series.id, Content.is_published.is_(True))
+        .order_by(Content.season_number, Content.episode_number)
+    )
+    episodes, total = await paginate_query(db, stmt, page=page, page_size=page_size)
+    items: list[ContentRead] = []
+    for episode in episodes:
+        data = ContentRead.model_validate(episode)
+        if not (is_admin or episode.is_free or entitled):
+            data.hls_master_key = None
+        items.append(data)
+    return build_paginated_response(items, total=total, page=page, page_size=page_size)

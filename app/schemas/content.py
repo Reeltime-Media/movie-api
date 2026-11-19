@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 
 from app.core.money import validate_usd_price
+from app.schemas.match import MatchDetailsRead, MatchDetailsWrite
 
 
 def _empty_to_none(value: str | None) -> str | None:
@@ -34,6 +35,8 @@ class ContentUpdate(BaseModel):
     season_number: int | None = None
     episode_number: int | None = None
     sort_order: int | None = None
+    # TV5 Kun Khmer matches only; ignored for other titles.
+    match: MatchDetailsWrite | None = None
 
     @field_validator("title_km")
     @classmethod
@@ -56,6 +59,7 @@ class ContentUpdate(BaseModel):
 class ContentRead(BaseModel):
     id: UUID
     type: str
+    app: str = "reeltime"
     slug: str
     title: str
     title_km: str | None = None
@@ -83,6 +87,7 @@ class ContentRead(BaseModel):
     # True while the movie is in the admin-curated "Free movies today" list.
     is_free_today: bool = False
     transcode_status: str
+    match: MatchDetailsRead | None = None
     created_at: datetime
     updated_at: datetime
 

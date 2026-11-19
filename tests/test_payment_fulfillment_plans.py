@@ -22,6 +22,7 @@ def test_plan_code_from_order_id():
 @pytest.mark.asyncio
 async def test_resolve_plan_prefers_intent_plan_code(monkeypatch):
     premium = SimpleNamespace(
+        app="reeltime",
         code="premium_5m",
         is_active=True,
         billing_interval_days=150,
@@ -89,12 +90,14 @@ class _FakeDb:
 @pytest.mark.asyncio
 async def test_fulfill_sub_uses_paid_plan_not_default(monkeypatch):
     premium = SimpleNamespace(
+        app="reeltime",
         code="premium_5m",
         is_active=True,
         billing_interval_days=150,
         price_usd=Decimal("10.99"),
     )
     basic = SimpleNamespace(
+        app="reeltime",
         code="basic_2w",
         is_active=True,
         billing_interval_days=14,

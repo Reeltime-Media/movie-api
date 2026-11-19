@@ -5,12 +5,15 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.core.apps import REELTIME, AppName
 from app.core.money import validate_usd_price
 
 PlanAudience = Literal["app", "tv"]
 
 
 class SubscriptionPlanCreate(BaseModel):
+    # Which app's catalog the plan unlocks. Fixed once created.
+    app: AppName = REELTIME
     code: str = Field(min_length=1, max_length=64, pattern=r"^[a-z0-9_]+$")
     name: str = Field(min_length=1, max_length=120)
     description: str | None = None
@@ -47,6 +50,7 @@ class SubscriptionPlanUpdate(BaseModel):
 
 class SubscriptionPlanRead(BaseModel):
     id: UUID
+    app: str = "reeltime"
     code: str
     name: str
     description: str | None

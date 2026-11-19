@@ -10,6 +10,7 @@ from app.models.genre import Genre
 from app.models.genre_rail_item import GenreRailItem
 from app.models.hero_featured_item import HeroFeaturedItem
 from app.models.home_section import HomeSection, HomeSectionItem
+from app.models.match_details import MatchDetails
 from app.models.password_reset_token import PasswordResetToken
 from app.models.payment_approval import PaymentApproval
 from app.models.payment_intent import PaymentIntent
@@ -58,6 +59,7 @@ __all__ = [
     "FreeTodayItem",
     "GenreRailItem",
     "HomeSection",
+    "MatchDetails",
     "HomeSectionItem",
     "PasswordResetToken",
     "PaymentApproval",

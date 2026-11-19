@@ -2,9 +2,11 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.core.apps import REELTIME, TV5, AppName
 from app.core.money import validate_usd_price
+from app.schemas.match import MatchDetailsWrite
 
 
 class TranscodeJobRead(BaseModel):
@@ -125,6 +127,9 @@ class TopTitleReportRead(BaseModel):
 
 class AdminMovieCreate(BaseModel):
     title: str
+    app: AppName = REELTIME
+    # Required for TV5 (every TV5 single title is a Kun Khmer match), refused otherwise.
+    match: MatchDetailsWrite | None = None
     title_km: str | None = None
     description: str | None = None
     genres: list[str] = []
@@ -143,6 +148,14 @@ class AdminMovieCreate(BaseModel):
         if not value:
             raise ValueError("title is required")
         return value
+
+    @model_validator(mode="after")
+    def match_belongs_to_tv5(self) -> "AdminMovieCreate":
+        if self.app == TV5 and self.match is None:
+            raise ValueError("A TV5 match needs both fighters")
+        if self.app != TV5 and self.match is not None:
+            raise ValueError("Only TV5 titles have a fight card")
+        return self
 
     @field_validator("title_km")
     @classmethod

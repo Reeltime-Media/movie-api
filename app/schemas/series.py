@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, computed_field, field_validator
 
 from app.billing.constants import SERIES_UNLOCK_PRICE_USD
+from app.core.apps import REELTIME, AppName
 from app.core.money import validate_usd_price
 from app.schemas.upload import MultipartPart, MultipartPartUrl, MultipartUploadAbort
 
@@ -48,6 +49,7 @@ class SeriesUpdate(BaseModel):
 
 class SeriesRead(BaseModel):
     id: UUID
+    app: str = "reeltime"
     slug: str
     title: str
     title_km: str | None = None
@@ -78,6 +80,7 @@ class SeriesRead(BaseModel):
 
 class SeriesListItemRead(BaseModel):
     id: UUID
+    app: str = "reeltime"
     slug: str
     title: str
     title_km: str | None = None
@@ -101,6 +104,7 @@ class SeriesListItemRead(BaseModel):
 
 class CreateSeriesBody(BaseModel):
     title: str
+    app: AppName = REELTIME
     title_km: str | None = None
     monthly_price_usd: Decimal
     description: str | None = None

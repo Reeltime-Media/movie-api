@@ -79,7 +79,7 @@ async def test_listing_can_be_narrowed_to_one_audience():
 @pytest.mark.asyncio
 async def test_admin_listing_without_audience_returns_every_plan():
     db = _RecordingDb()
-    await subscription_plans.list_subscription_plans(db)
+    await subscription_plans.list_subscription_plans(db, app=None)
     assert "where" not in _sql(db.statements[0])
 
 
@@ -167,7 +167,11 @@ async def test_tv_top_up_extends_from_the_current_end_and_moves_the_tv_id(monkey
         current_period_end=current_end,
     )
     plan = SimpleNamespace(
-        code="tv_6m", is_active=True, billing_interval_days=180, price_usd=Decimal("12.99")
+        code="tv_6m",
+        app="reeltime",
+        is_active=True,
+        billing_interval_days=180,
+        price_usd=Decimal("12.99"),
     )
 
     db = await _fulfill(monkeypatch, plan, subscription)
@@ -195,7 +199,11 @@ async def test_tv_top_up_after_expiry_starts_from_now(monkeypatch):
         current_period_end=now - timedelta(days=5),
     )
     plan = SimpleNamespace(
-        code="tv_12m", is_active=True, billing_interval_days=365, price_usd=Decimal("22.99")
+        code="tv_12m",
+        app="reeltime",
+        is_active=True,
+        billing_interval_days=365,
+        price_usd=Decimal("22.99"),
     )
 
     await _fulfill(monkeypatch, plan, subscription)
@@ -232,6 +240,8 @@ async def test_expired_tv_id_can_still_sign_in_to_top_up(monkeypatch):
     sync = _sql(db.statements[2])
     assert sync.startswith("update subscriptions")
     assert "subscriptions.plan" not in sync.split("where", 1)[1]
+    # A TV ID is a Reeltime pass: signing in never reactivates a TV5 subscription.
+    assert "subscriptions.app =" in sync.split("where", 1)[1]
 
 
 @pytest.mark.asyncio
@@ -246,3 +256,28 @@ async def test_inactive_tv_id_is_still_refused():
     with pytest.raises(Exception) as err:
         await tv_access_codes.login_with_tv_access_code(db, "TV-OFF00000", None)
     assert "inactive" in str(err.value).lower() or "invalid" in str(err.value).lower()
+
+
+@pytest.mark.asyncio
+async def test_tv5_payment_never_moves_the_reeltime_tv_id(monkeypatch):
+    now = datetime.now(UTC)
+    subscription = SimpleNamespace(
+        id=uuid4(),
+        plan="tv5_monthly",
+        status="active",
+        current_period_start=now - timedelta(days=10),
+        current_period_end=now + timedelta(days=5),
+    )
+    plan = SimpleNamespace(
+        code="tv5_monthly",
+        app="tv5",
+        is_active=True,
+        billing_interval_days=30,
+        price_usd=Decimal("2.99"),
+    )
+
+    db = await _fulfill(monkeypatch, plan, subscription)
+
+    assert not [s for s in db.statements if _sql(s).startswith("update tv_access_codes")]
+    sub_lookup = [s for s in db.statements if _sql(s).startswith("select subscriptions")]
+    assert sub_lookup and "subscriptions.app =" in _sql(sub_lookup[0])

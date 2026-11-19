@@ -27,6 +27,7 @@ from app.billing.intent_helpers import validate_payment_amount
 from app.billing.ownership import mark_succeeded_if_already_purchased
 from app.billing.subscription_plans import resolve_active_plan
 from app.config import get_settings
+from app.core.apps import REELTIME
 from app.core.exceptions import ConflictError, NotFoundError
 from app.models.content import Content
 from app.models.payment_intent import PaymentIntent
@@ -160,6 +161,8 @@ async def create_movie_paypal_intent(
         select(Content).where(
             Content.id == content_id,
             Content.type == "single",
+            # TV5 titles come with a TV5 plan and are never sold one by one.
+            Content.app == REELTIME,
             Content.is_published.is_(True),
         )
     )
@@ -199,6 +202,8 @@ async def create_series_paypal_intent(
     card_first: bool = False,
 ) -> tuple[PaymentIntent, str]:
     _ensure_configured()
+    if series.app != REELTIME:
+        raise NotFoundError("Series not found")
     if user and await user_has_active_subscription(db, user.id):
         raise ConflictError("You already have an active subscription")
     if await has_series_purchase(
@@ -252,7 +257,7 @@ async def create_subscription_paypal_intent(
     return await _start_paypal_order(
         db,
         intent,
-        description=f"REELTIME - {plan.name}",
+        description=f"{'REELTIME' if plan.app == REELTIME else 'TV5'} - {plan.name}",
         return_path=return_path,
         client=client,
         origin=origin,

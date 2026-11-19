@@ -5,6 +5,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.apps import REELTIME
 from app.models.content import Content
 from app.models.genre_rail_item import GenreRailItem
 from app.schemas.content import ContentListItemRead
@@ -42,7 +43,9 @@ async def validate_genre_rail_add(db: AsyncSession, genre_name: str, content_id:
         raise ValueError("Genre name is required")
 
     result = await db.execute(
-        select(Content.id).where(Content.id == content_id, Content.type == "single")
+        select(Content.id).where(
+            Content.id == content_id, Content.type == "single", Content.app == REELTIME
+        )
     )
     if not result.scalar_one_or_none():
         raise ValueError("Movie not found")
@@ -86,6 +89,7 @@ async def resolve_genre_rails(db: AsyncSession) -> list[GenreRailRead]:
         .where(
             Content.id.in_(content_ids),
             Content.type == "single",
+            Content.app == REELTIME,
             Content.is_published.is_(True),
         )
     )

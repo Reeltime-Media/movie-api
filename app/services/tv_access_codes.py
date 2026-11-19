@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.apps import REELTIME
 from app.core.exceptions import ConflictError, NotFoundError, UnauthorizedError
 from app.core.security import create_access_token, hash_password
 from app.models.session import Session
@@ -158,7 +159,7 @@ async def update_tv_access_code(
         row.expires_at = expires_at
         await db.execute(
             update(Subscription)
-            .where(Subscription.user_id == row.user_id)
+            .where(Subscription.user_id == row.user_id, Subscription.app == REELTIME)
             .values(current_period_end=expires_at)
         )
 
@@ -166,7 +167,9 @@ async def update_tv_access_code(
         row.is_active = bool(payload["is_active"])
         status = "active" if row.is_active and not _is_expired(row) else "cancelled"
         await db.execute(
-            update(Subscription).where(Subscription.user_id == row.user_id).values(status=status)
+            update(Subscription)
+            .where(Subscription.user_id == row.user_id, Subscription.app == REELTIME)
+            .values(status=status)
         )
         if user:
             user.is_active = row.is_active
@@ -220,10 +223,11 @@ async def login_with_tv_access_code(
         raise UnauthorizedError("Invalid or inactive TV ID")
 
     # Keep subscription end in sync if admin extended expiry after cancel. The TV user
-    # owns exactly one subscription; a paid top-up renames its plan, so match on the user.
+    # owns one Reeltime subscription; a paid top-up renames its plan, so match on the
+    # user. A TV ID is a Reeltime TV pass: it never touches a TV5 subscription.
     await db.execute(
         update(Subscription)
-        .where(Subscription.user_id == user.id)
+        .where(Subscription.user_id == user.id, Subscription.app == REELTIME)
         .values(
             status="active",
             current_period_end=_ensure_aware(row.expires_at),

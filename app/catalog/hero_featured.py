@@ -4,6 +4,7 @@ from uuid import UUID
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.apps import REELTIME
 from app.models.content import Content
 from app.models.hero_featured_item import HeroFeaturedItem
 from app.models.series import Series
@@ -70,6 +71,7 @@ async def resolve_hero_slides(
             .where(
                 Content.id.in_(movie_ids),
                 Content.type == "single",
+                Content.app == REELTIME,
                 Content.is_published.is_(True),
             )
         )
@@ -84,6 +86,7 @@ async def resolve_hero_slides(
             .where(
                 Series.id.in_(series_ids),
                 Series.is_published.is_(True),
+                Series.app == REELTIME,
             )
         )
         series_by_id = {row.id: row for row in result.scalars().all()}
@@ -251,6 +254,7 @@ async def validate_hero_content(
             select(Content.id).where(
                 Content.id == content_id,
                 Content.type == "single",
+                Content.app == REELTIME,
             )
         )
         if not result.scalar_one_or_none():
@@ -258,7 +262,9 @@ async def validate_hero_content(
         return
 
     if content_type == "series":
-        result = await db.execute(select(Series.id).where(Series.id == content_id))
+        result = await db.execute(
+            select(Series.id).where(Series.id == content_id, Series.app == REELTIME)
+        )
         if not result.scalar_one_or_none():
             raise ValueError("Series not found")
         return

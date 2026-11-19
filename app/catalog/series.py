@@ -13,8 +13,12 @@ async def get_series_or_404(
     slug: str,
     *,
     published_only: bool = False,
+    app: str | None = None,
 ) -> Series:
+    """``app`` limits public reads to one app's catalog; admin edits pass None."""
     stmt = select(Series).where(Series.slug == slug)
+    if app is not None:
+        stmt = stmt.where(Series.app == app)
     if published_only:
         stmt = stmt.where(Series.is_published.is_(True))
     result = await db.execute(stmt)

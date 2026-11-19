@@ -1,10 +1,12 @@
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import func, select
 
+from app.core.apps import REELTIME, AppName
 from app.core.exceptions import ConflictError, NotFoundError
 from app.dependencies import AdminUser, DBSession
+from app.models.payment_intent import PaymentIntent
 from app.models.subscription import Subscription
 from app.models.subscription_plan import SubscriptionPlan
 from app.schemas.subscription_plan import (
@@ -18,9 +20,13 @@ router = APIRouter()
 
 
 @router.get("/subscription-plans", response_model=list[SubscriptionPlanRead])
-async def list_admin_subscription_plans(db: DBSession, _: AdminUser):
+async def list_admin_subscription_plans(
+    db: DBSession,
+    _: AdminUser,
+    app: AppName = Query(default=REELTIME),
+):
     try:
-        return await list_subscription_plans(db)
+        return await list_subscription_plans(db, app=app)
     except Exception as exc:
         message = str(exc).lower()
         if (
@@ -92,6 +98,13 @@ async def delete_admin_subscription_plan(
         raise ConflictError(
             "This plan has active subscriptions and cannot be deleted. Deactivate it instead."
         )
+    # A paid QR that hasn't been fulfilled yet still needs this plan to know what
+    # was bought, and which app's subscription to extend.
+    paid_for = await db.scalar(
+        select(func.count()).select_from(PaymentIntent).where(PaymentIntent.plan_code == plan.code)
+    )
+    if paid_for:
+        raise ConflictError("This plan has payments and cannot be deleted. Deactivate it instead.")
 
     await db.delete(plan)
     await db.commit()

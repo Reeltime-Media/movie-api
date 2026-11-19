@@ -28,6 +28,7 @@ from app.billing.schemas import (
     PaymentIntentRead,
 )
 from app.config import get_settings
+from app.core.apps import REELTIME
 from app.core.guest import get_guest_id, get_or_create_guest_id
 from app.core.money import MIN_PAID_USD
 from app.dependencies import CurrentUser, DBSession, OptionalUser
@@ -101,7 +102,7 @@ async def create_series_unlock_bakong_intent(
 ):
     """Inline KHQR checkout for a one-time series unlock — same guest/user
     Bakong flow as a single movie. No subscription package required."""
-    series = await get_series_or_404(db, slug, published_only=True)
+    series = await get_series_or_404(db, slug, published_only=True, app=REELTIME)
     guest_id = None if user else get_or_create_guest_id(request, response)
     intent = await create_or_reuse_series_bakong_intent(
         db, series=series, user=user, guest_id=guest_id

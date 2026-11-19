@@ -12,6 +12,7 @@ class SubscriptionCreate(BaseModel):
 class SubscriptionRead(BaseModel):
     id: UUID
     user_id: UUID
+    app: str = "reeltime"
     plan: str
     status: str
     current_period_start: datetime

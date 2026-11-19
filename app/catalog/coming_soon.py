@@ -5,6 +5,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.apps import REELTIME
 from app.models.coming_soon_item import ComingSoonItem
 from app.models.content import Content
 from app.schemas.coming_soon import COMING_SOON_MAX, ComingSoonItemRead
@@ -27,6 +28,7 @@ async def resolve_coming_soon_movies(db: AsyncSession) -> list[Content]:
         .join(ComingSoonItem, ComingSoonItem.content_id == Content.id)
         .where(
             Content.type == "single",
+            Content.app == REELTIME,
             Content.poster_key.is_not(None),
             Content.poster_key != "",
         )
@@ -61,7 +63,9 @@ async def enrich_admin_coming_soon(
 
 async def validate_coming_soon_add(db: AsyncSession, content_id: UUID) -> None:
     result = await db.execute(
-        select(Content).where(Content.id == content_id, Content.type == "single")
+        select(Content).where(
+            Content.id == content_id, Content.type == "single", Content.app == REELTIME
+        )
     )
     movie = result.scalar_one_or_none()
     if not movie:

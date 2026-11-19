@@ -7,6 +7,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.apps import REELTIME
 from app.models.content import Content
 from app.models.hero_featured_item import HeroFeaturedItem
 from app.models.home_section import HomeSection, HomeSectionItem
@@ -189,12 +190,14 @@ async def validate_item_add(
 
     if item_kind == "movie":
         r = await db.execute(
-            select(Content.id).where(Content.id == ref_id, Content.type == "single")
+            select(Content.id).where(
+                Content.id == ref_id, Content.type == "single", Content.app == REELTIME
+            )
         )
         if not r.scalar_one_or_none():
             raise ValueError("Movie not found")
     elif item_kind == "series":
-        r = await db.execute(select(Series.id).where(Series.id == ref_id))
+        r = await db.execute(select(Series.id).where(Series.id == ref_id, Series.app == REELTIME))
         if not r.scalar_one_or_none():
             raise ValueError("Series not found")
     elif item_kind == "tv_channel":
@@ -319,6 +322,7 @@ async def resolve_public_sections(db: AsyncSession) -> list[HomeSectionPublicRea
             .where(
                 Content.id.in_(movie_ids),
                 Content.type == "single",
+                Content.app == REELTIME,
                 Content.is_published.is_(True),
             )
         )
@@ -330,7 +334,7 @@ async def resolve_public_sections(db: AsyncSession) -> list[HomeSectionPublicRea
         series_result = await db.execute(
             select(Series)
             .options(series_list_load_options())
-            .where(Series.id.in_(series_ids), Series.is_published.is_(True))
+            .where(Series.id.in_(series_ids), Series.is_published.is_(True), Series.app == REELTIME)
         )
         series_by_id = {s.id: s for s in series_result.scalars().all()}
 
@@ -437,7 +441,7 @@ async def resolve_public_sections(db: AsyncSession) -> list[HomeSectionPublicRea
                 series_fallback = await db.execute(
                     select(Series)
                     .options(series_list_load_options())
-                    .where(Series.is_published.is_(True))
+                    .where(Series.is_published.is_(True), Series.app == REELTIME)
                     .order_by(Series.created_at.desc())
                     .limit(cap or 12)
                 )
@@ -487,7 +491,11 @@ async def resolve_public_sections(db: AsyncSession) -> list[HomeSectionPublicRea
                 catalog = await db.execute(
                     select(Content)
                     .options(content_list_load_options())
-                    .where(Content.type == "single", Content.is_published.is_(True))
+                    .where(
+                        Content.type == "single",
+                        Content.app == REELTIME,
+                        Content.is_published.is_(True),
+                    )
                     .order_by(Content.created_at.desc())
                     .limit((cap or 12) + 10)
                 )

@@ -15,6 +15,7 @@ from app.billing.subscription_plans import (
     list_subscription_plans,
     resolve_active_plan,
 )
+from app.core.apps import REELTIME
 from app.models.payment_intent import PaymentIntent
 from app.models.purchase import Purchase
 from app.models.series_purchase import SeriesPurchase
@@ -47,11 +48,13 @@ async def _resolve_plan_for_subscription_intent(
         coded = _plan_code_from_order_id(intent.order_id)
     if coded:
         plan = await get_subscription_plan_by_code(db, coded)
-        if plan and plan.is_active:
+        # A TV5 plan switched off after the QR was issued is still what was paid
+        # for; the fallbacks below only know Reeltime plans.
+        if plan and (plan.is_active or plan.app != REELTIME):
             return plan
 
-    # Legacy rows without a plan code: guess among the phone/web plans only.
-    plans = await list_subscription_plans(db, active_only=True, audience="app")
+    # Legacy rows without a plan code are Reeltime ones: guess among the phone/web plans.
+    plans = await list_subscription_plans(db, active_only=True, app=REELTIME, audience="app")
     amount_matches = [p for p in plans if p.price_usd == intent.amount_usd]
     if len(amount_matches) == 1:
         return amount_matches[0]
@@ -191,9 +194,10 @@ async def fulfill_payment_intent(
 
     plan = await _resolve_plan_for_subscription_intent(db, intent)
     interval_days = _billing_interval_days(intent, plan)
+    # Each app has its own subscription row; never extend the other app's.
     sub_result = await db.execute(
         select(Subscription)
-        .where(Subscription.user_id == intent.user_id)
+        .where(Subscription.user_id == intent.user_id, Subscription.app == plan.app)
         .order_by(Subscription.current_period_end.desc())
         .with_for_update()
     )
@@ -209,6 +213,7 @@ async def fulfill_payment_intent(
     if not subscription:
         subscription = Subscription(
             user_id=intent.user_id,
+            app=plan.app,
             plan=plan.code,
             status="active",
             current_period_start=now,
@@ -225,15 +230,17 @@ async def fulfill_payment_intent(
 
     # A TV box signs in with its TV ID, whose own expiry date is checked by the admin
     # screen and the TV ID's validity: a top-up must move it forward too, or the box
-    # would look expired again right after paying.
-    await db.execute(
-        update(TvAccessCode)
-        .where(
-            TvAccessCode.user_id == intent.user_id,
-            TvAccessCode.expires_at < period_end,
+    # would look expired again right after paying. A TV ID is a Reeltime pass, so a
+    # TV5 plan leaves it alone.
+    if plan.app == REELTIME:
+        await db.execute(
+            update(TvAccessCode)
+            .where(
+                TvAccessCode.user_id == intent.user_id,
+                TvAccessCode.expires_at < period_end,
+            )
+            .values(expires_at=period_end)
         )
-        .values(expires_at=period_end)
-    )
 
     if isinstance(intent, PaymentIntent):
         await db.execute(

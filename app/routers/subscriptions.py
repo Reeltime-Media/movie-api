@@ -1,8 +1,9 @@
 import uuid
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from sqlalchemy import select
 
+from app.core.apps import REELTIME, AppName
 from app.core.exceptions import NotFoundError
 from app.dependencies import CurrentUser, DBSession
 from app.models.subscription import Subscription
@@ -14,10 +15,15 @@ router = APIRouter(prefix="/subscriptions", tags=["subscriptions"])
 
 
 @router.get("/plans", response_model=list[SubscriptionPlanRead])
-async def list_public_subscription_plans(db: DBSession, audience: PlanAudience = "app"):
+async def list_public_subscription_plans(
+    db: DBSession,
+    audience: PlanAudience = "app",
+    app: AppName = Query(default=REELTIME),
+):
     """Plans on sale. Phones and the web get the default ``app`` list; the TV app asks
-    for ``?audience=tv`` and gets its own 3/6/12-month packages."""
-    return await list_subscription_plans(db, active_only=True, audience=audience)
+    for ``?audience=tv`` and gets its own 3/6/12-month packages. ``app`` picks
+    Reeltime (default) or TV5."""
+    return await list_subscription_plans(db, active_only=True, app=app, audience=audience)
 
 
 @router.get("/me", response_model=list[SubscriptionRead])

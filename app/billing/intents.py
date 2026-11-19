@@ -22,6 +22,7 @@ from app.billing.intent_helpers import regenerate_bakong_qr, validate_payment_am
 from app.billing.ownership import mark_succeeded_if_already_purchased
 from app.billing.subscription_plans import resolve_active_plan
 from app.config import get_settings
+from app.core.apps import REELTIME
 from app.core.exceptions import ConflictError, NotFoundError
 from app.models.content import Content
 from app.models.payment_intent import PaymentIntent
@@ -149,6 +150,8 @@ async def create_or_reuse_movie_bakong_intent(
         select(Content).where(
             Content.id == content_id,
             Content.type == "single",
+            # TV5 titles come with a TV5 plan and are never sold one by one.
+            Content.app == REELTIME,
             Content.is_published.is_(True),
         )
     )
@@ -188,6 +191,8 @@ async def create_or_reuse_series_bakong_intent(
     guest_id: str | None,
 ) -> PaymentIntent:
     """One-time series unlock KHQR (same guest/user flow as movies)."""
+    if series.app != REELTIME:
+        raise NotFoundError("Series not found")
     identity_filter = _identity_filter(user, guest_id)
 
     if user and await user_has_active_subscription(db, user.id):
@@ -243,6 +248,18 @@ async def create_or_reuse_series_bakong_intent(
     return await _commit_new_intent_or_reuse(db, intent, pending_lookup=pending_lookup)
 
 
+def _same_plan_intent(plan_code: str, plan_app: str, amount):
+    """Pending intents for this plan. Intents from before plan codes were stored
+    can only be Reeltime ones, so a TV5 plan never reuses one on price alone."""
+    same_code = PaymentIntent.plan_code == plan_code
+    if plan_app != REELTIME:
+        return same_code
+    return or_(
+        same_code,
+        and_(PaymentIntent.plan_code.is_(None), PaymentIntent.amount_usd == amount),
+    )
+
+
 async def create_or_reuse_subscription_bakong_intent(
     db: AsyncSession,
     *,
@@ -262,13 +279,7 @@ async def create_or_reuse_subscription_bakong_intent(
             PaymentIntent.method == "bakong",
             PaymentIntent.kind == "sub",
             PaymentIntent.status == "pending",
-            or_(
-                PaymentIntent.plan_code == plan.code,
-                and_(
-                    PaymentIntent.plan_code.is_(None),
-                    PaymentIntent.amount_usd == amount,
-                ),
-            ),
+            _same_plan_intent(plan.code, plan.app, amount),
         )
         .order_by(PaymentIntent.created_at.asc())
     )
