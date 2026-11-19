@@ -27,6 +27,10 @@ class SubscriptionPlan(Base):
     # Who the plan is sold to: "app" = phone/web (the default list), "tv" = the TV app's
     # own packages. TV plans never appear in the phone/web plan list.
     audience: Mapped[str] = mapped_column(Text, nullable=False, default="app", server_default="app")
+    # Promotional extra days already counted inside billing_interval_days (e.g. a
+    # 6-month plan that gives 1 month free is 210 days with bonus_days = 30). Payment and
+    # renewal only use billing_interval_days; clients show the bonus as "free time".
+    bonus_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

@@ -27,6 +27,7 @@ SEED_PLANS: list[dict] = [
         "is_active": True,
         "sort_order": 0,
         "audience": "app",
+        "bonus_days": 0,
     },
     {
         "code": "value_1m",
@@ -37,6 +38,7 @@ SEED_PLANS: list[dict] = [
         "is_active": True,
         "sort_order": 1,
         "audience": "app",
+        "bonus_days": 0,
     },
     {
         "code": "best_value_3m",
@@ -47,6 +49,7 @@ SEED_PLANS: list[dict] = [
         "is_active": True,
         "sort_order": 2,
         "audience": "app",
+        "bonus_days": 0,
     },
     {
         "code": "premium_5m",
@@ -57,6 +60,7 @@ SEED_PLANS: list[dict] = [
         "is_active": True,
         "sort_order": 3,
         "audience": "app",
+        "bonus_days": 0,
     },
     {
         "code": "testing_1m",
@@ -67,37 +71,41 @@ SEED_PLANS: list[dict] = [
         "is_active": True,
         "sort_order": 4,
         "audience": "app",
+        "bonus_days": 0,
     },
     # The TV app's own packages (3 / 6 / 12 months). Sold only on TV, see audience.
     {
         "code": "tv_3m",
         "name": "TV 3 Months",
         "description": f"3 months. {PLAN_ACCESS_DESCRIPTION}",
-        "price_usd": Decimal("6.99"),
+        "price_usd": Decimal("15.00"),
         "billing_interval_days": 90,
         "is_active": True,
         "sort_order": 10,
         "audience": "tv",
+        "bonus_days": 0,
     },
     {
         "code": "tv_6m",
         "name": "TV 6 Months",
-        "description": f"6 months. {PLAN_ACCESS_DESCRIPTION}",
-        "price_usd": Decimal("12.99"),
-        "billing_interval_days": 180,
+        "description": f"6 months + 1 month free. {PLAN_ACCESS_DESCRIPTION}",
+        "price_usd": Decimal("27.00"),
+        "billing_interval_days": 210,  # 6 months + 1 free month
         "is_active": True,
         "sort_order": 11,
         "audience": "tv",
+        "bonus_days": 30,
     },
     {
         "code": "tv_12m",
         "name": "TV 12 Months",
-        "description": f"12 months. {PLAN_ACCESS_DESCRIPTION}",
-        "price_usd": Decimal("22.99"),
-        "billing_interval_days": 365,
+        "description": f"12 months + 2 months free. {PLAN_ACCESS_DESCRIPTION}",
+        "price_usd": Decimal("50.00"),
+        "billing_interval_days": 425,  # 12 months + 2 free months
         "is_active": True,
         "sort_order": 12,
         "audience": "tv",
+        "bonus_days": 60,
     },
 ]
 
@@ -109,6 +117,7 @@ _PLAN_FIELDS = (
     "is_active",
     "sort_order",
     "audience",
+    "bonus_days",
 )
 
 

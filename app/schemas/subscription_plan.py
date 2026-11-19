@@ -24,10 +24,11 @@ class SubscriptionPlanCreate(BaseModel):
     def check_price_usd(cls, value: Decimal) -> Decimal:
         return validate_usd_price(value)
 
-    billing_interval_days: int = Field(default=30, ge=1, le=365)
+    billing_interval_days: int = Field(default=30, ge=1, le=730)
     is_active: bool = True
     sort_order: int = 0
     audience: PlanAudience = "app"
+    bonus_days: int = Field(default=0, ge=0, le=365)
 
 
 class SubscriptionPlanUpdate(BaseModel):
@@ -42,10 +43,11 @@ class SubscriptionPlanUpdate(BaseModel):
             return None
         return validate_usd_price(value)
 
-    billing_interval_days: int | None = Field(default=None, ge=1, le=365)
+    billing_interval_days: int | None = Field(default=None, ge=1, le=730)
     is_active: bool | None = None
     sort_order: int | None = None
     audience: PlanAudience | None = None
+    bonus_days: int | None = Field(default=None, ge=0, le=365)
 
 
 class SubscriptionPlanRead(BaseModel):
@@ -59,6 +61,7 @@ class SubscriptionPlanRead(BaseModel):
     is_active: bool
     sort_order: int
     audience: PlanAudience
+    bonus_days: int
     created_at: datetime
     updated_at: datetime
 

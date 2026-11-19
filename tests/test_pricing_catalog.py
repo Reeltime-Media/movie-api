@@ -61,20 +61,26 @@ def test_legacy_codes_are_distinct():
     }
 
 
-def test_tv_plans_are_3_6_12_months_and_tv_only():
+def test_tv_plans_are_3_6_12_months_with_free_bonus_time_and_tv_only():
     tv = {p["code"]: p for p in SEED_PLANS if p["audience"] == "tv"}
     assert list(tv) == ["tv_3m", "tv_6m", "tv_12m"]
-    assert [p["billing_interval_days"] for p in tv.values()] == [90, 180, 365]
     assert [p["price_usd"] for p in tv.values()] == [
-        Decimal("6.99"),
-        Decimal("12.99"),
-        Decimal("22.99"),
+        Decimal("15.00"),
+        Decimal("27.00"),
+        Decimal("50.00"),
     ]
-    # Longer packages are cheaper per month.
-    monthly = [p["price_usd"] / months for p, months in zip(tv.values(), (3, 6, 12))]
-    assert monthly == sorted(monthly, reverse=True)
-    # Phone/web plans never carry the TV audience.
-    assert all(p["audience"] == "app" for p in SEED_PLANS if p["code"] not in tv)
+    # 6 months + 1 free month and 12 months + 2 free months: the bonus is extra time,
+    # already counted in billing_interval_days, which is what renewal uses.
+    assert [p["bonus_days"] for p in tv.values()] == [0, 30, 60]
+    assert [p["billing_interval_days"] for p in tv.values()] == [90, 210, 425]
+    assert tv["tv_6m"]["billing_interval_days"] - tv["tv_6m"]["bonus_days"] == 180
+    assert tv["tv_12m"]["billing_interval_days"] - tv["tv_12m"]["bonus_days"] == 365
+    # Longer packages are cheaper per day of access.
+    per_day = [p["price_usd"] / p["billing_interval_days"] for p in tv.values()]
+    assert per_day == sorted(per_day, reverse=True)
+    # Phone/web plans never carry the TV audience or a bonus.
+    others = [p for p in SEED_PLANS if p["code"] not in tv]
+    assert all(p["audience"] == "app" and p["bonus_days"] == 0 for p in others)
 
 
 def test_free_movies_are_not_overwritten():
@@ -91,6 +97,7 @@ class _Plan:
         self.is_active = False
         self.sort_order = 9
         self.audience = "tv"
+        self.bonus_days = 30
 
 
 def test_apply_plan_fields_updates_existing():

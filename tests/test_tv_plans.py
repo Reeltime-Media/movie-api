@@ -93,6 +93,20 @@ async def test_default_plan_is_never_a_tv_plan():
 
 def test_plan_schemas_know_the_audience():
     assert SubscriptionPlanCreate(code="x", name="X", price_usd=Decimal("1.00")).audience == "app"
+    assert SubscriptionPlanCreate(code="x", name="X", price_usd=Decimal("1.00")).bonus_days == 0
+    # A 14-month TV package (425 days) is allowed; a plan longer than two years is not.
+    assert (
+        SubscriptionPlanCreate(
+            code="x", name="X", price_usd=Decimal("1.00"), billing_interval_days=425
+        ).billing_interval_days
+        == 425
+    )
+    with pytest.raises(ValidationError):
+        SubscriptionPlanCreate(
+            code="x", name="X", price_usd=Decimal("1.00"), billing_interval_days=731
+        )
+    with pytest.raises(ValidationError):
+        SubscriptionPlanCreate(code="x", name="X", price_usd=Decimal("1.00"), bonus_days=-1)
     assert (
         SubscriptionPlanCreate(
             code="tv_x", name="X", price_usd=Decimal("1.00"), audience="tv"
@@ -112,6 +126,7 @@ def test_plan_schemas_know_the_audience():
         is_active=True,
         sort_order=10,
         audience="tv",
+        bonus_days=0,
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),
     )
@@ -176,8 +191,9 @@ async def test_tv_top_up_extends_from_the_current_end_and_moves_the_tv_id(monkey
 
     db = await _fulfill(monkeypatch, plan, subscription)
 
-    # 20 days left + 6 months (180 days): paying early never wastes the remaining time.
-    assert subscription.current_period_end == current_end + timedelta(days=180)
+    # 20 days left + 6 months and 1 free month (210 days): paying early never wastes
+    # the remaining time, and the free month is real extra access.
+    assert subscription.current_period_end == current_end + timedelta(days=210)
     assert subscription.plan == "tv_6m"
     assert subscription.status == "active"
 
@@ -208,7 +224,7 @@ async def test_tv_top_up_after_expiry_starts_from_now(monkeypatch):
 
     await _fulfill(monkeypatch, plan, subscription)
 
-    expected = now + timedelta(days=365)
+    expected = now + timedelta(days=425)
     assert abs(subscription.current_period_end - expected) < timedelta(minutes=1)
 
 
