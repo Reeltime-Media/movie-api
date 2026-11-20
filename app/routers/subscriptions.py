@@ -27,8 +27,21 @@ async def list_public_subscription_plans(
 
 
 @router.get("/me", response_model=list[SubscriptionRead])
-async def get_my_subscriptions(db: DBSession, current_user: CurrentUser):
-    result = await db.execute(select(Subscription).where(Subscription.user_id == current_user.id))
+async def get_my_subscriptions(
+    db: DBSession,
+    current_user: CurrentUser,
+    app: AppName = Query(default=REELTIME),
+):
+    """The signed-in user's subscriptions for one app (Reeltime unless ``?app=tv5``).
+
+    Apps released before TV5 had its own plan treat any active row here as a Reeltime
+    subscription, so a TV5 row must never show up without being asked for."""
+    result = await db.execute(
+        select(Subscription).where(
+            Subscription.user_id == current_user.id,
+            Subscription.app == app,
+        )
+    )
     return result.scalars().all()
 
 

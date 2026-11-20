@@ -223,3 +223,41 @@ def test_paypal_only_looks_up_reeltime_movies(settings_factory):
         )
     params = db.statements[1].compile(dialect=postgresql.dialect()).params.values()
     assert "reeltime" in params
+
+
+class FakeScalars:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def all(self):
+        return self._rows
+
+
+class FakeListResult:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def scalars(self):
+        return FakeScalars(self._rows)
+
+
+@pytest.mark.parametrize("app", ["reeltime", "tv5"])
+def test_my_subscriptions_lists_one_app_only(app):
+    from app.routers.subscriptions import get_my_subscriptions
+
+    db = FakeDb([FakeListResult([])])
+    asyncio.run(get_my_subscriptions(db, viewer(), app=app))
+    statement = db.statements[0]
+    assert "subscriptions.app" in sql(statement)
+    assert app in statement.compile(dialect=postgresql.dialect()).params.values()
+
+
+def test_my_subscriptions_default_to_reeltime():
+    """Older Reeltime apps call /subscriptions/me with no query and must never get a
+    TV5 subscription back (they'd treat it as a Reeltime one)."""
+    import inspect
+
+    from app.routers.subscriptions import get_my_subscriptions
+
+    default = inspect.signature(get_my_subscriptions).parameters["app"].default
+    assert default.default == "reeltime"
